@@ -27,6 +27,12 @@ std::array<ASTNodeKind, 3> typeKinds = {
     ASTNodeKind::PointerType,
 };
 
+ASTNode::ASTNode(ASTNodeKind kind, ASTNodeImpl impl)
+    : kind(kind)
+    , impl(std::move(impl))
+{
+}
+
 ASTNode const &ASTNode::get_node(NodeReference node_ref) const
 {
     return parser->get_node(node_ref);
@@ -105,12 +111,13 @@ std::optional<ASTNode> ArwenParser::try_pop_typed_node(ASTNodeKind kind)
     return {};
 }
 
-NodeReference ArwenParser::push_node(ASTNode const &n)
+ASTNode const &ArwenParser::push_node(Location location, ASTNodeKind kind, ASTNodeImpl const &impl)
 {
+    ASTNode n { kind, impl };
+    n.location = location;
     auto ref = cache_node(n);
     node_stack.push_back(ref);
-    dump_node_stack("push_node");
-    return ref;
+    return node_cache.at(ref);
 }
 
 ASTNode const &ArwenParser::peek_and_assert(ASTNodeKind kind) const
@@ -155,7 +162,17 @@ ASTNode &ArwenParser::get_node(NodeReference ref)
     return node_cache[ref];
 }
 
-ASTNode const &ArwenParser::get_typed_node(ASTNodeKind kind, NodeReference ref) const
+ASTNode const &ArwenParser::get_typed_node(NodeReference ref, ASTNodeKind kind) const
+{
+    dump_node_stack("get_typed_node (const)");
+    auto &ret = get_node(ref);
+    if (ret.kind == kind) {
+        return ret;
+    }
+    fatal("pop_typed_node({}): got '{}'", kind, ret.kind);
+}
+
+ASTNode &ArwenParser::get_typed_node(NodeReference ref, ASTNodeKind kind)
 {
     dump_node_stack("get_typed_node");
     auto &ret = get_node(ref);
@@ -165,7 +182,7 @@ ASTNode const &ArwenParser::get_typed_node(ASTNodeKind kind, NodeReference ref) 
     fatal("pop_typed_node({}): got '{}'", kind, ret.kind);
 }
 
-std::optional<ASTNode> ArwenParser::try_get_typed_node(ASTNodeKind kind, NodeReference ref) const
+std::optional<ASTNode> ArwenParser::try_get_typed_node(NodeReference ref, ASTNodeKind kind) const
 {
     dump_node_stack("try_get_typed_node");
     auto &ret = get_node(ref);
@@ -177,9 +194,9 @@ std::optional<ASTNode> ArwenParser::try_get_typed_node(ASTNodeKind kind, NodeRef
 
 void ArwenParser::dump_node_stack(std::string_view caption) const
 {
-//    if (!log) {
-//        return;
-//    }
+    if (!log) {
+        return;
+    }
     std::print(stdout, "Stack {}: ", caption);
     auto first { true };
     for (auto ref : node_stack) {
@@ -208,11 +225,7 @@ extern "C" {
 
 [[maybe_unused]] void arwen_make_identifier(P *parser)
 {
-    parser->impl.push_node(ASTNode {
-        .location = parser->last_token.location,
-        .kind = ASTNodeKind::Identifier,
-        .impl = parser->last_token.text,
-    });
+    parser->impl.push_node(parser->last_token.location, ASTNodeKind::Identifier, Identifier { parser->last_token.text });
 }
 
 [[maybe_unused]] void arwen_make_qstring(P *parser)
@@ -220,11 +233,7 @@ extern "C" {
     if (parser->last_token.tag() != KindTag::String) {
         fatal("Expected quoted string, got '{s}'", parser->last_token.kind);
     }
-    parser->impl.push_node(ASTNode {
-        .location = parser->last_token.location,
-        .kind = ASTNodeKind::QString,
-        .impl = parser->last_token.text,
-    });
+    parser->impl.push_node(parser->last_token.location, ASTNodeKind::QString, StringConstant { parser->last_token.text });
 }
 
 [[maybe_unused]] void arwen_make_int(P *parser)
@@ -239,11 +248,7 @@ extern "C" {
     if (res.is_error()) {
         fatal("Could not convert {} to number", parser->last_token.text);
     }
-    parser->impl.push_node(ASTNode {
-        .location = parser->last_token.location,
-        .kind = ASTNodeKind::IntConstant,
-        .impl = res.value(),
-    });
+    parser->impl.push_node(parser->last_token.location, ASTNodeKind::IntConstant, IntConstant { res.value() });
 }
 
 [[maybe_unused]] void arwen_make_float(P *parser)
@@ -258,11 +263,7 @@ extern "C" {
     if (res.is_error()) {
         fatal("Could not convert {} to floating point number", parser->last_token.text);
     }
-    parser->impl.push_node(ASTNode {
-        .location = parser->last_token.location,
-        .kind = ASTNodeKind::FloatConstant,
-        .impl = res.value(),
-    });
+    parser->impl.push_node(parser->last_token.location, ASTNodeKind::FloatConstant, FloatConstant { res.value() });
 }
 
 [[maybe_unused]] void arwen_make_bool(P *parser, Value *data)
@@ -273,11 +274,7 @@ extern "C" {
     if (data->type != ValueType::Bool) {
         fatal("Expected boolean Value as argument, got '{}'", data->type);
     }
-    parser->impl.push_node(ASTNode {
-        .location = parser->last_token.location,
-        .kind = ASTNodeKind::BoolConstant,
-        .impl = data->payload.bool_value,
-    });
+    parser->impl.push_node(parser->last_token.location, ASTNodeKind::BoolConstant, BoolConstant { data->payload.bool_value });
 }
 
 [[maybe_unused]] void arwen_make_binary_expression(P *parser)
@@ -286,15 +283,14 @@ extern "C" {
     auto  op = BinaryOperatorMapping(op_token.kind);
     auto  right { parser->impl.pop_node().ref };
     auto &left { parser->impl.pop_node() };
-    parser->impl.push_node(ASTNode {
-        .location = left.location,
-        .kind = ASTNodeKind::BinaryExpression,
-        .impl = BinaryExpression {
+    parser->impl.push_node(
+        left.location,
+        ASTNodeKind::BinaryExpression,
+        BinaryExpression {
             .left = left.ref,
             .op = op.op,
             .right = right,
-        },
-    });
+        });
 }
 
 [[maybe_unused]] [[maybe_unused]] void arwen_make_assignment_expression(P *parser)
@@ -319,15 +315,14 @@ extern "C" {
     default:
         fatal("Expected lvalue, got '{}'", left);
     }
-    parser->impl.push_node(ASTNode {
-        .location = left.location,
-        .kind = ASTNodeKind::AssignmentExpression,
-        .impl = AssignmentExpression {
+    parser->impl.push_node(
+        left.location,
+        ASTNodeKind::AssignmentExpression,
+        AssignmentExpression {
             .left = left.ref,
             .op = op.op,
             .right = right,
-        },
-    });
+        });
 }
 
 [[maybe_unused]] void arwen_make_const_decl(P *parser)
@@ -339,7 +334,7 @@ extern "C" {
         auto &n = parser->impl.pop_node();
         switch (n.kind) {
         case ASTNodeKind::Identifier:
-            decl.name = std::get<std::string_view>(n.impl);
+            decl.name = std::get<Identifier>(n.impl).text;
             loc = n.location;
             break;
         case ASTNodeKind::BasicType:
@@ -355,11 +350,7 @@ extern "C" {
             break;
         }
     }
-    parser->impl.push_node(ASTNode {
-        .location = loc,
-        .kind = ASTNodeKind::ConstantDeclaration,
-        .impl = decl,
-    });
+    parser->impl.push_node(loc, ASTNodeKind::ConstantDeclaration, decl);
 }
 
 [[maybe_unused]] void arwen_make_var_decl(P *parser)
@@ -371,7 +362,7 @@ extern "C" {
         auto &n = parser->impl.pop_node();
         switch (n.kind) {
         case ASTNodeKind::Identifier:
-            decl.name = std::get<std::string_view>(n.impl);
+            decl.name = std::get<Identifier>(n.impl).text;
             loc = n.location;
             break;
         case ASTNodeKind::BasicType:
@@ -387,11 +378,7 @@ extern "C" {
             break;
         }
     }
-    parser->impl.push_node(ASTNode {
-        .location = loc,
-        .kind = ASTNodeKind::VariableDeclaration,
-        .impl = decl,
-    });
+    parser->impl.push_node(loc, ASTNodeKind::VariableDeclaration, decl);
 }
 
 [[maybe_unused]] void arwen_make_unary_expression(P *parser)
@@ -399,61 +386,59 @@ extern "C" {
     auto op_token { parser->impl.pop_token() };
     auto op = UnaryOperatorMapping(op_token.kind);
     auto operand { parser->impl.pop_node() };
-    parser->impl.push_node(ASTNode {
-        .location = operand.location,
-        .kind = ASTNodeKind::UnaryExpression,
-        .impl = UnaryExpression {
+    parser->impl.push_node(
+        operand.location,
+        ASTNodeKind::UnaryExpression,
+        UnaryExpression {
             .op = op.op,
             .operand = operand.ref,
-        },
-    });
+        });
 }
 
 [[maybe_unused]] void arwen_make_type(P *parser)
 {
-    parser->impl.push_node(ASTNode {
-        .location = parser->last_token.location,
-        .kind = ASTNodeKind::BasicType,
-        .impl = parser->last_token.text,
-    });
+    parser->impl.push_node(parser->last_token.location, ASTNodeKind::BasicType, BasicType { .name = parser->last_token.text });
 }
 
 [[maybe_unused]] void arwen_make_array_type(P *parser)
 {
+#if 0
     auto &element_type = parser->impl.pop_one_of(typeKinds).ref;
-    parser->impl.push_node(ASTNode {
-        .location = parser->last_token.location,
-        .kind = ASTNodeKind::ArrayType,
-        .impl = ArrayType {
+    parser->impl.push_node(
+        parser->last_token.location,
+        ASTNodeKind::ArrayType,
+        ArrayType {
             .element_type = element_type,
-        },
-    });
+        });
+#endif
+    fatal("Array types unsupported right now");
 }
 
 [[maybe_unused]] void arwen_make_pointer_type(P *parser)
 {
+#if 0
     auto &element_type = parser->impl.pop_one_of(typeKinds).ref;
-    parser->impl.push_node(ASTNode {
-        .location = parser->last_token.location,
-        .kind = ASTNodeKind::PointerType,
-        .impl = PointerType {
+    parser->impl.push_node(
+        parser->last_token.location,
+        ASTNodeKind::PointerType,
+        PointerType {
             .element_type = element_type,
-        },
-    });
+        });
+#endif
+    fatal("Pointer types unsupported right now");
 }
 
 [[maybe_unused]] void arwen_make_parameter(P *parser)
 {
     auto &param_type = parser->impl.pop_one_of(typeKinds).ref;
     auto &ident = parser->impl.pop_typed_node(ASTNodeKind::Identifier);
-    parser->impl.push_node(ASTNode {
-        .location = parser->last_token.location,
-        .kind = ASTNodeKind::Parameter,
-        .impl = Parameter {
-            .name = std::get<std::string_view>(ident.impl),
+    parser->impl.push_node(
+        parser->last_token.location,
+        ASTNodeKind::Parameter,
+        Parameter {
+            .name = std::get<Identifier>(ident.impl).text,
             .type = param_type,
-        },
-    });
+        });
 }
 
 void make_function_decl_(P *parser, std::optional<NodeReference> return_type)
@@ -464,15 +449,14 @@ void make_function_decl_(P *parser, std::optional<NodeReference> return_type)
     }
     std::reverse(params.begin(), params.end());
     auto &name = parser->impl.pop_typed_node(ASTNodeKind::Identifier);
-    parser->impl.push_node(ASTNode {
-        .location = name.location,
-        .kind = ASTNodeKind::FunctionDecl,
-        .impl = FunctionDecl {
-            .name = std::get<std::string_view>(name.impl),
+    parser->impl.push_node(
+        name.location,
+        ASTNodeKind::FunctionDecl,
+        FunctionDecl {
+            .name = std::get<Identifier>(name.impl).text,
             .parameters = params,
             .return_type = return_type,
-        },
-    });
+        });
 }
 
 [[maybe_unused]] void arwen_make_function_decl(P *parser)
@@ -489,28 +473,23 @@ void make_function_decl_(P *parser, std::optional<NodeReference> return_type)
 {
     auto &block = parser->impl.pop_typed_node(ASTNodeKind::Block);
     auto &decl = parser->impl.pop_typed_node(ASTNodeKind::FunctionDecl);
-    auto  func_ref = parser->impl.cache_node(ASTNode {
-         .location = decl.location,
-         .kind = ASTNodeKind::Function,
-         .impl = Function {
+    auto  func = parser->impl.push_node(
+        decl.location,
+        ASTNodeKind::Function,
+        Function {
              .declaration = decl.ref,
              .implementation = block.ref,
-        },
-    });
-    auto &program_node = parser->impl.pop_typed_node(ASTNodeKind::Program);
+        });
+    parser->impl.pop_node();
+    auto &program_node = parser->impl.get_typed_node(0, ASTNodeKind::Program);
     auto &program = std::get<Program>(program_node.impl);
 
-    program.declarations.push_back(func_ref);
-    program.declarations_index.emplace(std::get<FunctionDecl>(decl.impl).name, func_ref);
-    parser->impl.push_node(program_node);
+    program.declarations.push_back(func.ref);
 }
 
 [[maybe_unused]] void arwen_start_block(P *parser)
 {
-    parser->impl.push_node(ASTNode {
-        .location = parser->last_token.location,
-        .kind = ASTNodeKind::StartBlock,
-    });
+    parser->impl.push_node(parser->last_token.location, ASTNodeKind::StartBlock, StartBlock {});
 }
 
 [[maybe_unused]] void arwen_finish_block(P *parser)
@@ -521,14 +500,19 @@ void make_function_decl_(P *parser, std::optional<NodeReference> return_type)
         stmts.push_back(stmt.ref);
     }
     std::reverse(stmts.begin(), stmts.end());
-    auto &start = parser->impl.pop_typed_node(ASTNodeKind::StartBlock);
-    parser->impl.push_node(ASTNode {
-        .location = start.location,
-        .kind = ASTNodeKind::Block,
-        .impl = Block {
+    auto                           &start = parser->impl.pop_typed_node(ASTNodeKind::StartBlock);
+    std::optional<std::string_view> label;
+    if (parser->impl.peek_kind() == ASTNodeKind::Label) {
+        auto &label_node = parser->impl.pop_typed_node(ASTNodeKind::Label);
+        label = std::get<Label>(label_node.impl).label;
+    }
+    parser->impl.push_node(
+        start.location,
+        ASTNodeKind::Block,
+        Block {
+            .label = label,
             .statements = stmts,
-        },
-    });
+        });
 }
 
 [[maybe_unused]] void arwen_finish_if(P *parser)
@@ -547,68 +531,60 @@ void make_function_decl_(P *parser, std::optional<NodeReference> return_type)
     if (nodes.size() == 3) {
         false_branch = nodes[2];
     }
-    parser->impl.push_node(ASTNode {
-        .location = start.location,
-        .kind = ASTNodeKind::If,
-        .impl = If {
+    parser->impl.push_node(
+        start.location,
+        ASTNodeKind::If,
+        If {
             .condition = nodes[0],
             .true_branch = nodes[1],
             .false_branch = false_branch,
-        },
-    });
+        });
 }
 
 [[maybe_unused]] void arwen_make_label(P *parser)
 {
-    parser->impl.push_node(ASTNode {
-        .location = parser->last_token.location,
-        .kind = ASTNodeKind::Label,
-        .impl = Label {
+    parser->impl.push_node(
+        parser->last_token.location,
+        ASTNodeKind::Label,
+        Label {
             .label = parser->last_token.text,
-        },
-    });
+        });
 }
 
 [[maybe_unused]] void arwen_make_loop(P *parser)
 {
-    auto                        &body = parser->impl.pop_node();
-    auto                         label = parser->impl.try_pop_typed_node(ASTNodeKind::Label);
-    std::optional<NodeReference> label_ref {};
-    if (label) {
-        label_ref = label->ref;
-    }
+    auto &body = parser->impl.pop_node();
 
-    parser->impl.push_node(ASTNode {
-        .location = parser->last_token.location,
-        .kind = ASTNodeKind::Loop,
-        .impl = Loop {
-            .label = label_ref,
+    // #foo loop x = 42 does not make any sense. So the label should have
+    // been consumed by the block following 'loop'.
+    parser->impl.try_pop_typed_node(ASTNodeKind::Label);
+    parser->impl.push_node(
+        parser->last_token.location,
+        ASTNodeKind::Loop,
+        Loop {
             .body = body.ref,
-        },
-    });
+        });
 }
 
 [[maybe_unused]] void arwen_make_return_with_value(P *parser)
 {
     auto &value = parser->impl.pop_one_of(expressionKinds);
-    parser->impl.push_node(ASTNode {
-        .location = parser->last_token.location,
-        .kind = ASTNodeKind::Return,
-        .impl = Return {
-            .expr = value.ref,
-        },
-    });
+    parser->impl.push_node(
+        parser->last_token.location,
+        ASTNodeKind::Return,
+        Return {
+            .expression = value.ref,
+        });
 }
 
 [[maybe_unused]] void arwen_make_void_return(P *parser)
 {
-    parser->impl.push_node(ASTNode {
-        .location = parser->last_token.location,
-        .kind = ASTNodeKind::Return,
-        .impl = Return {
-            .expr = {},
-        },
-    });
+    parser->impl.push_node(
+        parser->last_token.location,
+        ASTNodeKind::Return,
+        Return {
+            .expression = {},
+        });
 }
 
 [[maybe_unused]] void arwen_make_function_call(P *parser)
@@ -621,42 +597,37 @@ void make_function_decl_(P *parser, std::optional<NodeReference> return_type)
     std::reverse(args.begin(), args.end());
     parser->impl.pop_typed_node(ASTNodeKind::StartBlock);
     auto &name = parser->impl.pop_typed_node(ASTNodeKind::Identifier);
-    parser->impl.push_node(ASTNode {
-        .location = name.location,
-        .kind = ASTNodeKind::FunctionCall,
-        .impl = FunctionCall {
-            .name = std::get<std::string_view>(name.impl),
+    parser->impl.push_node(
+        name.location,
+        ASTNodeKind::FunctionCall,
+        FunctionCall {
+            .name = std::get<Identifier>(name.impl).text,
             .arguments = args,
-        },
-    });
+        });
 }
 
 [[maybe_unused]] void arwen_make_subscript(P *parser)
 {
     std::vector<NodeReference> subscripts;
+    Location                   l;
     while (parser->impl.peek_kind() != ASTNodeKind::StartBlock) {
         auto &expr = parser->impl.pop_one_of(expressionKinds);
         subscripts.push_back(expr.ref);
+        l = expr.location;
     }
     std::reverse(subscripts.begin(), subscripts.end());
     parser->impl.pop_typed_node(ASTNodeKind::StartBlock);
-    auto &name = parser->impl.pop_typed_node(ASTNodeKind::Identifier);
-    parser->impl.push_node(ASTNode {
-        .location = name.location,
-        .kind = ASTNodeKind::Subscript,
-        .impl = Subscript {
+    parser->impl.push_node(
+        l,
+        ASTNodeKind::Subscript,
+        Subscript {
             .subscripts = subscripts,
-        },
-    });
+        });
 }
 
 [[maybe_unused]] void arwen_program(P *parser)
 {
-    parser->impl.push_node(ASTNode {
-        .location = {},
-        .kind = ASTNodeKind::Program,
-        .impl = Program {},
-    });
+    parser->impl.push_node({}, ASTNodeKind::Program, Program {});
 }
 
 [[maybe_unused]] void arwen_pop_program(P *parser)

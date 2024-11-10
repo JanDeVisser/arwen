@@ -8,6 +8,8 @@ include_directories(src)
 add_executable(
         arwen
 
+        src/Error.cpp
+        src/FileBuffer.cpp
         src/Lib.h
         src/Logging.cpp
         src/Options.cpp
@@ -32,6 +34,9 @@ add_executable(
 
         src/AST/Arwen.cpp
         src/AST/Operator.h
+
+        src/Binder/Binder.cpp
+        src/Binder/Type.cpp
 
         src/main.cpp
 )

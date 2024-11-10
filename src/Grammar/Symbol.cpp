@@ -43,7 +43,6 @@ Result<ssize_t, GrammarError> Symbol::firsts(Symbols const& symbols, size_t ix, 
             break;
         case SymbolType::NonTerminal: {
             auto nt_name = head.symbol.non_terminal;
-            std::println("NonTerminal {}", nt_name);
             if (auto it = grammar.rules.find(nt_name); it != grammar.rules.end()) {
                 Rule &rule = it->second;
                 count += TRY_EVAL(rule.update_firsts());

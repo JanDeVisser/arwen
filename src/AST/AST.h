@@ -73,147 +73,160 @@ inline constexpr std::string_view to_string(ASTNodeKind const &v)
 }
 
 using NodeReference = size_t;
+
 struct ArrayType {
     NodeReference                element_type;
     std::optional<NodeReference> size;
-    ~ArrayType() = default;
 };
 
 struct AssignmentExpression {
     NodeReference  left;
     BinaryOperator op;
     NodeReference  right;
-    ~AssignmentExpression() = default;
+};
+
+struct BasicType {
+    std::string_view name;
 };
 
 struct BinaryExpression {
     NodeReference  left;
     BinaryOperator op;
     NodeReference  right;
-    ~BinaryExpression() = default;
 };
 
 struct Block {
+    std::optional<std::string_view>           label;
     std::vector<NodeReference> statements;
-    ~Block() = default;
+};
+
+struct BoolConstant {
+    bool value;
 };
 
 struct ConstantDeclaration {
     std::string_view             name;
     std::optional<NodeReference> type {};
     NodeReference                initializer;
-    ~ConstantDeclaration() = default;
+};
+
+struct FloatConstant {
+    double value;
 };
 
 struct Function {
     NodeReference declaration;
     NodeReference implementation;
-    ~Function() = default;
 };
 
 struct FunctionCall {
     std::string_view           name;
     std::vector<NodeReference> arguments;
-    ~FunctionCall() = default;
 };
 
 struct FunctionDecl {
     std::string_view             name;
     std::vector<NodeReference>   parameters;
     std::optional<NodeReference> return_type;
-    ~FunctionDecl() = default;
+};
+
+struct Identifier {
+    std::string_view text;
+};
+
+struct IntConstant {
+    ssize_t value;
 };
 
 struct If {
     NodeReference                condition;
     NodeReference                true_branch;
     std::optional<NodeReference> false_branch;
-    ~If() = default;
 };
 
 struct Label {
     std::string_view label;
-    ~Label() = default;
 };
 
 struct Loop {
-    std::optional<NodeReference> label;
-    NodeReference                body;
-    ~Loop() = default;
+    NodeReference body;
 };
 
 struct Parameter {
     std::string_view name;
     NodeReference    type;
-    ~Parameter() = default;
 };
 
 struct PointerType {
     NodeReference element_type;
-    ~PointerType() = default;
 };
 
 struct Program {
-    std::vector<NodeReference>                declarations;
-    std::map<std::string_view, NodeReference> declarations_index;
-    ~Program() = default;
+    std::vector<NodeReference> declarations;
 };
 
 struct Return {
-    std::optional<NodeReference> expr;
-    ~Return() = default;
+    std::optional<NodeReference> expression;
+};
+
+struct StartBlock {
+};
+
+struct StringConstant {
+    std::string_view value;
 };
 
 struct Subscript {
     std::vector<NodeReference> subscripts;
-    ~Subscript() = default;
 };
 
 struct UnaryExpression {
     UnaryOperator op;
     NodeReference operand;
-    ~UnaryExpression() = default;
 };
 
 struct VariableDeclaration {
     std::string_view             name;
     std::optional<NodeReference> type {};
     std::optional<NodeReference> initializer {};
-    ~VariableDeclaration() = default;
 };
+
+using ASTNodeImpl = std::variant<
+    ArrayType,
+    AssignmentExpression,
+    BasicType,
+    BinaryExpression,
+    Block,
+    BoolConstant,
+    ConstantDeclaration,
+    FloatConstant,
+    Function,
+    FunctionCall,
+    FunctionDecl,
+    Identifier,
+    If,
+    IntConstant,
+    Label,
+    Loop,
+    Parameter,
+    PointerType,
+    Program,
+    Return,
+    StartBlock,
+    StringConstant,
+    Subscript,
+    UnaryExpression,
+    VariableDeclaration>;
 
 struct ASTNode {
     struct ArwenParser *parser = nullptr;
     size_t              ref { 0 };
     Location            location {};
     ASTNodeKind         kind;
-    std::variant<
-        bool,
-        ssize_t,
-        double,
-        std::string_view,
-        ArrayType,
-        AssignmentExpression,
-        BinaryExpression,
-        Block,
-        ConstantDeclaration,
-        Function,
-        FunctionCall,
-        FunctionDecl,
-        If,
-        Label,
-        Loop,
-        Parameter,
-        PointerType,
-        Program,
-        Return,
-        Subscript,
-        UnaryExpression,
-        VariableDeclaration>
-        impl;
-    ~ASTNode() = default;
+    ASTNodeImpl         impl;
 
-    ASTNode const &get_node(NodeReference node_ref) const;
+    ASTNode(ASTNodeKind kind, ASTNodeImpl impl);
+    [[nodiscard]] ASTNode const &get_node(NodeReference node_ref) const;
 };
 
 struct ArwenParser {
@@ -224,24 +237,24 @@ struct ArwenParser {
     NodeReference              program { 0 };
 
     ArwenParser() = default;
-    static ArwenParser          &get(Parser<ArwenParser> &parser);
-    void                         startup();
-    void                         cleanup() const;
-    Token                        pop_token();
-    void                         push_token(Token t);
-    [[nodiscard]] ASTNode const &peek_node() const;
-    [[nodiscard]] ASTNode const &peek_and_assert(ASTNodeKind kind) const;
-    [[nodiscard]] ASTNodeKind    peek_kind() const;
-    ASTNode                     &pop_node();
-
+    static ArwenParser                  &get(Parser<ArwenParser> &parser);
+    void                                 startup();
+    void                                 cleanup() const;
+    Token                                pop_token();
+    void                                 push_token(Token t);
+    [[nodiscard]] ASTNode const         &peek_node() const;
+    [[nodiscard]] ASTNode const         &peek_and_assert(ASTNodeKind kind) const;
+    [[nodiscard]] ASTNodeKind            peek_kind() const;
+    ASTNode                             &pop_node();
     ASTNode                             &pop_typed_node(ASTNodeKind kind);
     std::optional<ASTNode>               try_pop_typed_node(ASTNodeKind kind);
-    NodeReference                        push_node(ASTNode const &n);
+    ASTNode const                       &push_node(Location location, ASTNodeKind kind, ASTNodeImpl const &impl);
     NodeReference                        cache_node(ASTNode const &n);
     [[nodiscard]] ASTNode const         &get_node(NodeReference ref) const;
     [[nodiscard]] ASTNode               &get_node(NodeReference ref);
-    [[nodiscard]] ASTNode const         &get_typed_node(ASTNodeKind kind, NodeReference ref) const;
-    [[nodiscard]] std::optional<ASTNode> try_get_typed_node(ASTNodeKind kind, NodeReference ref) const;
+    [[nodiscard]] ASTNode const         &get_typed_node(NodeReference ref, ASTNodeKind kind) const;
+    [[nodiscard]] ASTNode               &get_typed_node(NodeReference ref, ASTNodeKind kind);
+    [[nodiscard]] std::optional<ASTNode> try_get_typed_node(NodeReference ref, ASTNodeKind kind) const;
     void                                 dump_node_stack(std::string_view caption) const;
 
     template<typename... Kinds>
@@ -289,7 +302,7 @@ struct ArwenParser {
     }
 
     template<typename... Kinds>
-    [[nodiscard]] bool check_node_type(NodeReference ref, auto const& kinds_container, Kinds &&...kinds) const
+    [[nodiscard]] bool check_node_type(NodeReference ref, auto const &kinds_container, Kinds &&...kinds) const
     {
         auto const &node = get_node(ref);
         bool        ret = std::any_of(kinds_container.begin(), kinds_container.end(), [&node](ASTNodeKind k) { return node.kind == k; });
@@ -334,24 +347,28 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
             auto &impl = std::get<Arwen::AssignmentExpression>(node.impl);
             out << std::format("{} {} {}", node.get_node(impl.left), impl.op, node.get_node(impl.right));
         } break;
-        case Arwen::ASTNodeKind::BasicType:
-        case Arwen::ASTNodeKind::Identifier:
-        case Arwen::ASTNodeKind::QString:
-            out << std::get<std::string_view>(node.impl);
-            break;
+        case Arwen::ASTNodeKind::BasicType: {
+            auto &impl = std::get<Arwen::BasicType>(node.impl);
+            out << impl.name;
+        } break;
         case Arwen::ASTNodeKind::BinaryExpression: {
             auto &impl = std::get<Arwen::BinaryExpression>(node.impl);
             out << std::format("{} {} {}", node.get_node(impl.left), impl.op, node.get_node(impl.right));
         } break;
         case Arwen::ASTNodeKind::Block: {
             auto &impl = std::get<Arwen::Block>(node.impl);
+            if (impl.label) {
+                out << std::format("{}: {{\n", *impl.label);
+            }
             for (auto ref : impl.statements) {
                 out << std::format("{}", node.get_node(ref));
             }
+            out << "}}\n";
         } break;
-        case Arwen::ASTNodeKind::BoolConstant:
-            out << ios::boolalpha << std::get<bool>(node.impl);
-            break;
+        case Arwen::ASTNodeKind::BoolConstant: {
+            auto &impl = std::get<Arwen::BoolConstant>(node.impl);
+            out << ios::boolalpha << impl.value;
+        } break;
         case Arwen::ASTNodeKind::ConstantDeclaration: {
             auto &impl = std::get<Arwen::ConstantDeclaration>(node.impl);
             out << std::format("const {}", impl.name);
@@ -360,9 +377,10 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
             }
             out << std::format(" = {}", node.get_node(impl.initializer));
         } break;
-        case Arwen::ASTNodeKind::FloatConstant:
-            out << std::get<double>(node.impl);
-            break;
+        case Arwen::ASTNodeKind::FloatConstant: {
+            auto &impl = std::get<Arwen::FloatConstant>(node.impl);
+            out << impl.value;
+        } break;
         case Arwen::ASTNodeKind::Function: {
             auto &impl = std::get<Arwen::Function>(node.impl);
             out << std::format("{} {{\n{}}}\n", node.get_node(impl.declaration), node.get_node(impl.implementation));
@@ -396,6 +414,10 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
                 out << std::format(" {}", node.get_node(*impl.return_type));
             }
         } break;
+        case Arwen::ASTNodeKind::Identifier: {
+            auto &impl = std::get<Arwen::Identifier>(node.impl);
+            out << impl.text;
+        } break;
         case Arwen::ASTNodeKind::If: {
             auto &impl = std::get<Arwen::If>(node.impl);
             out << std::format("if {} {{\n{}", node.get_node(impl.condition), node.get_node(impl.true_branch));
@@ -405,18 +427,16 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
             }
             out << "}";
         } break;
-        case Arwen::ASTNodeKind::IntConstant:
-            out << std::get<ssize_t>(node.impl);
-            break;
+        case Arwen::ASTNodeKind::IntConstant: {
+            auto &impl = std::get<Arwen::IntConstant>(node.impl);
+            out << impl.value;
+        } break;
         case Arwen::ASTNodeKind::Label: {
             auto &impl = std::get<Arwen::Label>(node.impl);
             out << std::format("#{}", impl.label);
         } break;
         case Arwen::ASTNodeKind::Loop: {
             auto &impl = std::get<Arwen::Loop>(node.impl);
-            if (impl.label) {
-                out << std::format("{} ", node.get_node(*impl.label));
-            }
             out << std::format("loop {{\n{} }}", node.get_node(impl.body));
         } break;
         case Arwen::ASTNodeKind::Parameter: {
@@ -433,11 +453,15 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
                 out << std::format("{}\n", node.get_node(decl));
             }
         } break;
+        case Arwen::ASTNodeKind::QString: {
+            auto &impl = std::get<Arwen::StringConstant>(node.impl);
+            out << impl.value;
+        } break;
         case Arwen::ASTNodeKind::Return: {
             auto &impl = std::get<Arwen::Return>(node.impl);
             out << "return";
-            if (impl.expr) {
-                out << std::format(" {}", node.get_node(impl.expr.value()));
+            if (impl.expression) {
+                out << std::format(" {}", node.get_node(*impl.expression));
             }
         } break;
         case Arwen::ASTNodeKind::Subscript: {
@@ -468,7 +492,8 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
             }
         } break;
         default:
-            //
+            out << Arwen::to_string(node.kind);
+            break;
         }
         return std::ranges::copy(std::move(out).str(), ctx.out()).out;
     }

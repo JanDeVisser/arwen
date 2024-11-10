@@ -142,7 +142,7 @@ ResolveResult Resolver::Library::get_function(std::string const &function_name)
 #endif
             return ResolveError::DLError;
         } else {
-            return ResolveResult { {} };
+            return ResolveResult {};
         }
     }
 

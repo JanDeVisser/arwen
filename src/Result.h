@@ -19,15 +19,20 @@ namespace Arwen {
 template<typename ResultType, typename ErrorType = LibCError>
 class [[nodiscard]] Result {
 public:
+    Result()
+        : m_value(ResultType {})
+    {
+    }
+
     Result(ResultType const &return_value)
         : m_value(return_value)
     {
     }
 
-    //    Result(ResultType &&return_value)
-    //        : m_value(std::move(return_value))
-    //    {
-    //    }
+    Result(ResultType &&return_value)
+        : m_value(std::move(return_value))
+    {
+    }
 
     template<typename U>
     Result(U &&value)
@@ -53,19 +58,18 @@ public:
     Result &operator=(Result &&) noexcept = default;
     Result &operator=(Result const &) = default;
 
-    [[nodiscard]] bool has_value() const { return m_value.has_value(); }
-    ResultType const  &value() const { return m_value.value(); }
-    [[nodiscard]] bool is_error() const { return m_error.has_value(); }
-    ErrorType const   &error() const { return m_error.value(); }
-
+    [[nodiscard]] bool          has_value() const { return m_value.has_value(); }
+    ResultType const           &value() const { return m_value.value(); }
+    [[nodiscard]] bool          is_error() const { return m_error.has_value(); }
+    ErrorType const            &error() const { return m_error.value(); }
     ResultType const           &operator*() const noexcept { return value(); }
     ResultType                 &operator*() noexcept { return value(); }
     constexpr ResultType const *operator->() const noexcept { return &m_value.value(); }
     constexpr ResultType       *operator->() noexcept { return &m_value.value(); }
     explicit                    operator bool() const { return !is_error(); }
 
-    template<typename NewError>
-    Result<ResultType, NewError> adapt(std::function<NewError(ErrorType const &)> const &adapter)
+    template<typename NewError, typename Adapter>
+    Result<ResultType, NewError> adapt(Adapter const &adapter)
     {
         if (m_error.has_value()) {
             return Result(std::move(adapter(m_error.value())));
@@ -90,6 +94,19 @@ public:
         }
         return std::move(m_value.value());
     }
+
+    template<typename Catch>
+    ResultType && on_error(Catch const &catch_)
+    {
+        if (m_error.has_value()) {
+            m_value = catch_(m_error.value());
+            if (m_value.has_value()) {
+                m_error.reset();
+            }
+        }
+        return std::move(m_value.value());
+    }
+
 
 private:
     std::optional<ResultType> m_value {};

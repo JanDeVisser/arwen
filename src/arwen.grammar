@@ -305,9 +305,11 @@ prec_2_operand              := prec_1_operand
 prec_1_operation            := (                [ start_block                ]
                                arglist_or_void
                                )                [ make_function_call         ]
-                             | '['              [ start_block                ]
+                             | '['              [ push_current_token         ]
+                                                [ start_block                ]
                                arglist
                                ']'              [ make_subscript             ]
+                                                [ make_binary_expression     ]
                              | . prec_1_operand [ make_binary_expression     ]
                              ;
 

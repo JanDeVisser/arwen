@@ -11,11 +11,13 @@
 namespace Arwen {
 
 #define BinaryOperators(S)                                       \
+    S(None, true, TokenKind { KindTag::Null })                   \
     S(Add, true, TokenKind { KindTag::Symbol, '+' })             \
     S(Assign, false, TokenKind { KindTag::Symbol, '=' })         \
     S(BinaryAnd, true, TokenKind { KindTag::Symbol, '&' })       \
     S(BinaryOr, true, TokenKind { KindTag::Symbol, '|' })        \
     S(BinaryXor, true, TokenKind { KindTag::Symbol, '^' })       \
+    S(Call, false, TokenKind { KindTag::Null })                  \
     S(Divide, true, TokenKind { KindTag::Symbol, '/' })          \
     S(Equal, false, TokenKind { KindTag::Keyword, "==" })        \
     S(Greater, false, TokenKind { KindTag::Symbol, '>' })        \
@@ -29,7 +31,8 @@ namespace Arwen {
     S(Multiply, true, TokenKind { KindTag::Symbol, '*' })        \
     S(NotEqual, false, TokenKind { KindTag::Keyword, "!=" })     \
     S(RightShift, true, TokenKind { KindTag::Keyword, ">>" })    \
-    S(Subtract, true, TokenKind { KindTag::Symbol, '*' })
+    S(Subtract, true, TokenKind { KindTag::Symbol, '-' })        \
+    S(Subscript, false, TokenKind { KindTag::Symbol, '[' })
 
 enum class BinaryOperator {
 #undef S
@@ -101,6 +104,7 @@ struct BinaryOperatorMapping {
 };
 
 #define UnaryOperators(S)                                \
+    S(None, TokenKind { KindTag::Null })                 \
     S(AddressOf, TokenKind { KindTag::Symbol, '&' })     \
     S(Deref, TokenKind { KindTag::Symbol, '*' })         \
     S(Idempotent, TokenKind { KindTag::Symbol, '+' })    \
@@ -164,7 +168,7 @@ struct UnaryOperatorMapping {
     {
 #undef S
 #define S(Op, ...)              \
-    if (token == __VA_ARGS__) {       \
+    if (token == __VA_ARGS__) { \
         op = UnaryOperator::Op; \
         return;                 \
     }

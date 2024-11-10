@@ -17,12 +17,11 @@
 namespace Arwen {
 
 struct LibCError {
-//#ifdef IS_APPLE
+#ifdef __APPLE__
     static constexpr int ECUSTOM = EQFULL + 1;
-//#endif
-//#ifdef IS_LINUX
-//    static constexpr int ECUSTOM = EHWPOISON + 1;
-//#endif
+#else /* Linux */
+    static constexpr int ECUSTOM = EHWPOISON + 1;
+#endif
 
     int         err_no = { 0 };
     std::string_view code = { "Unknown" };

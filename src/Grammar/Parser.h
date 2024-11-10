@@ -84,6 +84,7 @@ struct Parser {
                 impl.cleanup();
             }
         };
+        impl.log = log;
         for (auto token = lexer.next(); token; token = lexer.next()) {
             last_token = *token;
             if (log) {
