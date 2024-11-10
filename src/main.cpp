@@ -41,6 +41,7 @@ void arwen_main(int argc, char const **argv)
         grammar.dump();
     }
     Parser<ArwenParser> p { grammar };
+    p.log = true;
     for (auto const file_name : app.args) {
         if (auto fb = FileBuffer::from_file(file_name); fb.is_error()) {
             std::println(stderr, "Error opening {}: {} ={}=", file_name, fb.error().to_string(), fs::current_path().string());

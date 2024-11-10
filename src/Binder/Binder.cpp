@@ -84,7 +84,7 @@ void Binder::push_namespace(BoundNodeReference ref)
 void Binder::set_name(std::string_view name, NodeReference ref)
 {
     assert(!namespaces.empty());
-    auto &ns = bound_nodes[namespaces[namespaces.size() - 1]];
+    auto &ns = bound_nodes[namespaces.back()];
     ns.names.emplace(name, ref);
 }
 
@@ -97,7 +97,7 @@ void Binder::pop_namespace()
 std::optional<NodeReference> Binder::resolve(std::string_view name)
 {
     assert(!namespaces.empty());
-    for (size_t depth = namespaces.size() - 1; depth > 0; --depth) {
+    for (ssize_t depth = static_cast<ssize_t>(namespaces.size()) - 1; depth >= 0; --depth) {
         auto &ns = bound_nodes[namespaces[depth]];
         if (auto it = ns.names.find(name); it != ns.names.end()) {
             return it->second;

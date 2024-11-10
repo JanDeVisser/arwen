@@ -13,6 +13,11 @@ TypeRegistry::TypeRegistry() {
 #define S(T, L) register_type(Type { .name = L, .typespec = BuiltinType::T });
     BuiltinTypes(S)
 #undef S
+    std::vector<std::pair<std::string, TypeReference>> string_fields {
+        std::make_pair("len", (*this)[BuiltinType::U64].ref),
+        std::make_pair("ptr", *resolve_pointer((*this)[BuiltinType::U8].ref)),
+    };
+    register_type(Type {.name = "string", .typespec = Object { std::move(string_fields) }});
 }
 
 TypeReference TypeRegistry::register_type(Type t)
@@ -25,7 +30,8 @@ TypeReference TypeRegistry::register_type(Type t)
 
 std::optional<TypeReference> TypeRegistry::find(std::string_view name)
 {
-    if (auto it = index.find(name); it != index.end()) {
+    std::string n { name };
+    if (auto it = index.find(n); it != index.end()) {
         return types[it->second].ref;
     }
     return {};
@@ -33,7 +39,8 @@ std::optional<TypeReference> TypeRegistry::find(std::string_view name)
 
 bool TypeRegistry::exists(std::string_view name) const
 {
-    return index.contains(name);
+    std::string n { name };
+    return index.contains(n);
 }
 
 bool TypeRegistry::has(TypeReference ref) const
@@ -54,8 +61,9 @@ Type const &TypeRegistry::operator[](TypeReference ref) const
 
 Type const &TypeRegistry::operator[](std::string_view name) const
 {
-    assert(index.contains(name));
-    return types[index.at(name)];
+    std::string n { name };
+    assert(index.contains(n));
+    return types[index.at(n)];
 }
 
 #if 0
@@ -83,6 +91,8 @@ std::optional<TypeReference> TypeRegistry::resolve_array(TypeReference element_t
     });
 }
 
+#endif
+
 std::optional<TypeReference> TypeRegistry::resolve_pointer(TypeReference element_type)
 {
     if (element_type >= types.size()) {
@@ -105,7 +115,44 @@ std::optional<TypeReference> TypeRegistry::resolve_pointer(TypeReference element
     });
 }
 
-#endif
+std::optional<TypeReference> TypeRegistry::resolve_object(Object const &obj)
+{
+    for (auto const &fld : obj.fields) {
+        if (fld.second >= types.size()) {
+            return {};
+        }
+    }
+    for (auto const &t : types) {
+        auto matches = std::visit(
+            overload {
+                [&obj](Object const &o) -> bool {
+                    return o.fields == obj.fields;
+                },
+                [](auto const &) -> bool {
+                    return false;
+                },
+            },
+            t.typespec);
+        if (matches) {
+            return t.ref;
+        }
+    }
+    std::string name = "Object{";
+    auto first {true};
+    for (auto const &fld : obj.fields) {
+        auto const &t = types[fld.second];
+        if (!first) {
+            name += ",";
+        }
+        name += std::format("{}: {}", fld.first, t.name);
+        first = false;
+    }
+    name += "}";
+    return register_type({
+        .name = name,
+        .typespec = obj,
+    });
+}
 
 TypeRegistry &TypeRegistry::the()
 {

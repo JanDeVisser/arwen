@@ -120,7 +120,7 @@ func_def                    := func_type
                                parlist_or_void
                                )
                                return_type
-                               func_block        [ make_function             ]
+                               func_block
                              ;
 
 return_type                 := typespec          [ make_function_decl        ]
@@ -132,11 +132,12 @@ func_type                   := "func"
                              | "generator"
                              ;
 
-func_block                  := statements
+func_block                  := statements        [ make_function             ]
                              | link_clause
                              ;
 
-link_clause                 := "->" '"'
+link_clause                 := "->" '"'          [ make_qstring              ]
+                                                 [ make_foreign_function     ]
                              ;
 
 parlist_or_void             := parlist
@@ -310,10 +311,15 @@ prec_1_operation            := (                [ start_block                ]
                                arglist
                                ']'              [ make_subscript             ]
                                                 [ make_binary_expression     ]
-                             | . prec_1_operand [ make_binary_expression     ]
+                             | .                [ push_current_token         ]
+                               member_access    [ make_binary_expression     ]
                              ;
 
 prec_1_operand              := atom
+                               prec_1_tail
+                             ;
+
+member_access               := #ident            [ make_member_access        ]
                                prec_1_tail
                              ;
 
@@ -328,7 +334,7 @@ atom                        := ( expr )
                              | #hex              [ make_int                  ]
                              | #binary           [ make_int                  ]
                              | #float            [ make_float                ]
-                             |  '"'              [ make_qstring              ]
+                             | '"'               [ make_qstring              ]
                              | '\''              [ make_char                 ]
                              | "true"            [ make_bool: "Bool:true"    ]
                              | "false"           [ make_bool: "Bool:false"   ]

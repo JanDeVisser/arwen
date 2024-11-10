@@ -27,6 +27,7 @@ namespace Arwen {
     S(LessEqual, false, TokenKind { KindTag::Keyword, "<=" })    \
     S(LogicalAnd, false, TokenKind { KindTag::Keyword, "&&" })   \
     S(LogicalOr, false, TokenKind { KindTag::Keyword, "||" })    \
+    S(MemberAccess, true, TokenKind { KindTag::Symbol, '.' })    \
     S(Modulo, true, TokenKind { KindTag::Symbol, '%' })          \
     S(Multiply, true, TokenKind { KindTag::Symbol, '*' })        \
     S(NotEqual, false, TokenKind { KindTag::Keyword, "!=" })     \

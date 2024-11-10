@@ -22,6 +22,7 @@ namespace Arwen {
     S(BoolConstant)         \
     S(ConstantDeclaration)  \
     S(FloatConstant)        \
+    S(ForeignFunction)      \
     S(Function)             \
     S(FunctionCall)         \
     S(FunctionDecl)         \
@@ -30,6 +31,7 @@ namespace Arwen {
     S(IntConstant)          \
     S(Label)                \
     S(Loop)                 \
+    S(Member)               \
     S(Parameter)            \
     S(PointerType)          \
     S(Program)              \
@@ -96,8 +98,8 @@ struct BinaryExpression {
 };
 
 struct Block {
-    std::optional<std::string_view>           label;
-    std::vector<NodeReference> statements;
+    std::optional<std::string_view> label;
+    std::vector<NodeReference>      statements;
 };
 
 struct BoolConstant {
@@ -112,6 +114,11 @@ struct ConstantDeclaration {
 
 struct FloatConstant {
     double value;
+};
+
+struct ForeignFunction {
+    NodeReference declaration;
+    NodeReference foreign_function;
 };
 
 struct Function {
@@ -152,6 +159,10 @@ struct Loop {
     NodeReference body;
 };
 
+struct Member {
+    std::string_view name;
+};
+
 struct Parameter {
     std::string_view name;
     NodeReference    type;
@@ -173,7 +184,7 @@ struct StartBlock {
 };
 
 struct StringConstant {
-    std::string_view value;
+    std::string value;
 };
 
 struct Subscript {
@@ -200,6 +211,7 @@ using ASTNodeImpl = std::variant<
     BoolConstant,
     ConstantDeclaration,
     FloatConstant,
+    ForeignFunction,
     Function,
     FunctionCall,
     FunctionDecl,
@@ -208,6 +220,7 @@ using ASTNodeImpl = std::variant<
     IntConstant,
     Label,
     Loop,
+    Member,
     Parameter,
     PointerType,
     Program,

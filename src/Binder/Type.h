@@ -19,7 +19,14 @@ namespace Arwen {
     S(Float, "float")       \
     S(Function, "function") \
     S(Int, "int")           \
-    S(String, "string")     \
+    S(U8, "u8")             \
+    S(I8, "i8")             \
+    S(U16, "u16")           \
+    S(I16, "i16")           \
+    S(U32, "u32")           \
+    S(I32, "i32")           \
+    S(U64, "u64")           \
+    S(I64, "i64")           \
     S(Void, "void")
 
 enum class BuiltinType {
@@ -117,15 +124,16 @@ struct TypeRegistry {
     [[nodiscard]] Type const    &operator[](TypeReference ref) const;
     [[nodiscard]] Type const    &operator[](std::string_view name) const;
     //    std::optional<TypeReference> resolve_array(TypeReference element_type, std::optional<size_t> size);
-    //    std::optional<TypeReference> resolve_pointer(TypeReference element_type);
-    static TypeRegistry &the();
+    std::optional<TypeReference> resolve_pointer(TypeReference element_type);
+    std::optional<TypeReference> resolve_object(Object const &obj);
+    static TypeRegistry         &the();
 
 private:
     TypeRegistry();
     TypeReference register_type(Type t);
 
-    std::map<std::string_view, size_t> index;
-    std::vector<Type>                  types;
+    std::map<std::string, size_t> index;
+    std::vector<Type>             types;
 };
 
 }

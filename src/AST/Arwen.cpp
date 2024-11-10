@@ -9,7 +9,7 @@
 
 namespace Arwen {
 
-std::array<ASTNodeKind, 9> expressionKinds = {
+std::vector<ASTNodeKind> expressionKinds = {
     ASTNodeKind::AssignmentExpression,
     ASTNodeKind::BinaryExpression,
     ASTNodeKind::BoolConstant,
@@ -17,6 +17,7 @@ std::array<ASTNodeKind, 9> expressionKinds = {
     ASTNodeKind::FunctionCall,
     ASTNodeKind::Identifier,
     ASTNodeKind::IntConstant,
+    ASTNodeKind::Member,
     ASTNodeKind::QString,
     ASTNodeKind::UnaryExpression,
 };
@@ -228,12 +229,17 @@ extern "C" {
     parser->impl.push_node(parser->last_token.location, ASTNodeKind::Identifier, Identifier { parser->last_token.text });
 }
 
+[[maybe_unused]] void arwen_make_member_access(P *parser)
+{
+    parser->impl.push_node(parser->last_token.location, ASTNodeKind::Member, Member { parser->last_token.text });
+}
+
 [[maybe_unused]] void arwen_make_qstring(P *parser)
 {
     if (parser->last_token.tag() != KindTag::String) {
         fatal("Expected quoted string, got '{s}'", parser->last_token.kind);
     }
-    parser->impl.push_node(parser->last_token.location, ASTNodeKind::QString, StringConstant { parser->last_token.text });
+    parser->impl.push_node(parser->last_token.location, ASTNodeKind::QString, StringConstant { std::string { parser->last_token.text } });
 }
 
 [[maybe_unused]] void arwen_make_int(P *parser)
@@ -416,7 +422,6 @@ extern "C" {
 
 [[maybe_unused]] void arwen_make_pointer_type(P *parser)
 {
-#if 0
     auto &element_type = parser->impl.pop_one_of(typeKinds).ref;
     parser->impl.push_node(
         parser->last_token.location,
@@ -424,8 +429,6 @@ extern "C" {
         PointerType {
             .element_type = element_type,
         });
-#endif
-    fatal("Pointer types unsupported right now");
 }
 
 [[maybe_unused]] void arwen_make_parameter(P *parser)
@@ -479,6 +482,24 @@ void make_function_decl_(P *parser, std::optional<NodeReference> return_type)
         Function {
              .declaration = decl.ref,
              .implementation = block.ref,
+        });
+    parser->impl.pop_node();
+    auto &program_node = parser->impl.get_typed_node(0, ASTNodeKind::Program);
+    auto &program = std::get<Program>(program_node.impl);
+
+    program.declarations.push_back(func.ref);
+}
+
+[[maybe_unused]] void arwen_make_foreign_function(P *parser)
+{
+    auto &foreign_func = parser->impl.pop_typed_node(ASTNodeKind::QString);
+    auto &decl = parser->impl.pop_typed_node(ASTNodeKind::FunctionDecl);
+    auto  func = parser->impl.push_node(
+        decl.location,
+        ASTNodeKind::ForeignFunction,
+        ForeignFunction {
+             .declaration = decl.ref,
+             .foreign_function = foreign_func.ref,
         });
     parser->impl.pop_node();
     auto &program_node = parser->impl.get_typed_node(0, ASTNodeKind::Program);

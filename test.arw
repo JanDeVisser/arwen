@@ -1,3 +1,14 @@
+func write(fd: int, bytes: *u8, num: u64) i64 -> "libc:write"
+
+func print(s: string) {
+    write(0, s.ptr, s.len);
+}
+
+func println(s: string) {
+    print(s);
+    print("\n");
+}
+
 func main() {
     println("1234");
 }
