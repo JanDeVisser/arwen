@@ -65,7 +65,7 @@ struct Parser {
     {
     }
 
-    Error<ParserError> parse(std::string_view source)
+    Error<ParserError> parse(std::string_view source, std::string_view buffer = "")
     {
         prod_stack.clear();
         if (log) {
@@ -77,8 +77,8 @@ struct Parser {
             return ParserError::NoEntryPoint;
         }
         prod_stack.emplace_back(*grammar.entry_point);
-        Lexer lexer { grammar.lexer, source };
-        impl.startup();
+        Lexer lexer { grammar.lexer, source, buffer };
+        impl.startup(buffer);
         ScopeGuard sg {
             [this]() {
                 impl.cleanup();

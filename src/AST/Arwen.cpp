@@ -4,7 +4,24 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <algorithm>
+#include <array>
+#include <cstdio>
+#include <optional>
+#include <print>
+#include <string>
+#include <string_view>
+#include <sys/_types/_ssize_t.h>
+#include <utility>
+#include <vector>
+
 #include <AST/AST.h>
+#include <AST/Operator.h>
+#include <Grammar/Parser.h>
+#include <Lexer/Lexer.h>
+
+#include <Lib.h>
+#include <Logging.h>
 #include <Value.h>
 
 namespace Arwen {
@@ -44,17 +61,26 @@ ArwenParser &ArwenParser::get(Parser<ArwenParser> &parser)
     return parser.impl;
 }
 
-void ArwenParser::startup()
+ArwenParser::ArwenParser()
 {
-    node_stack.clear();
-    node_cache.clear();
+    push_node({}, ASTNodeKind::Program, Program {});
+}
+
+void ArwenParser::startup(std::string_view buffer)
+{
+    auto mod = buffer;
+    if (mod.ends_with(".arw") || mod.ends_with(".ARW")) {
+        mod = mod.substr(0, mod.length() - 4);
+    }
+    auto &module_node = push_node({buffer}, ASTNodeKind::Module, Module { mod });
+    module = module_node.ref;
+    auto &program_node = get_typed_node(program, ASTNodeKind::Program);
+    auto &program_impl = std::get<Program>(program_node.impl);
+    program_impl.modules.push_back(*module);
 }
 
 void ArwenParser::cleanup() const
 {
-    if (!node_stack.empty()) {
-        std::println(stderr, "Stack not empty on cleanup");
-    }
 }
 
 Token ArwenParser::pop_token()
@@ -112,13 +138,19 @@ std::optional<ASTNode> ArwenParser::try_pop_typed_node(ASTNodeKind kind)
     return {};
 }
 
-ASTNode const &ArwenParser::push_node(Location location, ASTNodeKind kind, ASTNodeImpl const &impl)
+ASTNode const &ArwenParser::make_node(Location location, ASTNodeKind kind, ASTNodeImpl const &impl)
 {
     ASTNode n { kind, impl };
     n.location = location;
     auto ref = cache_node(n);
-    node_stack.push_back(ref);
     return node_cache.at(ref);
+}
+
+ASTNode const &ArwenParser::push_node(Location location, ASTNodeKind kind, ASTNodeImpl const &impl)
+{
+    auto const &ret = make_node(location, kind, impl);
+    node_stack.push_back(ret.ref);
+    return ret;
 }
 
 ASTNode const &ArwenParser::peek_and_assert(ASTNodeKind kind) const
@@ -209,6 +241,12 @@ void ArwenParser::dump_node_stack(std::string_view caption) const
         std::print(stdout, "{}", to_string(n.kind));
     }
     std::println(stdout, "");
+}
+
+void ArwenParser::dump()
+{
+    auto const& program_node = get_node(program);
+    std::println("{}", program_node);
 }
 
 }
@@ -484,10 +522,9 @@ void make_function_decl_(P *parser, std::optional<NodeReference> return_type)
              .implementation = block.ref,
         });
     parser->impl.pop_node();
-    auto &program_node = parser->impl.get_typed_node(0, ASTNodeKind::Program);
-    auto &program = std::get<Program>(program_node.impl);
-
-    program.declarations.push_back(func.ref);
+    auto &module_node = parser->impl.get_typed_node(*parser->impl.module, ASTNodeKind::Module);
+    auto &mod = std::get<Module>(module_node.impl);
+    mod.names.push_back(func.ref);
 }
 
 [[maybe_unused]] void arwen_make_foreign_function(P *parser)
@@ -502,10 +539,9 @@ void make_function_decl_(P *parser, std::optional<NodeReference> return_type)
              .foreign_function = foreign_func.ref,
         });
     parser->impl.pop_node();
-    auto &program_node = parser->impl.get_typed_node(0, ASTNodeKind::Program);
-    auto &program = std::get<Program>(program_node.impl);
-
-    program.declarations.push_back(func.ref);
+    auto &module_node = parser->impl.get_typed_node(*parser->impl.module, ASTNodeKind::Module);
+    auto &mod = std::get<Module>(module_node.impl);
+    mod.names.push_back(func.ref);
 }
 
 [[maybe_unused]] void arwen_start_block(P *parser)
@@ -644,17 +680,6 @@ void make_function_decl_(P *parser, std::optional<NodeReference> return_type)
         Subscript {
             .subscripts = subscripts,
         });
-}
-
-[[maybe_unused]] void arwen_program(P *parser)
-{
-    parser->impl.push_node({}, ASTNodeKind::Program, Program {});
-}
-
-[[maybe_unused]] void arwen_pop_program(P *parser)
-{
-    auto &p = parser->impl.pop_typed_node(ASTNodeKind::Program);
-    parser->impl.program = p.ref;
 }
 
 }

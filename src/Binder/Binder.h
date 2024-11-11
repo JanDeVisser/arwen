@@ -6,13 +6,28 @@
 
 #pragma once
 
+#include <cstddef>
+#include <format>
+#include <ios>
+#include <iostream>
+#include <map>
 #include <optional>
+#include <string>
+#include <string_view>
+#include <type_traits>
 #include <typeindex>
-#include <typeinfo>
+#include <variant>
+#include <vector>
 
 #include <AST/AST.h>
 #include <AST/Operator.h>
 #include <Binder/Type.h>
+#include <Lexer/Lexer.h>
+
+#include <Lib.h>
+#include <Logging.h>
+#include <Result.h>
+#include <ScopeGuard.h>
 #include <Unescape.h>
 
 namespace Arwen {
@@ -94,6 +109,11 @@ struct BoundMember {
     std::string_view name;
 };
 
+struct BoundModule {
+    std::string_view    name;
+    BoundNodeReferences names;
+};
+
 struct BoundParameter {
     std::string_view   name;
     BoundNodeReference type;
@@ -104,7 +124,7 @@ struct BoundPointerType {
 };
 
 struct BoundProgram {
-    BoundNodeReferences declarations;
+    BoundNodeReferences modules;
 };
 
 struct BoundReturn {
@@ -144,6 +164,7 @@ struct BoundVariableDeclaration {
     S(IntConstant)               \
     S(BoundLoop)                 \
     S(BoundMember)               \
+    S(BoundModule)               \
     S(BoundParameter)            \
     S(BoundPointerType)          \
     S(BoundProgram)              \
@@ -364,7 +385,7 @@ inline BoundNodeReference rebind<BoundBinaryExpression>(Binder &binder, BoundNod
             if (!std::holds_alternative<Object>(left_type.typespec)) {
                 return binder.add_error(ref, "Member access requires an object LHS value");
             }
-            auto const& obj = std::get<Object>(left_type.typespec);
+            auto const &obj = std::get<Object>(left_type.typespec);
             if (!std::holds_alternative<BoundMember>(binder[IMPL.right].impl)) {
                 return binder.add_error(ref, "Member access requires an identifier RHS value");
             }
@@ -469,7 +490,7 @@ inline BoundNodeReference bind<BoolConstant>(Binder &binder, NodeReference ast_r
 }
 
 template<>
-inline void dump(Binder &binder, BoolConstant const &impl, int indent)
+inline void dump(Binder &, BoolConstant const &impl, int indent)
 {
     std::cout << std::string(indent + 2, ' ') << std::boolalpha << impl.value << "\n";
 }
@@ -585,7 +606,7 @@ inline BoundNodeReference rebind<BoundFunction>(Binder &binder, BoundNodeReferen
         };
         auto const &func_decl = I(BoundFunctionDecl, IMPL.declaration);
         for (auto param_ref : func_decl.parameters) {
-            auto const& param = I(BoundParameter, param_ref);
+            auto const &param = I(BoundParameter, param_ref);
             binder.set_name(param.name, param_ref);
         }
         IMPL.implementation = binder.rebind_node(IMPL.implementation);
@@ -638,9 +659,9 @@ inline BoundNodeReference rebind<BoundFunctionCall>(Binder &binder, BoundNodeRef
         }
     }
     if (IMPL.function) {
-        auto &func_decl = binder.impl<BoundFunctionDecl>(*IMPL.function);
+        auto &func_decl = I(BoundFunctionDecl, *IMPL.function);
         if (func_decl.parameters.size() != IMPL.arguments.size()) {
-            return binder.add_error(ref, "Parameter/argument count mismatch");
+            return binder.add_error(ref, std::format("In call to '{}': Expected {} arguments, got {}", func_decl.name, func_decl.parameters.size(), IMPL.arguments.size()));
         }
         size_t ix = 0;
         for (auto param : func_decl.parameters) {
@@ -664,7 +685,8 @@ inline BoundNodeReference bind<FunctionCall>(Binder &binder, NodeReference ast_r
     auto        ref = binder.add_node<BoundFunctionCall>(ast_node.ref, ast_node.location);
     IMPL.name = ast_impl.name;
     for (auto arg : ast_impl.arguments) {
-        IMPL.arguments.push_back(binder.bind_node(arg));
+        auto arg_ref = binder.bind_node(arg);
+        IMPL.arguments.push_back(arg_ref);
     }
     return binder.rebind_node(ref);
 }
@@ -888,6 +910,63 @@ inline void dump(Binder &, BoundMember const &impl, int indent)
 }
 
 #undef STRUCT
+#define STRUCT BoundModule
+
+template<>
+inline BoundNodeReference rebind<BoundModule>(Binder &binder, BoundNodeReference ref)
+{
+    binder.push_namespace(ref);
+    ScopeGuard sg {
+        [&binder]() {
+            binder.pop_namespace();
+        }
+    };
+    auto all_bound { true };
+    for (auto ix = 0; ix < IMPL.names.size(); ++ix) {
+        auto decl_ref = IMPL.names[ix];
+        if (auto new_decl = binder.rebind_node(decl_ref); new_decl != decl_ref) {
+            IMPL.names[ix] = new_decl;
+            decl_ref = new_decl;
+        }
+        all_bound &= binder[decl_ref].type.has_value();
+    }
+    if (all_bound) {
+        binder[ref].type = binder.registry[BuiltinType::Void].ref;
+    }
+    return ref;
+}
+
+template<>
+inline BoundNodeReference bind<Module>(Binder &binder, NodeReference ast_ref)
+{
+    auto const &ast_node = binder.ast[ast_ref];
+    auto const &ast_impl = std::get<Module>(ast_node.impl);
+    auto        ref = binder.add_node<BoundModule>(ast_node.ref, ast_node.location);
+
+    IMPL.name = ast_impl.name;
+    {
+        binder.push_namespace(ref);
+        ScopeGuard sg {
+            [&binder]() {
+                binder.pop_namespace();
+            }
+        };
+        for (auto decl_ref : ast_impl.names) {
+            auto bound_decl = binder.bind_node(decl_ref);
+            IMPL.names.push_back(bound_decl);
+        }
+    }
+    return binder.rebind_node(ref);
+}
+
+template<>
+inline void dump(Binder &binder, BoundModule const &impl, int indent)
+{
+    std::cout << std::string(indent + 2, ' ') << impl.name << '\n';
+    binder.dump(impl.names, "Member", indent + 2);
+}
+
+#undef STRUCT
 #define STRUCT BoundParameter
 
 template<>
@@ -952,13 +1031,13 @@ inline BoundNodeReference rebind<BoundProgram>(Binder &binder, BoundNodeReferenc
         }
     };
     auto all_bound { true };
-    for (auto ix = 0; ix < IMPL.declarations.size(); ++ix) {
-        auto decl_ref = IMPL.declarations[ix];
-        if (auto new_decl = binder.rebind_node(decl_ref); new_decl != decl_ref) {
-            IMPL.declarations[ix] = new_decl;
-            decl_ref = new_decl;
+    for (auto ix = 0; ix < IMPL.modules.size(); ++ix) {
+        auto mod_ref = IMPL.modules[ix];
+        if (auto new_mod = binder.rebind_node(mod_ref); new_mod != mod_ref) {
+            IMPL.modules[ix] = new_mod;
+            mod_ref = new_mod;
         }
-        all_bound &= binder[decl_ref].type.has_value();
+        all_bound &= binder[mod_ref].type.has_value();
     }
     if (all_bound) {
         binder[ref].type = binder.registry[BuiltinType::Void].ref;
@@ -980,9 +1059,9 @@ inline BoundNodeReference bind<Program>(Binder &binder, NodeReference ast_ref)
                 binder.pop_namespace();
             }
         };
-        for (auto decl_ref : ast_impl.declarations) {
-            auto bound_decl = binder.bind_node(decl_ref);
-            IMPL.declarations.push_back(bound_decl);
+        for (auto mod_ref : ast_impl.modules) {
+            auto bound_decl = binder.bind_node(mod_ref);
+            IMPL.modules.push_back(bound_decl);
         }
     }
     return binder.rebind_node(ref);
@@ -991,7 +1070,7 @@ inline BoundNodeReference bind<Program>(Binder &binder, NodeReference ast_ref)
 template<>
 inline void dump(Binder &binder, BoundProgram const &impl, int indent)
 {
-    binder.dump(impl.declarations, "Declaration", indent + 2);
+    binder.dump(impl.modules, "Module", indent + 2);
 }
 
 #undef STRUCT
@@ -1031,7 +1110,7 @@ inline BoundNodeReference bind<StringConstant>(Binder &binder, NodeReference ast
     auto const &ast_node = binder.ast[ast_ref];
     auto const &ast_impl = std::get<StringConstant>(ast_node.impl);
     auto        ref = binder.add_node<StringConstant>(ast_node.ref, ast_node.location);
-    IMPL.value  = ast_impl.value.substr(1, ast_impl.value.length() - 2);
+    IMPL.value = ast_impl.value.substr(1, ast_impl.value.length() - 2);
     binder[ref].type = binder.registry["string"].ref;
     return ref;
 }

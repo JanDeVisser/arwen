@@ -1,0 +1,8 @@
+CompileFlags:
+  Add:
+    - "-std=c++23"
+    - "-Isrc"
+  CompilationDatabase: "cmake-build-debug"
+Diagnostics:
+  MissingIncludes: Strict
+  UnusedIncludes: Strict

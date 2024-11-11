@@ -376,7 +376,7 @@ public:
     std::vector<std::string> unescaped_strings = {};
 
     Lexer() = default;
-    Lexer(Config &config, std::string_view source);
+    Lexer(Config &config, std::string_view source, std::string_view buffer = "");
     Token                       buildToken(uint64_t len, TokenKind kind);
     void                        advance();
     std::optional<Token>        next();

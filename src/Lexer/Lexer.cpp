@@ -9,9 +9,10 @@
 
 namespace Arwen {
 
-Lexer::Lexer(Config &config, std::string_view source)
+Lexer::Lexer(Config &config, std::string_view source, std::string_view buffer)
     : config(config)
     , source(source)
+    , location(buffer)
 {
     if (config.Whitespace.on) {
         if (config.Whitespace.ignore_nl) {

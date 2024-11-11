@@ -6,10 +6,24 @@
 
 #pragma once
 
+#include <algorithm>
+#include <cstddef>
+#include <format>
+#include <ios>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <string_view>
+#include <sys/_types/_ssize_t.h>
+#include <utility>
+#include <variant>
+#include <vector>
+
 #include <AST/Operator.h>
 #include <Grammar/Parser.h>
 #include <Lexer/Lexer.h>
 #include <Lib.h>
+#include <Logging.h>
 
 namespace Arwen {
 
@@ -32,6 +46,7 @@ namespace Arwen {
     S(Label)                \
     S(Loop)                 \
     S(Member)               \
+    S(Module)               \
     S(Parameter)            \
     S(PointerType)          \
     S(Program)              \
@@ -163,6 +178,11 @@ struct Member {
     std::string_view name;
 };
 
+struct Module {
+    std::string_view           name;
+    std::vector<NodeReference> names;
+};
+
 struct Parameter {
     std::string_view name;
     NodeReference    type;
@@ -173,7 +193,7 @@ struct PointerType {
 };
 
 struct Program {
-    std::vector<NodeReference> declarations;
+    std::vector<NodeReference> modules;
 };
 
 struct Return {
@@ -221,6 +241,7 @@ using ASTNodeImpl = std::variant<
     Label,
     Loop,
     Member,
+    Module,
     Parameter,
     PointerType,
     Program,
@@ -243,15 +264,16 @@ struct ASTNode {
 };
 
 struct ArwenParser {
-    bool                       log { false };
-    std::vector<Token>         token_stack {};
-    std::vector<NodeReference> node_stack {};
-    std::vector<ASTNode>       node_cache {};
-    NodeReference              program { 0 };
+    bool                         log { false };
+    std::vector<Token>           token_stack {};
+    std::vector<NodeReference>   node_stack {};
+    std::vector<ASTNode>         node_cache {};
+    NodeReference                program { 0 };
+    std::optional<NodeReference> module { 0 };
 
-    ArwenParser() = default;
+    ArwenParser();
     static ArwenParser                  &get(Parser<ArwenParser> &parser);
-    void                                 startup();
+    void                                 startup(std::string_view buffer);
     void                                 cleanup() const;
     Token                                pop_token();
     void                                 push_token(Token t);
@@ -261,6 +283,7 @@ struct ArwenParser {
     ASTNode                             &pop_node();
     ASTNode                             &pop_typed_node(ASTNodeKind kind);
     std::optional<ASTNode>               try_pop_typed_node(ASTNodeKind kind);
+    ASTNode const                       &make_node(Location location, ASTNodeKind kind, ASTNodeImpl const &impl);
     ASTNode const                       &push_node(Location location, ASTNodeKind kind, ASTNodeImpl const &impl);
     NodeReference                        cache_node(ASTNode const &n);
     [[nodiscard]] ASTNode const         &get_node(NodeReference ref) const;
@@ -269,6 +292,7 @@ struct ArwenParser {
     [[nodiscard]] ASTNode               &get_typed_node(NodeReference ref, ASTNodeKind kind);
     [[nodiscard]] std::optional<ASTNode> try_get_typed_node(NodeReference ref, ASTNodeKind kind) const;
     void                                 dump_node_stack(std::string_view caption) const;
+    void                                 dump();
 
     template<typename... Kinds>
     [[nodiscard]] ASTNode const &get_one_of(NodeReference ref, Kinds &&...kinds) const
@@ -374,9 +398,9 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
                 out << std::format("{}: {{\n", *impl.label);
             }
             for (auto ref : impl.statements) {
-                out << std::format("{}", node.get_node(ref));
+                out << std::format("{}\n", node.get_node(ref));
             }
-            out << "}}\n";
+            out << "}\n";
         } break;
         case Arwen::ASTNodeKind::BoolConstant: {
             auto &impl = std::get<Arwen::BoolConstant>(node.impl);
@@ -394,9 +418,13 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
             auto &impl = std::get<Arwen::FloatConstant>(node.impl);
             out << impl.value;
         } break;
+        case Arwen::ASTNodeKind::ForeignFunction: {
+            auto &impl = std::get<Arwen::ForeignFunction>(node.impl);
+            out << std::format("{} -> {}\n", node.get_node(impl.declaration), node.get_node(impl.foreign_function));
+        } break;
         case Arwen::ASTNodeKind::Function: {
             auto &impl = std::get<Arwen::Function>(node.impl);
-            out << std::format("{} {{\n{}}}\n", node.get_node(impl.declaration), node.get_node(impl.implementation));
+            out << std::format("{} \n{}\n", node.get_node(impl.declaration), node.get_node(impl.implementation));
         } break;
         case Arwen::ASTNodeKind::FunctionCall: {
             auto &impl = std::get<Arwen::FunctionCall>(node.impl);
@@ -452,6 +480,16 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
             auto &impl = std::get<Arwen::Loop>(node.impl);
             out << std::format("loop {{\n{} }}", node.get_node(impl.body));
         } break;
+        case Arwen::ASTNodeKind::Member: {
+            auto &impl = std::get<Arwen::Member>(node.impl);
+            out << std::format("{}", impl.name);
+        } break;
+        case Arwen::ASTNodeKind::Module: {
+            auto &impl = std::get<Arwen::Module>(node.impl);
+            for (auto name : impl.names) {
+                out << std::format("{}\n", node.get_node(name));
+            }
+        } break;
         case Arwen::ASTNodeKind::Parameter: {
             auto &impl = std::get<Arwen::Parameter>(node.impl);
             out << std::format("{}: {} ", impl.name, node.get_node(impl.type));
@@ -462,7 +500,7 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
         } break;
         case Arwen::ASTNodeKind::Program: {
             auto &impl = std::get<Arwen::Program>(node.impl);
-            for (auto decl : impl.declarations) {
+            for (auto decl : impl.modules) {
                 out << std::format("{}\n", node.get_node(decl));
             }
         } break;

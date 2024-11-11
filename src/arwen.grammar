@@ -15,9 +15,8 @@ std::string_view arwen_grammar = R"(
   lexer:       "comment: marker=/* */;marker=//"
 %
 
-program                     :=                   [ program                   ]
-                               declarations      [ pop_program               ]
-                             ;
+module                     := declarations
+                            ;
 
 declarations                := declaration
                                declarations

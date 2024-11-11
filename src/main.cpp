@@ -4,13 +4,19 @@
 // SPDX-License-Identifier: MIT
 //
 
-#include <iostream>
+#include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <print>
 
 #include <AST/AST.h>
 #include <Binder/Binder.h>
+#include <Grammar/Grammar.h>
 #include <Grammar/Parser.h>
 #include <GrammarParser/GrammarParser.h>
+
 #include <FileBuffer.h>
+#include <Lib.h>
 #include <Options.h>
 
 namespace Arwen {
@@ -48,7 +54,8 @@ void arwen_main(int argc, char const **argv)
             exit(1);
         } else {
             std::println("{}", fb->contents());
-            p.parse(fb->contents()).must();
+            p.parse(fb->contents(), file_name).must();
+            p.impl.dump();
 
             Binder binder { p.impl.node_cache };
             BoundNodeReference ref;
