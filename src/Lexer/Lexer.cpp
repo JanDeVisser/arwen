@@ -9,7 +9,20 @@
 
 namespace Arwen {
 
-Lexer::Lexer(Config &config, std::string_view source, std::string_view buffer)
+#undef S
+#define S(Tag, Index)                                \
+    constexpr Tag##_Type::operator KindTag() const   \
+    {                                                \
+        return KindTag::Tag;                         \
+    }                                                \
+    constexpr Tag##_Type::operator TokenKind() const \
+    {                                                \
+        return TokenKind { *this };                  \
+    }
+KindTags(S)
+#undef S
+
+    Lexer::Lexer(Config &config, std::string_view source, std::string_view buffer)
     : config(config)
     , source(source)
     , location(buffer)
@@ -88,10 +101,10 @@ std::optional<Token> Lexer::peek()
     }
     if (source.empty()) {
         exhausted = true;
-        return buildToken(0, TokenKind { KindTag::Eof });
+        return buildToken(0, TokenKind { Eof_Value });
     }
     if (source[0] == '\n') {
-        auto ret = buildToken(1, TokenKind { KindTag::Newline });
+        auto ret = buildToken(1, TokenKind { Newline_Value });
         location.line += 1;
         location.col = 0;
         if (config.Whitespace.on) {
@@ -108,7 +121,7 @@ std::optional<Token> Lexer::peek()
         while (p < source.length() && isspace(source[p])) {
             p += 1;
         }
-        auto ret = buildToken(1, TokenKind { KindTag::Whitespace });
+        auto ret = buildToken(1, TokenKind { Whitespace_Value });
         if (config.Whitespace.on) {
             return ret;
         }
@@ -128,7 +141,7 @@ std::optional<Token> Lexer::peek()
             if (p < source.length()) {
                 p += 1;
             }
-            return buildToken(p, TokenKind { KindTag::String, quote });
+            return buildToken(p, TokenKind { String_Value, quote });
         }
     }
     if (isalpha(source[0]) || source[0] == '_') {
@@ -140,13 +153,13 @@ std::optional<Token> Lexer::peek()
             switch (config.Keywords.match(source.substr(0, p))) {
             case Config::Keywords::MatchResult::ExactMatch:
             case Config::Keywords::MatchResult::PrefixAndExact:
-                return buildToken(p, TokenKind { KindTag::Keyword, source.substr(0, p) } );
+                return buildToken(p, TokenKind { Keyword_Value, source.substr(0, p) });
             default:
                 break;
             }
         }
         if (config.Identifier.on) {
-            return buildToken(p, TokenKind { KindTag::Identifier });
+            return buildToken(p, TokenKind { Identifier_Value });
         }
     }
     if (config.Keywords.on) {
@@ -154,7 +167,7 @@ std::optional<Token> Lexer::peek()
         for (auto l = 1; l < source.length(); ++l) {
             switch (config.Keywords.match(source.substr(0, l))) {
             case Config::Keywords::MatchResult::ExactMatch:
-                return buildToken(l, TokenKind { KindTag::Keyword, source.substr(0, l) } );
+                return buildToken(l, TokenKind { Keyword_Value, source.substr(0, l) });
             case Config::Keywords::MatchResult::NoMatch:
                 goto default_return;
             case Config::Keywords::MatchResult::Prefix:
@@ -163,12 +176,12 @@ std::optional<Token> Lexer::peek()
                 matched = l;
                 break;
             case Config::Keywords::MatchResult::MatchLost:
-                return buildToken(matched, TokenKind { KindTag::Keyword, source.substr(0, matched) });
+                return buildToken(matched, TokenKind { Keyword_Value, source.substr(0, matched) });
             }
         }
     }
 default_return:
-    return buildToken(1, TokenKind { KindTag::Symbol, source[0] });
+    return buildToken(1, TokenKind { Symbol_Value, source[0] });
 }
 
 bool Lexer::accept_keyword(std::string_view keyword)

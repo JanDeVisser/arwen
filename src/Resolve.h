@@ -7,12 +7,12 @@
 #pragma once
 
 #include <filesystem>
-#include <memory>
+#include <functional>
 #include <optional>
 #include <string>
 #include <unordered_map>
-#include <vector>
 
+#include <Lib.h>
 #include <Logging.h>
 #include <Result.h>
 

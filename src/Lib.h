@@ -7,18 +7,20 @@
 #pragma once
 
 #include <algorithm>
-#include <any>
+#include <cctype>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <format>
 #include <map>
 #include <optional>
 #include <print>
-#include <sstream>
-#include <string>
 #include <string_view>
-#include <variant>
+#include <sys/_types/_ssize_t.h>
 
 #include <Logging.h>
 #include <Result.h>
+#include <vector>
 
 namespace Arwen {
 
@@ -186,12 +188,12 @@ struct Application {
     }
 };
 
-inline bool ichar_equals(char a, char b)
+inline constexpr bool ichar_equals(char a, char b)
 {
     return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
 }
 
-inline bool iequals(std::string_view const a, std::string_view const b)
+inline constexpr bool iequals(std::string_view const a, std::string_view const b)
 {
     return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), ichar_equals);
 }
@@ -235,11 +237,6 @@ struct SimpleFormatParser {
             throw std::format_error("Invalid format args for SymbolType.");
         return it;
     }
-};
-
-template<class... Ts>
-struct overload : Ts... {
-    using Ts::operator()...;
 };
 
 }

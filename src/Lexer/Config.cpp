@@ -33,7 +33,7 @@ std::optional<Token> Config::Comment::scan(Lexer &lexer) const
         if (auto p = lexer.source.find('\n'); p != std::string_view::npos) {
             len = p;
         }
-        Token ret = lexer.buildToken(len, { KindTag::Comment, "#!" });
+        Token ret = lexer.buildToken(len, { Comment_Value, "#!" });
         lexer.location.line = 1;
         lexer.location.col = 0;
         return ret;
@@ -44,7 +44,7 @@ std::optional<Token> Config::Comment::scan(Lexer &lexer) const
             if (auto p = lexer.source.find('\n'); p != std::string_view::npos) {
                 len = p;
             }
-            Token ret = lexer.buildToken(len, TokenKind { KindTag::Comment, marker });
+            Token ret = lexer.buildToken(len, TokenKind { Comment_Value, marker });
             lexer.location.line += 1;
             lexer.location.col = 0;
             return ret;
@@ -56,7 +56,7 @@ std::optional<Token> Config::Comment::scan(Lexer &lexer) const
             if (auto p = lexer.source.find(marker.end); p != std::string_view::npos) {
                 len = p;
             }
-            Token    ret = lexer.buildToken(len, TokenKind { KindTag::Comment, marker.start });
+            Token    ret = lexer.buildToken(len, TokenKind { Comment_Value, marker.start });
             uint64_t newlines = 0;
             uint64_t last = len;
             for (auto ix = 0; ix < len; ++ix) {

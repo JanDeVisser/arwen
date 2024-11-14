@@ -6,14 +6,26 @@
 
 #pragma once
 
-#include <array>
-#include <cctype>
+#include <algorithm>
+#include <cerrno>
 #include <charconv>
+#include <concepts>
+#include <cstdarg>
 #include <cstdint>
-#include <functional>
-#include <map>
+#include <cstdlib>
+#include <format>
+#include <optional>
+#include <set>
+#include <sstream>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <type_traits>
+#include <utility>
+#include <vector>
 
 #include <Lib.h>
+#include <Logging.h>
 #include <Result.h>
 
 namespace Arwen {
@@ -61,8 +73,22 @@ enum class KindTag {
 #undef S
 };
 
-template<>
-inline std::optional<KindTag> decode(std::string_view s, ...)
+struct KindTag_Type {
+};
+
+#undef S
+#define S(Tag, Index)                                               \
+    struct Tag##_Type : public KindTag_Type {                       \
+        constexpr static KindTag tag = KindTag::Tag;                \
+        constexpr                operator KindTag() const;          \
+        constexpr                operator struct TokenKind() const; \
+    };                                                              \
+    constexpr static Tag##_Type Tag##_Value {};
+KindTags(S)
+#undef S
+
+    template<>
+    inline constexpr std::optional<KindTag> decode(std::string_view s, ...)
 {
 #undef S
 #define S(Tag, Index)     \
@@ -126,41 +152,51 @@ inline constexpr std::string_view to_string(NumberType const &v)
 }
 
 struct TokenKind {
-    TokenKind()
-        : m_tag(KindTag::Null)
+    TokenKind() = default;
+    template<typename T>
+        requires std::derived_from<T, KindTag_Type>
+    constexpr TokenKind(T tag_type)
     {
+        // static_assert(
+        //     !(std::is_same_v<T, Comment_Type> || std::is_same_v<T, Keyword_Type> || std::is_same_v<T, Symbol_Type> || std::is_same_v<T, String_Type> || std::is_same_v<T, Number_Type>),
+        //     "Invalid constructor for this type."
+        // );
+        m_tag = tag_type.tag;
     }
 
-    explicit TokenKind(KindTag tag)
-        : m_tag(tag)
+    constexpr TokenKind(Comment_Type, std::string_view marker)
+        : m_tag(KindTag::Comment)
     {
-        if (tag == KindTag::Comment || tag == KindTag::Keyword || tag == KindTag::Number || tag == KindTag::String || tag == KindTag::Symbol) {
-            fatal("Token kind tag '{}' needs a payload", tag);
-        }
+        payload.sv = marker;
     }
 
-    TokenKind(KindTag tag, std::string_view str)
-        : m_tag(tag)
+    constexpr TokenKind(Keyword_Type, std::string_view keyword)
+        : m_tag(KindTag::Keyword)
     {
-        if (tag != KindTag::Comment && tag != KindTag::Keyword) {
-            fatal("Token kind tag '{}' cannot have a string payload", tag);
-        }
-        payload.sv = str;
+        payload.sv = keyword;
     }
 
-    TokenKind(KindTag tag, char ch)
-        : m_tag(tag)
+    constexpr TokenKind(Symbol_Type, char symbol)
+        : m_tag(KindTag::Symbol)
     {
-        if (tag != KindTag::String && tag != KindTag::Symbol) {
-            fatal("Token kind tag '{}' cannot have a char payload", tag);
-        }
-        payload.symbol = ch;
+        payload.symbol = symbol;
     }
 
-    explicit TokenKind(NumberType number_type)
+    constexpr TokenKind(String_Type, char quote)
+        : m_tag(KindTag::Symbol)
+    {
+        payload.symbol = quote;
+    }
+
+    constexpr TokenKind(NumberType number_type)
         : m_tag(KindTag::Number)
     {
         payload.number_type = number_type;
+    }
+
+    TokenKind(KindTag tag)
+        : m_tag(tag)
+    {
     }
 
     [[nodiscard]] KindTag          tag() const;
@@ -419,13 +455,10 @@ inline std::optional<Token> decode(std::string_view s, ...)
             marker = v.substr(0, semicolon);
             v = s.substr(semicolon);
         }
-        return Token { TokenKind { k, marker }, v };
+        return Token { TokenKind { Comment_Value, marker }, v };
     }
     case KindTag::Keyword: {
-        if (lexer->config.Keywords.has(v)) {
-            return Token { TokenKind { k, v }, v };
-        }
-        return Token { TokenKind { k }, v };
+        return Token { TokenKind { Keyword_Value, v }, v };
     }
     case KindTag::Number: {
         NumberType number_type = NumberType::Int;
@@ -438,9 +471,9 @@ inline std::optional<Token> decode(std::string_view s, ...)
         return Token { TokenKind { number_type }, v };
     }
     case KindTag::String:
-        return Token { TokenKind { k, !v.empty() ? v[0] : '"' }, v };
+        return Token { TokenKind { String_Value, !v.empty() ? v[0] : '"' }, v };
     case KindTag::Symbol:
-        return Token { TokenKind { k, v[0] }, v };
+        return Token { TokenKind { Symbol_Value, v[0] }, v };
     }
 }
 

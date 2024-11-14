@@ -4,11 +4,16 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+
+#include <Result.h>
 #include <Grammar/Grammar.h>
 
 namespace Arwen {
 
-Result<ssize_t, GrammarError> Sequence::build_firsts()
+Result<int64_t, GrammarError> Sequence::build_firsts()
 {
 //    std::println("{}::build_firsts", *this);
     auto ret = Symbol::firsts(symbols, 0, grammar, firsts);

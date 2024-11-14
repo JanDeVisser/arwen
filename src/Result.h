@@ -4,21 +4,29 @@
  * SPDX-License-Identifier: MIT
  */
 
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "google-explicit-constructor"
-
 #pragma once
 
-#include <functional>
+#include <optional>
+#include <type_traits>
+#include <variant>
 
 #include <Error.h>
 #include <Logging.h>
 
+#pragma clang diagnostic push
+#pragma ide diagnostic   ignored "google-explicit-constructor"
+
 namespace Arwen {
+
+template<class... Ts>
+struct overload : Ts... {
+    using Ts::operator()...;
+};
 
 template<typename ResultType, typename ErrorType = LibCError>
 class [[nodiscard]] Result {
 public:
+    using R = Result<ResultType, ErrorType>;
     Result()
         : m_value(ResultType {})
     {
@@ -42,12 +50,12 @@ public:
     }
 
     Result(ErrorType const &error)
-        : m_error(error)
+        : m_value(error)
     {
     }
 
     Result(ErrorType &&error)
-        : m_error(std::move(error))
+        : m_value(std::move(error))
     {
     }
 
@@ -58,59 +66,78 @@ public:
     Result &operator=(Result &&) noexcept = default;
     Result &operator=(Result const &) = default;
 
-    [[nodiscard]] bool          has_value() const { return m_value.has_value(); }
-    ResultType const           &value() const { return m_value.value(); }
-    [[nodiscard]] bool          is_error() const { return m_error.has_value(); }
-    ErrorType const            &error() const { return m_error.value(); }
+    [[nodiscard]] bool          has_value() const { return std::holds_alternative<ResultType>(m_value); }
+    ResultType const           &value() const { return std::get<ResultType>(m_value); }
+    ResultType                 &value() { return std::get<ResultType>(m_value); }
+    [[nodiscard]] bool          is_error() const { return std::holds_alternative<ErrorType>(m_value); }
+    ErrorType const            &error() const { return std::get<ErrorType>(m_value); }
     ResultType const           &operator*() const noexcept { return value(); }
     ResultType                 &operator*() noexcept { return value(); }
-    constexpr ResultType const *operator->() const noexcept { return &m_value.value(); }
-    constexpr ResultType       *operator->() noexcept { return &m_value.value(); }
+    constexpr ResultType const *operator->() const noexcept { return &value(); }
+    constexpr ResultType       *operator->() noexcept { return &value(); }
     explicit                    operator bool() const { return !is_error(); }
 
     template<typename NewError, typename Adapter>
     Result<ResultType, NewError> adapt(Adapter const &adapter)
     {
-        if (m_error.has_value()) {
-            return Result(std::move(adapter(m_error.value())));
-        }
-        return Result(std::move(m_value.value()));
+        return std::visit(
+            overload {
+                [adapter](ErrorType &&value) -> Result<ResultType, NewError> {
+                    return Result<ResultType, NewError>(std::move(adapter(value)));
+                },
+                [](ResultType &&value) -> Result<ResultType, NewError> {
+                    return Result(std::move(value));
+                } },
+            m_value);
     }
 
     template<typename Catch>
     ResultType &&must(Catch const &catch_)
     {
-        if (m_error.has_value()) {
-            catch_(m_error.value());
-            abort();
-        }
-        return std::move(m_value.value());
+        return std::visit(
+            overload {
+                [&catch_](ErrorType &&value) {
+                    if (R caught = catch_(value); caught.is_error()) {
+                        fatal("Aborting: Result::must(): {}", caught.error());
+                    } else {
+                        return std::move(caught.value());
+                    }
+                },
+                [](ResultType &&value) -> R {
+                    return std::move(value);
+                } },
+            m_value);
     }
 
     ResultType &&must()
     {
-        if (m_error.has_value()) {
-            abort();
-        }
-        return std::move(m_value.value());
+        return std::visit(
+            overload {
+                [](ErrorType &&value) {
+                    fatal("Aborting: Result::must(): {}", value);
+                },
+                [](ResultType &&value) -> R {
+                    return std::move(value);
+                } },
+            m_value);
     }
 
     template<typename Catch>
-    ResultType && on_error(Catch const &catch_)
+    Result<ResultType, ErrorType> &on_error(Catch const &catch_)
     {
-        if (m_error.has_value()) {
-            m_value = catch_(m_error.value());
-            if (m_value.has_value()) {
-                m_error.reset();
-            }
-        }
-        return std::move(m_value.value());
+        std::visit(
+            overload {
+                [this, &catch_](ErrorType &&value) {
+                    m_value = catch_(value);
+                },
+                [](ResultType &&value) {
+                } },
+            m_value);
+        return *this;
     }
 
-
 private:
-    std::optional<ResultType> m_value {};
-    std::optional<ErrorType>  m_error {};
+    std::variant<ResultType, ErrorType> m_value {};
 };
 
 #define TRY_EVAL(...)                 \
@@ -134,6 +161,7 @@ private:
 template<typename ErrorType = LibCError>
 class [[nodiscard]] Error {
 public:
+    using E = Error<ErrorType>;
     Error(ErrorType const &error)
         : m_error(error)
     {
@@ -160,15 +188,16 @@ public:
     void must(Catch const &catch_)
     {
         if (m_error.has_value()) {
-            catch_(m_error.value());
-            abort();
+            if (E new_error { catch_(m_error.value()) }; new_error.is_error()) {
+                fatal("Aborting: Error::must(): {}", new_error.error());
+            }
         }
     }
 
     void must()
     {
         if (m_error.has_value()) {
-            abort();
+            fatal("Aborting: Error::must(): {}", m_error.value());
         }
     }
 
@@ -176,8 +205,17 @@ public:
     void on_error(Catch const &catch_)
     {
         if (m_error.has_value()) {
-            return catch_(m_error.value());
+            catch_(m_error.value());
         }
+    }
+
+    template<typename NewError, typename Adapter>
+    Error<NewError> adapt(Adapter const &adapter)
+    {
+        if (m_error.has_value()) {
+            return Error<NewError> { adapter(m_error.value()) };
+        }
+        return Error<NewError> {};
     }
 
 protected:
@@ -202,6 +240,6 @@ using CError = Error<LibCError>;
         }                         \
     } while (0)
 
-} // namespace LibCore
+}
 
 #pragma clang diagnostic pop

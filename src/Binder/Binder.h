@@ -19,9 +19,9 @@
 #include <variant>
 #include <vector>
 
+#include <Type/Type.h>
 #include <AST/AST.h>
 #include <AST/Operator.h>
-#include <Binder/Type.h>
 #include <Lexer/Lexer.h>
 
 #include <Lib.h>
@@ -149,7 +149,7 @@ struct BoundVariableDeclaration {
 #define BoundNodeImpls(S)        \
     S(BoundArrayType)            \
     S(BoundAssignmentExpression) \
-    S(BasicType)                 \
+    S(BasicTypeNode)                 \
     S(BoundBinaryExpression)     \
     S(BoundBlock)                \
     S(BoolConstant)              \
@@ -237,6 +237,7 @@ struct Binder {
     int                         pass { 0 };
     BoundNodeReferences         errors;
     size_t                      unbound { 0 };
+    std::optional<BoundNodeReference> entrypoint;
 
     explicit Binder(std::vector<ASTNode> const &ast)
         : registry(TypeRegistry::the())
@@ -257,7 +258,7 @@ struct Binder {
 
     BoundNodeReference               bind_node(NodeReference ast_ref);
     BoundNodeReference               rebind_node(BoundNodeReference ref);
-    Result<BoundNodeReference, bool> bind(NodeReference entrypoint);
+    Result<BoundNodeReference, bool> bind(NodeReference ast_entrypoint);
     void                             push_namespace(BoundNodeReference ref);
     void                             set_name(std::string_view name, BoundNodeReference ref);
     void                             pop_namespace();
@@ -338,21 +339,21 @@ inline void dump(Binder &binder, BoundAssignmentExpression const &impl, int inde
 }
 
 #undef STRUCT
-#define STRUCT BasicType
+#define STRUCT BasicTypeNode
 
 template<>
-inline BoundNodeReference rebind<BasicType>(Binder &binder, BoundNodeReference ref)
+inline BoundNodeReference rebind<BasicTypeNode>(Binder &binder, BoundNodeReference ref)
 {
     binder[ref].type = binder.registry.find(IMPL.name);
     return ref;
 }
 
 template<>
-inline BoundNodeReference bind<BasicType>(Binder &binder, NodeReference ast_ref)
+inline BoundNodeReference bind<BasicTypeNode>(Binder &binder, NodeReference ast_ref)
 {
     auto const        &ast_node = binder.ast[ast_ref];
-    auto const        &ast_impl = std::get<BasicType>(ast_node.impl);
-    BoundNodeReference ref = binder.add_node<BasicType>(ast_node.ref, ast_node.location);
+    auto const        &ast_impl = std::get<BasicTypeNode>(ast_node.impl);
+    BoundNodeReference ref = binder.add_node<BasicTypeNode>(ast_node.ref, ast_node.location);
     binder[ref].impl = ast_impl;
     binder[ref].type = binder.registry.find(IMPL.name);
     return ref;
@@ -440,7 +441,7 @@ inline BoundNodeReference rebind<BoundBlock>(Binder &binder, BoundNodeReference 
     }
     if (all_bound) {
         binder[ref].type = (IMPL.statements.empty())
-            ? binder.registry[BuiltinType::Void].ref
+            ? binder.registry[BasicType::Void].ref
             : binder[IMPL.statements.back()].type;
     }
     return ref;
@@ -485,7 +486,7 @@ inline BoundNodeReference bind<BoolConstant>(Binder &binder, NodeReference ast_r
 {
     auto const &ast_node = binder.ast[ast_ref];
     auto        ref = binder.add_node<BoolConstant>(ast_node.ref, ast_node.location);
-    binder[ref].type = binder.registry[BuiltinType::Bool].ref;
+    binder[ref].type = binder.registry[PrimitiveType::Bool].ref;
     return ref;
 }
 
@@ -547,7 +548,7 @@ inline BoundNodeReference bind<FloatConstant>(Binder &binder, NodeReference ast_
 {
     auto const &node = binder.ast[ast_ref];
     auto        ref = binder.add_node<FloatConstant>(node.ref, node.location);
-    binder[ref].type = binder.registry[BuiltinType::Float].ref;
+    binder[ref].type = binder.registry[PrimitiveType::Float].ref;
     return ref;
 }
 
@@ -566,7 +567,7 @@ inline BoundNodeReference rebind<BoundForeignFunction>(Binder &binder, BoundNode
     IMPL.declaration = binder.rebind_node(IMPL.declaration);
     IMPL.foreign_function = binder.rebind_node(IMPL.foreign_function);
     if (binder[IMPL.declaration].type && binder[IMPL.foreign_function].type) {
-        binder[ref].type = binder.registry[BuiltinType::Function].ref;
+        binder[ref].type = binder.registry[PseudoType::Function].ref;
     }
     return ref;
 }
@@ -612,7 +613,7 @@ inline BoundNodeReference rebind<BoundFunction>(Binder &binder, BoundNodeReferen
         IMPL.implementation = binder.rebind_node(IMPL.implementation);
     }
     if (binder[IMPL.declaration].type && binder[IMPL.implementation].type) {
-        binder[ref].type = binder.registry[BuiltinType::Function].ref;
+        binder[ref].type = binder.registry[PseudoType::Function].ref;
     }
     return ref;
 }
@@ -737,7 +738,7 @@ inline BoundNodeReference rebind<BoundFunctionDecl>(Binder &binder, BoundNodeRef
         all_bound &= binder[*IMPL.return_type].type.has_value();
         type_ref = *binder[*IMPL.return_type].type;
     } else {
-        type_ref = binder.registry[BuiltinType::Void].ref;
+        type_ref = binder.registry[BasicType::Void].ref;
     }
     if (all_bound) {
         binder[ref].type = type_ref;
@@ -814,7 +815,7 @@ inline BoundNodeReference rebind<BoundIf>(Binder &binder, BoundNodeReference ref
     if (IMPL.false_branch) {
         IMPL.false_branch = binder.rebind_node(*IMPL.false_branch);
     }
-    if (binder[IMPL.condition].type && binder.registry[BuiltinType::Bool].ref != *binder[IMPL.condition].type) {
+    if (binder[IMPL.condition].type && binder.registry[PrimitiveType::Bool].ref != *binder[IMPL.condition].type) {
         return binder.add_error(ref, "If condition is not a boolean");
     }
     if (binder[IMPL.true_branch].type) {
@@ -857,7 +858,7 @@ inline BoundNodeReference bind<IntConstant>(Binder &binder, NodeReference ast_re
 {
     auto const &ast_node = binder.ast[ast_ref];
     auto        ref = binder.add_node<IntConstant>(ast_node.ref, ast_node.location);
-    binder[ref].type = binder.registry[BuiltinType::Int].ref;
+    binder[ref].type = binder.registry[PrimitiveType::Int].ref;
     return ref;
 }
 
@@ -899,7 +900,7 @@ inline BoundNodeReference bind<Member>(Binder &binder, NodeReference ast_ref)
     auto const &ast_impl = std::get<Member>(ast_node.impl);
     auto        ref = binder.add_node<BoundMember>(ast_node.ref, ast_node.location);
     IMPL.name = ast_impl.name;
-    binder[ref].type = binder.registry[BuiltinType::Void].ref;
+    binder[ref].type = binder.registry[BasicType::Void].ref;
     return ref;
 }
 
@@ -931,7 +932,7 @@ inline BoundNodeReference rebind<BoundModule>(Binder &binder, BoundNodeReference
         all_bound &= binder[decl_ref].type.has_value();
     }
     if (all_bound) {
-        binder[ref].type = binder.registry[BuiltinType::Void].ref;
+        binder[ref].type = binder.registry[PseudoType::Void].ref;
     }
     return ref;
 }
@@ -1040,7 +1041,7 @@ inline BoundNodeReference rebind<BoundProgram>(Binder &binder, BoundNodeReferenc
         all_bound &= binder[mod_ref].type.has_value();
     }
     if (all_bound) {
-        binder[ref].type = binder.registry[BuiltinType::Void].ref;
+        binder[ref].type = binder.registry[PseudoType::Void].ref;
     }
     return ref;
 }
@@ -1083,7 +1084,7 @@ inline BoundNodeReference rebind<BoundReturn>(Binder &binder, BoundNodeReference
         IMPL.expression = binder.rebind_node(*IMPL.expression);
         binder[ref].type = binder[*IMPL.expression].type;
     } else {
-        binder[ref].type = binder.registry[BuiltinType::Void].ref;
+        binder[ref].type = binder.registry[PseudoType::Void].ref;
     }
     return ref;
 }
@@ -1149,7 +1150,7 @@ inline BoundNodeReference rebind<BoundSubscript>(Binder &binder, BoundNodeRefere
         all_bound &= binder[arg].type.has_value();
     }
     if (all_bound) {
-        binder[ref].type = binder.registry[BuiltinType::Void].ref;
+        binder[ref].type = binder.registry[PseudoType::Void].ref;
     }
     return ref;
 }

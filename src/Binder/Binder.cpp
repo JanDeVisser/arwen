@@ -4,6 +4,19 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <cassert>
+#include <iostream>
+#include <map>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <sys/_types/_ssize_t.h>
+#include <type_traits>
+#include <typeindex>
+#include <variant>
+
+#include <AST/AST.h>
+#include <Result.h>
 #include <Binder/Binder.h>
 #include <Logging.h>
 
@@ -42,12 +55,13 @@ BoundNodeReference Binder::rebind_node(BoundNodeReference ref)
     return ret;
 }
 
-Result<BoundNodeReference, bool> Binder::bind(NodeReference entrypoint)
+Result<BoundNodeReference, bool> Binder::bind(NodeReference ast_entrypoint)
 {
     errors.clear();
     unbound = 0;
     pass = 0;
-    auto bound_entrypoint = bind_node(entrypoint);
+    entrypoint = {};
+    auto bound_entrypoint = bind_node(ast_entrypoint);
     std::cout << "Pass 0 - AST Transformation\n\n";
     dump(bound_entrypoint, "Program");
     list();
@@ -73,6 +87,7 @@ Result<BoundNodeReference, bool> Binder::bind(NodeReference entrypoint)
             return false;
         }
     }
+    entrypoint = bound_entrypoint;
     return bound_entrypoint;
 }
 

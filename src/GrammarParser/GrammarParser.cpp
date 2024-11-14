@@ -4,9 +4,19 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <array>
+ #include <array>
+ #include <format>
+ #include <optional>
+ #include <print>
+ #include <string>
+ #include <string_view>
 
+#include <Grammar/Grammar.h>
+#include <Lexer/Lexer.h>
 #include <GrammarParser/GrammarParser.h>
+#include <Lib.h>
+#include <Result.h>
+#include <Type/Value.h>
 
 namespace Arwen {
 
@@ -121,7 +131,7 @@ Error<GrammarParserError> GrammarParser::parse_actions(Grammar &grammar, Sequenc
         case KindTag::Identifier: {
             auto name = t->text;
             lexer.advance();
-            std::optional<Value> data {};
+            Value data {};
             if (lexer.accept_symbol(':')) {
                 data = TRY_EVAL(parse_value());
             }
@@ -158,7 +168,7 @@ Error<GrammarParserError> GrammarParser::parse_non_terminal(Grammar &grammar)
                 lexer.advance();
                 break;
             default:
-                seq.symbols.emplace_back(TokenKind { KindTag::Symbol, t->kind.symbol() } );
+                seq.symbols.emplace_back(TokenKind { Symbol_Value, t->kind.symbol() } );
                 lexer.advance();
                 break;
             }
@@ -170,7 +180,7 @@ Error<GrammarParserError> GrammarParser::parse_non_terminal(Grammar &grammar)
         case KindTag::Keyword: {
             auto kw = t->kind.keyword();
             if (kw == "#ident") {
-                seq.symbols.emplace_back(TokenKind { KindTag::Identifier });
+                seq.symbols.emplace_back(TokenKind { Identifier_Value });
             } else if (kw == "#int") {
                 seq.symbols.emplace_back(TokenKind { NumberType::Int });
             } else if (kw == "#hex") {
@@ -190,10 +200,10 @@ Error<GrammarParserError> GrammarParser::parse_non_terminal(Grammar &grammar)
                 switch (t->text[1]) {
                 case '"':
                 case '\'':
-                    seq.symbols.emplace_back(TokenKind { KindTag::String, t->text[1] });
+                    seq.symbols.emplace_back(TokenKind { String_Value, t->text[1] });
                     break;
                 default:
-                    seq.symbols.emplace_back(TokenKind { KindTag::Symbol, t->text[1] });
+                    seq.symbols.emplace_back(TokenKind { Symbol_Value, t->text[1] });
                     break;
                 }
                 lexer.advance();
@@ -201,7 +211,7 @@ Error<GrammarParserError> GrammarParser::parse_non_terminal(Grammar &grammar)
             case '"': {
                 auto kw = t->text.substr(1, t->text.length() - 2);
                 grammar.lexer.Keywords.add(kw);
-                seq.symbols.emplace_back(TokenKind { KindTag::Keyword, kw });
+                seq.symbols.emplace_back(TokenKind { Keyword_Value, kw });
                 lexer.advance();
             } break;
             default:

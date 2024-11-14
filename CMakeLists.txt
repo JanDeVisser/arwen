@@ -18,7 +18,6 @@ add_executable(
         src/ScopeGuard.h
         src/Set.h
         src/Unescape.cpp
-        src/Value.h
 
         src/Lexer/Config.cpp
         src/Lexer/Lexer.cpp
@@ -33,11 +32,15 @@ add_executable(
 
         src/GrammarParser/GrammarParser.cpp
 
+        src/Type/Type.cpp
+        src/Type/Value.h
+
         src/AST/Arwen.cpp
         src/AST/Operator.h
 
         src/Binder/Binder.cpp
-        src/Binder/Type.cpp
+
+        src/IR/IR.cpp
 
         src/main.cpp
 )

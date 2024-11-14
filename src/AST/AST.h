@@ -19,6 +19,7 @@
 #include <variant>
 #include <vector>
 
+#include <Type/Type.h>
 #include <AST/Operator.h>
 #include <Grammar/Parser.h>
 #include <Lexer/Lexer.h>
@@ -30,7 +31,7 @@ namespace Arwen {
 #define ASTNodeKinds(S)     \
     S(ArrayType)            \
     S(AssignmentExpression) \
-    S(BasicType)            \
+    S(BasicTypeNode)        \
     S(BinaryExpression)     \
     S(Block)                \
     S(BoolConstant)         \
@@ -102,7 +103,7 @@ struct AssignmentExpression {
     NodeReference  right;
 };
 
-struct BasicType {
+struct BasicTypeNode {
     std::string_view name;
 };
 
@@ -225,7 +226,7 @@ struct VariableDeclaration {
 using ASTNodeImpl = std::variant<
     ArrayType,
     AssignmentExpression,
-    BasicType,
+    BasicTypeNode,
     BinaryExpression,
     Block,
     BoolConstant,
@@ -384,8 +385,8 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
             auto &impl = std::get<Arwen::AssignmentExpression>(node.impl);
             out << std::format("{} {} {}", node.get_node(impl.left), impl.op, node.get_node(impl.right));
         } break;
-        case Arwen::ASTNodeKind::BasicType: {
-            auto &impl = std::get<Arwen::BasicType>(node.impl);
+        case Arwen::ASTNodeKind::BasicTypeNode: {
+            auto &impl = std::get<Arwen::BasicTypeNode>(node.impl);
             out << impl.name;
         } break;
         case Arwen::ASTNodeKind::BinaryExpression: {

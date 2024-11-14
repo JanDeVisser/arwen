@@ -6,12 +6,18 @@
 
 #pragma once
 
+#include <_abort.h>
+#include <cassert>
+#include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <format>
 #include <iostream>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <sys/signal.h>
 
 namespace Arwen {
@@ -51,7 +57,7 @@ extern std::mutex g_logging_mutex;
 class Logger {
 public:
     template<typename... Args>
-    void logmsg(LogMessage const &msg, Args const &...args)
+    constexpr void logmsg(LogMessage const &msg, Args const &...args)
     {
         std::lock_guard<std::mutex> const lock(g_logging_mutex);
         if (!msg.category.empty() && !m_categories.contains(msg.category) && !m_all_enabled) {
@@ -181,7 +187,8 @@ public:
 #ifdef assert
 #undef assert
 #endif
-#define assert(condition) Arwen::Logger::get_logger().assert_msg(__FILE__, __LINE__, __func__, condition, "Assertion error: {}", #condition)
+#define arwen_assert(condition) Arwen::Logger::get_logger().assert_msg(__FILE__, __LINE__, __func__, condition, "Assertion error: {}", #condition)
+#define assert(condition) arwen_assert(condition)
 #define assert_with_msg(condition, fmt, args...) Arwen::Logger::get_logger().assert_msg(__FILE__, __LINE__, __func__, condition, "Assertion error: " #condition ": " fmt, ##args)
 
 #define UNREACHABLE() fatal("Unreachable")

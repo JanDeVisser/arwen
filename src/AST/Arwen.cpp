@@ -11,18 +11,16 @@
 #include <print>
 #include <string>
 #include <string_view>
-#include <sys/_types/_ssize_t.h>
-#include <utility>
 #include <vector>
 
 #include <AST/AST.h>
 #include <AST/Operator.h>
 #include <Grammar/Parser.h>
 #include <Lexer/Lexer.h>
+#include <Type/Value.h>
 
 #include <Lib.h>
 #include <Logging.h>
-#include <Value.h>
 
 namespace Arwen {
 
@@ -40,7 +38,7 @@ std::vector<ASTNodeKind> expressionKinds = {
 };
 
 std::array<ASTNodeKind, 3> typeKinds = {
-    ASTNodeKind::BasicType,
+    ASTNodeKind::BasicTypeNode,
     ASTNodeKind::ArrayType,
     ASTNodeKind::PointerType,
 };
@@ -315,10 +313,10 @@ extern "C" {
     if (!data) {
         fatal("Expected boolean Value as argument");
     }
-    if (data->type != ValueType::Bool) {
-        fatal("Expected boolean Value as argument, got '{}'", data->type);
+    if (data->type() != PrimitiveType::Bool) {
+        fatal("Expected boolean Value as argument, got '{}'", data->type());
     }
-    parser->impl.push_node(parser->last_token.location, ASTNodeKind::BoolConstant, BoolConstant { data->payload.bool_value });
+    parser->impl.push_node(parser->last_token.location, ASTNodeKind::BoolConstant, BoolConstant { data->as_bool() });
 }
 
 [[maybe_unused]] void arwen_make_binary_expression(P *parser)
@@ -381,7 +379,7 @@ extern "C" {
             decl.name = std::get<Identifier>(n.impl).text;
             loc = n.location;
             break;
-        case ASTNodeKind::BasicType:
+        case ASTNodeKind::BasicTypeNode:
         case ASTNodeKind::PointerType:
         case ASTNodeKind::ArrayType:
             decl.type = n.ref;
@@ -409,7 +407,7 @@ extern "C" {
             decl.name = std::get<Identifier>(n.impl).text;
             loc = n.location;
             break;
-        case ASTNodeKind::BasicType:
+        case ASTNodeKind::BasicTypeNode:
         case ASTNodeKind::PointerType:
         case ASTNodeKind::ArrayType:
             decl.type = n.ref;
@@ -441,7 +439,7 @@ extern "C" {
 
 [[maybe_unused]] void arwen_make_type(P *parser)
 {
-    parser->impl.push_node(parser->last_token.location, ASTNodeKind::BasicType, BasicType { .name = parser->last_token.text });
+    parser->impl.push_node(parser->last_token.location, ASTNodeKind::BasicTypeNode, BasicTypeNode { .name = parser->last_token.text });
 }
 
 [[maybe_unused]] void arwen_make_array_type(P *parser)

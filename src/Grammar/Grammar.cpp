@@ -4,7 +4,14 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <print>
+#include <string_view>
+#include <sys/_types/_ssize_t.h>
+
 #include <Grammar/Grammar.h>
+#include <Lexer/Lexer.h>
+#include <Lib.h>
+#include <Result.h>
 #include <ScopeGuard.h>
 
 namespace Arwen {
@@ -54,12 +61,12 @@ Error<GrammarError> Grammar::build_firsts()
         }
     };
     ScopeGuard sg { reset_flags };
-    ssize_t count { 0 };
+    ssize_t    count { 0 };
     do {
         count = 0;
         reset_flags();
         for (auto &entry : rules) {
-            auto &rule = entry.second;
+            auto   &rule = entry.second;
             ssize_t inc = TRY_EVAL(rule.update_firsts());
             count += inc;
         }
@@ -82,7 +89,7 @@ Error<GrammarError> Grammar::build_follows()
     };
     ScopeGuard sg { reset_flags };
 
-    ssize_t count {0};
+    ssize_t count { 0 };
     do {
         count = 0;
         reset_flags();
@@ -193,25 +200,26 @@ Grammar build_test_grammar()
     grammar.entry_point = "E";
     grammar.add_rule("E", "T", "Eopt");
     {
-        auto &rule = grammar.add_rule("Eopt", TokenKind { KindTag::Symbol, '+' }, "T", "Eopt");
-        rule.add_sequence(TokenKind { KindTag::Symbol, '-' }, "T", "Eopt");
+        auto &rule = grammar.add_rule("Eopt", TokenKind { Symbol_Value, '+' }, "T", "Eopt");
+        rule.add_sequence(TokenKind { Symbol_Value, '-' }, "T", "Eopt");
         rule.add_sequence();
     }
     grammar.add_rule("T", "F", "Topt");
     {
-        auto &rule = grammar.add_rule("Topt", TokenKind { KindTag::Symbol, '*' }, "F", "Topt");
-        rule.add_sequence(TokenKind { KindTag::Symbol, '/' }, "F", "Topt");
+        auto &rule = grammar.add_rule("Topt", TokenKind { Symbol_Value, '*' }, "F", "Topt");
+        rule.add_sequence(TokenKind { Symbol_Value, '/' }, "F", "Topt");
         rule.add_sequence();
     }
     {
         auto &rule = grammar.add_rule("F", TokenKind { NumberType::Int });
-        rule.add_sequence(TokenKind { KindTag::Symbol, '(' }, "E", TokenKind { KindTag::Symbol, ')' });
+        rule.add_sequence(TokenKind { Symbol_Value, '(' }, "E", TokenKind { Symbol_Value, ')' });
     }
     std::println("\n{}", grammar);
     return grammar;
 }
 
-Grammar build_and_analyze() {
+Grammar build_and_analyze()
+{
     auto grammar = build_test_grammar();
     grammar.build_parse_table().must();
     return grammar;

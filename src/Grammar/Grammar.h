@@ -6,7 +6,17 @@
 
 #pragma once
 
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <format>
 #include <functional>
+#include <map>
+#include <optional>
+#include <sstream>
+#include <string_view>
+#include <utility>
+#include <variant>
 #include <vector>
 
 #include <Lexer/Lexer.h>
@@ -14,7 +24,8 @@
 #include <Resolve.h>
 #include <Result.h>
 #include <Set.h>
-#include <Value.h>
+#include <Type/Type.h>
+#include <Type/Value.h>
 
 namespace Arwen {
 
@@ -95,18 +106,18 @@ inline std::string_view to_string(SymbolType const &v)
 }
 
 struct GrammarAction {
-    std::string_view     full_name {};
-    std::optional<Value> data {};
+    std::string_view full_name {};
+    Value            data {};
 
     GrammarAction() = default;
-    GrammarAction(std::string_view name, std::optional<Value> data)
+    GrammarAction(std::string_view name, Value data)
         : full_name(name)
         , data(data)
     {
     }
 
-    template<typename Parser, typename R=SearchingResolver>
-    Result<std::function<void(Parser *, Value const *)>, GrammarError> action(R const& resolver) const
+    template<typename Parser, typename R = SearchingResolver>
+    Result<std::function<void(Parser *, Value const *)>, GrammarError> action(R const &resolver) const
     {
         using RawAction = void(Parser *, Value const *);
         using Action = std::function<RawAction>;
@@ -117,11 +128,11 @@ struct GrammarAction {
         return GrammarError::ActionUnresolved;
     }
 
-    template<typename Parser, typename R=SearchingResolver>
+    template<typename Parser, typename R = SearchingResolver>
     Error<GrammarError> call(Parser &parser) const
     {
         auto         fnc = TRY_EVAL(action<Parser>(parser.grammar.resolver));
-        Value const *d = (data) ? &data.value() : nullptr;
+        Value const *d = (data.type() != PrimitiveType::Null) ? &data : nullptr;
         fnc(&parser, d);
         return {};
     }
@@ -131,12 +142,12 @@ struct GrammarAction {
         if (full_name != rhs.full_name) {
             return full_name < rhs.full_name;
         }
-        if (!rhs.data) {
+        if (rhs.data.is_null()) {
             return false;
-        } else if (!data) {
+        } else if (data.is_null()) {
             return true;
         } else {
-            return *data < rhs.data;
+            return data < rhs.data;
         }
     }
 
@@ -153,81 +164,67 @@ using SymbolSet = Set<Symbol>;
 struct Symbol {
     using Iterator = Symbols::iterator;
 
-    Symbol()
-        : Symbol { SymbolType::Empty }
+    Symbol() = default;
+    static Symbol empty()
     {
+        return Symbol {};
     }
 
     static Symbol end()
     {
-        return Symbol { SymbolType::End };
+        Symbol ret;
+        ret.symbol.emplace<static_cast<size_t>(SymbolType::End)>();
+        return ret;
     }
 
     explicit Symbol(GrammarAction const &action)
-        : Symbol { SymbolType::Action }
     {
-        symbol = {
-            .action = action,
-        };
+        symbol.emplace<static_cast<size_t>(SymbolType::Action)>(action);
     }
 
     [[nodiscard]] GrammarAction const &action() const
     {
-        assert(m_type == SymbolType::Action);
-        return symbol.action;
+        return std::get<static_cast<size_t>(SymbolType::Action)>(symbol);
     }
 
     explicit Symbol(TokenKind const &terminal)
-        : Symbol { SymbolType::Terminal }
     {
-        symbol = {
-            .terminal = terminal,
-        };
+        symbol.emplace<static_cast<size_t>(SymbolType::Terminal)>(terminal);
     }
 
     [[nodiscard]] TokenKind const &terminal() const
     {
-        assert(m_type == SymbolType::Terminal);
-        return symbol.terminal;
+        return std::get<static_cast<size_t>(SymbolType::Terminal)>(symbol);
     }
 
     explicit Symbol(std::string_view const &non_terminal)
-        : Symbol { SymbolType::NonTerminal }
     {
-        symbol = {
-            .non_terminal = non_terminal,
-        };
+        symbol.emplace<static_cast<size_t>(SymbolType::NonTerminal)>(non_terminal);
     }
 
     [[nodiscard]] std::string_view const &non_terminal() const
     {
-        assert(m_type == SymbolType::NonTerminal);
-        return symbol.non_terminal;
+        return std::get<static_cast<size_t>(SymbolType::NonTerminal)>(symbol);
     }
 
     [[nodiscard]] SymbolType type() const
     {
-        return m_type;
+        return static_cast<SymbolType>(symbol.index());
     }
 
     [[nodiscard]] bool operator<(Symbol const &rhs) const;
 
-    static Result<ssize_t, GrammarError> firsts(Symbols const& symbols, size_t ix,
+    static Result<int64_t, GrammarError> firsts(Symbols const &symbols, size_t ix,
         struct Grammar &grammar, SymbolSet &f);
 
 private:
-    SymbolType m_type { SymbolType::Empty };
-    union {
-        bool             dummy { false };
-        GrammarAction    action;
-        TokenKind        terminal;
-        std::string_view non_terminal;
-    } symbol;
-
-    explicit Symbol(SymbolType type)
-        : m_type(type)
-    {
-    }
+    std::variant<
+        std::monostate,
+        std::monostate,
+        GrammarAction,
+        TokenKind,
+        std::string_view>
+        symbol;
 };
 
 struct Sequence {
@@ -242,7 +239,7 @@ struct Sequence {
     {
     }
 
-    Result<ssize_t, GrammarError> build_firsts();
+    Result<int64_t, GrammarError> build_firsts();
 
     template<typename... Args>
     void add_symbols(Symbol const &sym, Args &&...syms)
@@ -280,8 +277,8 @@ struct Rule {
     std::string_view         non_terminal;
     std::vector<Sequence>    sequences {};
     std::map<Symbol, size_t> parse_table {};
-    SymbolSet         firsts {};
-    SymbolSet         follows {};
+    SymbolSet                firsts {};
+    SymbolSet                follows {};
     bool                     firsts_in_progress { false };
     bool                     follows_in_progress { false };
 
@@ -339,6 +336,17 @@ struct Grammar {
 };
 
 }
+
+template<>
+struct std::formatter<Arwen::GrammarError, char> : public Arwen::SimpleFormatParser {
+    template<class FmtContext>
+    FmtContext::iterator format(Arwen::GrammarError const &error, FmtContext &ctx) const
+    {
+        std::ostringstream out;
+        out << Arwen::to_string(error);
+        return std::ranges::copy(std::move(out).str(), ctx.out()).out;
+    }
+};
 
 template<typename T>
 struct std::formatter<Arwen::Set<T>, char> : public Arwen::SimpleFormatParser {

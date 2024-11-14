@@ -6,10 +6,21 @@
 
 #pragma once
 
+#include <algorithm>
+#include <format>
+#include <optional>
+#include <print>
+#include <ranges>
+#include <sstream>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+#include <Lib.h>
+#include <Result.h>
+#include <Lexer/Lexer.h>
 #include <Grammar/Grammar.h>
 #include <ScopeGuard.h>
-
-#include <ranges>
 
 namespace Arwen {
 
@@ -167,3 +178,14 @@ struct Parser {
 };
 
 }
+
+template<>
+struct std::formatter<Arwen::ParserError, char> : public Arwen::SimpleFormatParser {
+    template<class FmtContext>
+    FmtContext::iterator format(Arwen::ParserError e, FmtContext &ctx) const
+    {
+        std::ostringstream out;
+        out << Arwen::to_string(e);
+        return std::ranges::copy(std::move(out).str(), ctx.out()).out;
+    }
+};

@@ -6,6 +6,17 @@
 
 #pragma once
 
+#include <algorithm>
+#include <format>
+#include <optional>
+#include <sstream>
+#include <string_view>
+#include <utility>
+
+#include <Lib.h>
+#include <Result.h>
+#include <Type/Value.h>
+#include <Lexer/Lexer.h>
 #include <Grammar/Grammar.h>
 
 namespace Arwen {
@@ -64,3 +75,14 @@ struct GrammarParser {
 void tests_GrammarParser();
 
 }
+
+template<>
+struct std::formatter<Arwen::GrammarParserError, char> : public Arwen::SimpleFormatParser {
+    template<class FmtContext>
+    FmtContext::iterator format(Arwen::GrammarParserError e, FmtContext &ctx) const
+    {
+        std::ostringstream out;
+        out << Arwen::to_string(e);
+        return std::ranges::copy(std::move(out).str(), ctx.out()).out;
+    }
+};

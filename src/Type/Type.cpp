@@ -4,18 +4,29 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <Binder/Type.h>
+#include <cstddef>
+#include <format>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <variant>
+#include <vector>
+
+#include <Type/Type.h>
+#include <Lib.h>
+#include <Logging.h>
 
 namespace Arwen {
 
 TypeRegistry::TypeRegistry() {
 #undef S
-#define S(T, L) register_type(Type { .name = L, .typespec = BuiltinType::T });
-    BuiltinTypes(S)
+#define S(T, L, ...) register_type(Type { .name = #L, .typespec = Builtin { BasicType::T, sizeof(__VA_ARGS__), alignof(__VA_ARGS__) } });
+    PrimitiveTypes(S)
 #undef S
     std::vector<std::pair<std::string, TypeReference>> string_fields {
-        std::make_pair("len", (*this)[BuiltinType::U64].ref),
-        std::make_pair("ptr", *resolve_pointer((*this)[BuiltinType::U8].ref)),
+        std::make_pair("len", (*this)[PrimitiveType::U64].ref),
+        std::make_pair("ptr", *resolve_pointer((*this)[PrimitiveType::U8].ref)),
     };
     register_type(Type {.name = "string", .typespec = Object { std::move(string_fields) }});
 }
@@ -48,7 +59,7 @@ bool TypeRegistry::has(TypeReference ref) const
     return ref < types.size();
 }
 
-Type const &TypeRegistry::operator[](BuiltinType t) const
+Type const &TypeRegistry::operator[](BasicType t) const
 {
     return types[static_cast<size_t>(t)];
 }
