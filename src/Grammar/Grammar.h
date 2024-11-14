@@ -227,6 +227,37 @@ private:
         symbol;
 };
 
+}
+
+template<>
+struct std::formatter<Arwen::Symbol, char> : public Arwen::SimpleFormatParser {
+    template<class FmtContext>
+    FmtContext::iterator format(Arwen::Symbol const &s, FmtContext &ctx) const
+    {
+        std::ostringstream out;
+        switch (s.type()) {
+        case Arwen::SymbolType::Empty:
+            out << "ε";
+            break;
+        case Arwen::SymbolType::End:
+            out << "☐";
+            break;
+        case Arwen::SymbolType::Action:
+            out << "[ " << s.action().full_name << " ]";
+            break;
+        case Arwen::SymbolType::Terminal:
+            out << std::format("{}", s.terminal());
+            break;
+        case Arwen::SymbolType::NonTerminal:
+            out << s.non_terminal();
+            break;
+        }
+        return std::ranges::copy(std::move(out).str(), ctx.out()).out;
+    }
+};
+
+namespace Arwen {
+
 struct Sequence {
     using Iterator = std::vector<Sequence>::iterator;
 
@@ -348,17 +379,6 @@ struct std::formatter<Arwen::GrammarError, char> : public Arwen::SimpleFormatPar
     }
 };
 
-template<typename T>
-struct std::formatter<Arwen::Set<T>, char> : public Arwen::SimpleFormatParser {
-    template<class FmtContext>
-    FmtContext::iterator format(Arwen::Set<T> s, FmtContext &ctx) const
-    {
-        std::ostringstream out;
-        out << std::format("{}", s.set);
-        return std::ranges::copy(std::move(out).str(), ctx.out()).out;
-    }
-};
-
 template<>
 struct std::formatter<Arwen::SymbolType, char> : public Arwen::SimpleFormatParser {
     template<class FmtContext>
@@ -366,33 +386,6 @@ struct std::formatter<Arwen::SymbolType, char> : public Arwen::SimpleFormatParse
     {
         std::ostringstream out;
         out << Arwen::to_string(s);
-        return std::ranges::copy(std::move(out).str(), ctx.out()).out;
-    }
-};
-
-template<>
-struct std::formatter<Arwen::Symbol, char> : public Arwen::SimpleFormatParser {
-    template<class FmtContext>
-    FmtContext::iterator format(Arwen::Symbol const &s, FmtContext &ctx) const
-    {
-        std::ostringstream out;
-        switch (s.type()) {
-        case Arwen::SymbolType::Empty:
-            out << "ε";
-            break;
-        case Arwen::SymbolType::End:
-            out << "☐";
-            break;
-        case Arwen::SymbolType::Action:
-            out << "[ " << s.action().full_name << " ]";
-            break;
-        case Arwen::SymbolType::Terminal:
-            out << std::format("{}", s.terminal());
-            break;
-        case Arwen::SymbolType::NonTerminal:
-            out << s.non_terminal();
-            break;
-        }
         return std::ranges::copy(std::move(out).str(), ctx.out()).out;
     }
 };

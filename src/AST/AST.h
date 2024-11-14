@@ -14,7 +14,6 @@
 #include <sstream>
 #include <string>
 #include <string_view>
-#include <sys/_types/_ssize_t.h>
 #include <utility>
 #include <variant>
 #include <vector>

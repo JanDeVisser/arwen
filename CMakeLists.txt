@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.29)
+cmake_minimum_required(VERSION 3.28)
 project(arwen)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -16,6 +16,7 @@ add_executable(
         src/Options.cpp
         src/Resolve.cpp
         src/ScopeGuard.h
+        src/SimpleFormat.h
         src/Set.h
         src/Unescape.cpp
 

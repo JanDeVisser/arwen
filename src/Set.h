@@ -6,7 +6,10 @@
 
 #pragma once
 
+#include <format>
 #include <set>
+
+#include <SimpleFormat.h>
 
 namespace Arwen {
 
@@ -114,3 +117,26 @@ private:
 };
 
 }
+
+template<typename T>
+struct std::formatter<Arwen::Set<T>, char> : public Arwen::SimpleFormatParser {
+    template<class FmtContext>
+    FmtContext::iterator format(Arwen::Set<T> s, FmtContext &ctx) const
+    {
+        std::ostringstream out;
+        out << '{';
+        auto first { true };
+        for (const auto &e : s.set) {
+            if (!first) {
+                out << ",";
+            }
+            out << ' ' << e;
+            first = false;
+        }
+        if (!first) {
+            out << ' ';
+        }
+        out << '}';
+        return std::ranges::copy(std::move(out).str(), ctx.out()).out;
+    }
+};

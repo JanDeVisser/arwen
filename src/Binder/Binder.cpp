@@ -10,7 +10,6 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <sys/_types/_ssize_t.h>
 #include <type_traits>
 #include <typeindex>
 #include <variant>

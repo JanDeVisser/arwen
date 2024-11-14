@@ -6,10 +6,8 @@
 
 #pragma once
 
-#include <_abort.h>
 #include <cassert>
 #include <cstdlib>
-#include <cstring>
 #include <ctime>
 #include <format>
 #include <iostream>

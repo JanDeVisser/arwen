@@ -58,7 +58,7 @@ public:
         if (auto rc = fstat(fh, &sb); rc < 0)
             return LibCError {};
         if (S_ISDIR(sb.st_mode))
-            return LibCError(EFTYPE);
+            return LibCError(EISDIR);
 
         auto size = sb.st_size;
         auto buffer = new char[size + 1];

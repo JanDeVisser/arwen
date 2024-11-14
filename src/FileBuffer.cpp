@@ -27,7 +27,7 @@ Error<> SimpleBufferLocator::check_existence(fs::path const &file_name)
         return LibCError {};
     }
     if (S_ISDIR(sb.st_mode)) {
-        return LibCError { EFTYPE };
+        return LibCError { EISDIR };
     }
     return {};
 }

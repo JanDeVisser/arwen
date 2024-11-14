@@ -6,7 +6,6 @@
 
 #include <print>
 #include <string_view>
-#include <sys/_types/_ssize_t.h>
 
 #include <Grammar/Grammar.h>
 #include <Lexer/Lexer.h>

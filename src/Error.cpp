@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+ #include <cerrno>
+
 #include <Error.h>
 
 namespace Arwen {
