@@ -27,6 +27,7 @@
 #include <Lib.h>
 #include <Logging.h>
 #include <Result.h>
+#include <TaggedUnion.h>
 
 namespace Arwen {
 
@@ -73,22 +74,8 @@ enum class KindTag {
 #undef S
 };
 
-struct KindTag_Type {
-};
-
-#undef S
-#define S(Tag, Index)                                               \
-    struct Tag##_Type : public KindTag_Type {                       \
-        constexpr static KindTag tag = KindTag::Tag;                \
-        constexpr                operator KindTag() const;          \
-        constexpr                operator struct TokenKind() const; \
-    };                                                              \
-    constexpr static Tag##_Type Tag##_Value {};
-KindTags(S)
-#undef S
-
-    template<>
-    inline constexpr std::optional<KindTag> decode(std::string_view s, ...)
+template<>
+inline constexpr std::optional<KindTag> decode(std::string_view s, ...)
 {
 #undef S
 #define S(Tag, Index)     \
@@ -151,71 +138,44 @@ inline constexpr std::string_view to_string(NumberType const &v)
     }
 }
 
-struct TokenKind {
-    TokenKind() = default;
-    template<typename T>
-        requires std::derived_from<T, KindTag_Type>
-    constexpr TokenKind(T tag_type)
-    {
-        // static_assert(
-        //     !(std::is_same_v<T, Comment_Type> || std::is_same_v<T, Keyword_Type> || std::is_same_v<T, Symbol_Type> || std::is_same_v<T, String_Type> || std::is_same_v<T, Number_Type>),
-        //     "Invalid constructor for this type."
-        // );
-        m_tag = tag_type.tag;
-    }
-
-    constexpr TokenKind(Comment_Type, std::string_view marker)
-        : m_tag(KindTag::Comment)
-    {
-        payload.sv = marker;
-    }
-
-    constexpr TokenKind(Keyword_Type, std::string_view keyword)
-        : m_tag(KindTag::Keyword)
-    {
-        payload.sv = keyword;
-    }
-
-    constexpr TokenKind(Symbol_Type, char symbol)
-        : m_tag(KindTag::Symbol)
-    {
-        payload.symbol = symbol;
-    }
-
-    constexpr TokenKind(String_Type, char quote)
-        : m_tag(KindTag::Symbol)
-    {
-        payload.symbol = quote;
-    }
-
-    constexpr TokenKind(NumberType number_type)
-        : m_tag(KindTag::Number)
-    {
-        payload.number_type = number_type;
-    }
-
-    TokenKind(KindTag tag)
-        : m_tag(tag)
+struct TokenKind : TaggedUnion<KindTag, std::monostate, std::string_view, std::monostate, std::monostate, std::string_view, std::monostate, NumberType, char, char, std::monostate>
+{
+    constexpr TokenKind() = default;
+    explicit TokenKind(KindTag tag)
+        : TaggedUnion(tag)
     {
     }
 
-    [[nodiscard]] KindTag          tag() const;
-    [[nodiscard]] char             symbol() const;
-    [[nodiscard]] char             quote() const;
-    [[nodiscard]] std::string_view keyword() const;
-    [[nodiscard]] std::string_view comment_marker() const;
-    [[nodiscard]] NumberType       number_type() const;
-    [[nodiscard]] bool             operator<(TokenKind const &rhs) const;
-    [[nodiscard]] bool             operator==(TokenKind const &rhs) const;
+    template <typename Value>
+    constexpr explicit TokenKind(KindTag tag, Value const& value)
+        : TaggedUnion(tag, value)
+    {
+    }
 
-private:
-    KindTag m_tag = KindTag::Null;
-    union {
-        bool             dummy { true };
-        std::string_view sv;
-        char             symbol;
-        NumberType       number_type;
-    } payload;
+    [[nodiscard]] constexpr char symbol() const
+    {
+        return get<KindTag::Symbol>();
+    }
+
+    [[nodiscard]] constexpr char quote() const
+    {
+        return get<KindTag::String>();
+    }
+
+    [[nodiscard]] constexpr std::string_view keyword() const
+    {
+        return get<KindTag::Keyword>();
+    }
+
+    [[nodiscard]] constexpr std::string_view comment_marker() const
+    {
+        return get<KindTag::Comment>();
+    }
+
+    [[nodiscard]] constexpr NumberType number_type() const
+    {
+        return get<KindTag::Number>();
+    }
 };
 
 struct Token {
@@ -433,7 +393,6 @@ inline std::optional<Token> decode(std::string_view s, ...)
 {
     va_list args;
     va_start(args, s);
-    Lexer const *lexer = va_arg(args, Lexer const *);
     auto         v = s;
     KindTag      k = KindTag::Identifier;
     if (auto colon = s.find(':'); colon != std::string_view::npos) {
@@ -455,10 +414,10 @@ inline std::optional<Token> decode(std::string_view s, ...)
             marker = v.substr(0, semicolon);
             v = s.substr(semicolon);
         }
-        return Token { TokenKind { Comment_Value, marker }, v };
+        return Token { TokenKind { KindTag::Comment, marker }, v };
     }
     case KindTag::Keyword: {
-        return Token { TokenKind { Keyword_Value, v }, v };
+        return Token { TokenKind { KindTag::Keyword, v }, v };
     }
     case KindTag::Number: {
         NumberType number_type = NumberType::Int;
@@ -468,12 +427,12 @@ inline std::optional<Token> decode(std::string_view s, ...)
             }
             v = s.substr(semicolon);
         }
-        return Token { TokenKind { number_type }, v };
+        return Token { TokenKind { KindTag::Number, number_type }, v };
     }
     case KindTag::String:
-        return Token { TokenKind { String_Value, !v.empty() ? v[0] : '"' }, v };
+        return Token { TokenKind { KindTag::String, !v.empty() ? v[0] : '"' }, v };
     case KindTag::Symbol:
-        return Token { TokenKind { Symbol_Value, v[0] }, v };
+        return Token { TokenKind { KindTag::Symbol, v[0] }, v };
     }
 }
 

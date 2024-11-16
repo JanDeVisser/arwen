@@ -13,22 +13,40 @@
 #include <variant>
 #include <vector>
 
-#include <Type/Type.h>
 #include <Lib.h>
 #include <Logging.h>
+#include <Type/Type.h>
 
 namespace Arwen {
 
-TypeRegistry::TypeRegistry() {
+TypeRegistry::TypeRegistry()
+{
 #undef S
-#define S(T, L, ...) register_type(Type { .name = #L, .typespec = Builtin { BasicType::T, sizeof(__VA_ARGS__), alignof(__VA_ARGS__) } });
+#define S(T, L, ...) register_type(   \
+    Type {                            \
+        .name = #L,                   \
+        .typespec = TypeSpec {        \
+            TypeKind::Primitive,      \
+            Primitive {               \
+                BasicType::T,         \
+                sizeof(__VA_ARGS__),  \
+                alignof(__VA_ARGS__), \
+            },                        \
+        } });
     PrimitiveTypes(S)
 #undef S
-    std::vector<std::pair<std::string, TypeReference>> string_fields {
-        std::make_pair("len", (*this)[PrimitiveType::U64].ref),
-        std::make_pair("ptr", *resolve_pointer((*this)[PrimitiveType::U8].ref)),
-    };
-    register_type(Type {.name = "string", .typespec = Object { std::move(string_fields) }});
+        std::vector<std::pair<std::string, TypeReference>>
+            string_fields {
+                std::make_pair("len", (*this)[PrimitiveType::U64].ref),
+                std::make_pair("ptr", *resolve_pointer((*this)[PrimitiveType::U8].ref)),
+            };
+    register_type(Type {
+        .name = "string",
+        .typespec = TypeSpec {
+            TypeKind::Object,
+            Object { std::move(string_fields) },
+        },
+    });
 }
 
 TypeReference TypeRegistry::register_type(Type t)
@@ -110,18 +128,21 @@ std::optional<TypeReference> TypeRegistry::resolve_pointer(TypeReference element
         return {};
     }
     for (auto const &t : types) {
-        if (!std::holds_alternative<Pointer>(t.typespec)) {
+        if (t.typespec.tag() != TypeKind::Pointer) {
             continue;
         }
-        auto const &arr = std::get<Pointer>(t.typespec);
+        auto const &arr = t.typespec.get<TypeKind::Pointer>();
         if (arr.element_type == element_type) {
             return t.ref;
         }
     }
-    return register_type({
+    return register_type(Type {
         .name = std::format("*{}", types[element_type].name),
-        .typespec = Pointer {
-            .element_type = element_type,
+        .typespec = TypeSpec {
+            TypeKind::Pointer,
+            Pointer {
+                .element_type = element_type,
+            },
         },
     });
 }
@@ -143,13 +164,13 @@ std::optional<TypeReference> TypeRegistry::resolve_object(Object const &obj)
                     return false;
                 },
             },
-            t.typespec);
+            t.typespec.payload());
         if (matches) {
             return t.ref;
         }
     }
     std::string name = "Object{";
-    auto first {true};
+    auto        first { true };
     for (auto const &fld : obj.fields) {
         auto const &t = types[fld.second];
         if (!first) {
@@ -159,9 +180,12 @@ std::optional<TypeReference> TypeRegistry::resolve_object(Object const &obj)
         first = false;
     }
     name += "}";
-    return register_type({
+    return register_type(Type {
         .name = name,
-        .typespec = obj,
+        .typespec = TypeSpec {
+            TypeKind::Object,
+            obj,
+        },
     });
 }
 

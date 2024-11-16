@@ -67,7 +67,7 @@ void arwen_main(int argc, char const **argv)
                     }
                     return ref;
                 });
-            binder.dump(bound_program, "Program");
+            binder.dump(*bound_program, "Program");
         }
     }
 }

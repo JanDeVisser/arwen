@@ -18,6 +18,7 @@ add_executable(
         src/ScopeGuard.h
         src/SimpleFormat.h
         src/Set.h
+        src/TaggedUnion.h
         src/Unescape.cpp
 
         src/Lexer/Config.cpp

@@ -383,10 +383,10 @@ inline BoundNodeReference rebind<BoundBinaryExpression>(Binder &binder, BoundNod
         switch (IMPL.op) {
         case BinaryOperator::MemberAccess: {
             auto left_type = binder.registry[*binder[IMPL.left].type];
-            if (!std::holds_alternative<Object>(left_type.typespec)) {
+            if (left_type.typespec.tag() == TypeKind::Object) {
                 return binder.add_error(ref, "Member access requires an object LHS value");
             }
-            auto const &obj = std::get<Object>(left_type.typespec);
+            auto const &obj = left_type.typespec.get<TypeKind::Object>();
             if (!std::holds_alternative<BoundMember>(binder[IMPL.right].impl)) {
                 return binder.add_error(ref, "Member access requires an identifier RHS value");
             }

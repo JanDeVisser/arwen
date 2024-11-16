@@ -21,6 +21,7 @@
 
 #include <Lib.h>
 #include <Logging.h>
+#include <TaggedUnion.h>
 
 namespace Arwen {
 
@@ -144,7 +145,19 @@ inline std::optional<PseudoType> decode(std::string_view s, ...)
 
 using TypeReference = size_t;
 
-struct Builtin {
+enum class TypeKind {
+    Primitive,
+    Alias,
+    Array,
+    Enum,
+    Object,
+    Pointer,
+    PointerToArray,
+    Slice,
+    Union,
+};
+
+struct Primitive {
     BasicType type;
     size_t    size;
     size_t    alignment;
@@ -186,9 +199,9 @@ struct Union {
     std::vector<std::pair<std::string, TypeReference>> fields;
 };
 
-using TypeSpec = std::variant<
+using TypeSpec = TaggedUnion<TypeKind,
     Alias,
-    Builtin,
+    Primitive,
     Array,
     Enum,
     Object,

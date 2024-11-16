@@ -130,7 +130,7 @@ struct std::formatter<Arwen::Set<T>, char> : public Arwen::SimpleFormatParser {
             if (!first) {
                 out << ",";
             }
-            out << ' ' << e;
+            out << ' ' << std::format("{}", e);
             first = false;
         }
         if (!first) {

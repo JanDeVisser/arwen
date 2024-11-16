@@ -33,7 +33,7 @@ std::optional<Token> Config::Comment::scan(Lexer &lexer) const
         if (auto p = lexer.source.find('\n'); p != std::string_view::npos) {
             len = p;
         }
-        Token ret = lexer.buildToken(len, { Comment_Value, "#!" });
+        Token ret = lexer.buildToken(len, TokenKind { KindTag::Comment, "#!" });
         lexer.location.line = 1;
         lexer.location.col = 0;
         return ret;
@@ -44,7 +44,7 @@ std::optional<Token> Config::Comment::scan(Lexer &lexer) const
             if (auto p = lexer.source.find('\n'); p != std::string_view::npos) {
                 len = p;
             }
-            Token ret = lexer.buildToken(len, TokenKind { Comment_Value, marker });
+            Token ret = lexer.buildToken(len, TokenKind { KindTag::Comment, lexer.source.substr(0, len) });
             lexer.location.line += 1;
             lexer.location.col = 0;
             return ret;
@@ -56,7 +56,7 @@ std::optional<Token> Config::Comment::scan(Lexer &lexer) const
             if (auto p = lexer.source.find(marker.end); p != std::string_view::npos) {
                 len = p;
             }
-            Token    ret = lexer.buildToken(len, TokenKind { Comment_Value, marker.start });
+            Token    ret = lexer.buildToken(len, TokenKind { KindTag::Comment, lexer.source.substr(0, len) });
             uint64_t newlines = 0;
             uint64_t last = len;
             for (auto ix = 0; ix < len; ++ix) {
@@ -148,13 +148,13 @@ std::optional<Token> Config::Number::scan(Lexer &lexer) const
         p += 1;
         if (p < lexer.source.length() && (lexer.source[p] == 'x' || lexer.source[p] == 'X')) {
             if (!this->hex) {
-                return lexer.buildToken(p, TokenKind { NumberType::Int });
+                return lexer.buildToken(p, TokenKind { KindTag::Number, NumberType::Int });
             }
             p += 1;
             t = NumberType::Hex;
         } else if (p < lexer.source.length() && (lexer.source[p] == 'b' || lexer.source[p] == 'B')) {
             if (!this->binary) {
-                return lexer.buildToken(p, TokenKind { NumberType::Int });
+                return lexer.buildToken(p, TokenKind { KindTag::Number, NumberType::Int });
             }
             p += 1;
             t = NumberType::Binary;
@@ -198,7 +198,7 @@ std::optional<Token> Config::Number::scan(Lexer &lexer) const
         }
     }
     if (digit_found) {
-        return lexer.buildToken(p, TokenKind { t });
+        return lexer.buildToken(p, TokenKind { KindTag::Number, t });
     }
     return {};
 }

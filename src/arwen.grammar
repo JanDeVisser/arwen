@@ -335,8 +335,8 @@ atom                        := ( expr )
                              | #float            [ make_float                ]
                              | '"'               [ make_qstring              ]
                              | '\''              [ make_char                 ]
-                             | "true"            [ make_bool: "Bool:true"    ]
-                             | "false"           [ make_bool: "Bool:false"   ]
+                             | "true"            [ make_bool: "bool:true"    ]
+                             | "false"           [ make_bool: "bool:false"   ]
                              | "null"            [ make_null                 ]
                              ;
 

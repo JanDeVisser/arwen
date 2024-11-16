@@ -37,7 +37,7 @@ GrammarParser::GrammarParser(std::string_view source)
         "#ident",
         "#int",
     });
-    lexer = Lexer { config, source },
+    lexer = Lexer { config, source, "Grammar" },
     lexer.ignored.insert(KindTag::Whitespace);
     lexer.ignored.insert(KindTag::Newline);
     lexer.ignored.insert(KindTag::Comment);
@@ -168,7 +168,7 @@ Error<GrammarParserError> GrammarParser::parse_non_terminal(Grammar &grammar)
                 lexer.advance();
                 break;
             default:
-                seq.symbols.emplace_back(TokenKind { Symbol_Value, t->kind.symbol() } );
+                seq.symbols.emplace_back(TokenKind { KindTag::Symbol, t->kind.symbol() } );
                 lexer.advance();
                 break;
             }
@@ -180,15 +180,15 @@ Error<GrammarParserError> GrammarParser::parse_non_terminal(Grammar &grammar)
         case KindTag::Keyword: {
             auto kw = t->kind.keyword();
             if (kw == "#ident") {
-                seq.symbols.emplace_back(TokenKind { Identifier_Value });
+                seq.symbols.emplace_back(TokenKind { KindTag::Identifier });
             } else if (kw == "#int") {
-                seq.symbols.emplace_back(TokenKind { NumberType::Int });
+                seq.symbols.emplace_back(TokenKind { KindTag::Number, NumberType::Int });
             } else if (kw == "#hex") {
-                seq.symbols.emplace_back(TokenKind { NumberType::Hex });
+                seq.symbols.emplace_back(TokenKind { KindTag::Number, NumberType::Hex });
             } else if (kw == "#binary") {
-                seq.symbols.emplace_back(TokenKind { NumberType::Binary });
+                seq.symbols.emplace_back(TokenKind { KindTag::Number, NumberType::Binary });
             } else if (kw == "#float") {
-                seq.symbols.emplace_back(TokenKind { NumberType::Float });
+                seq.symbols.emplace_back(TokenKind { KindTag::Number, NumberType::Float });
             } else {
                 return GrammarParserError::MalformedProduction;
             }
@@ -200,10 +200,10 @@ Error<GrammarParserError> GrammarParser::parse_non_terminal(Grammar &grammar)
                 switch (t->text[1]) {
                 case '"':
                 case '\'':
-                    seq.symbols.emplace_back(TokenKind { String_Value, t->text[1] });
+                    seq.symbols.emplace_back(TokenKind { KindTag::String, t->text[1] });
                     break;
                 default:
-                    seq.symbols.emplace_back(TokenKind { Symbol_Value, t->text[1] });
+                    seq.symbols.emplace_back(TokenKind { KindTag::Symbol, t->text[1] });
                     break;
                 }
                 lexer.advance();
@@ -211,7 +211,7 @@ Error<GrammarParserError> GrammarParser::parse_non_terminal(Grammar &grammar)
             case '"': {
                 auto kw = t->text.substr(1, t->text.length() - 2);
                 grammar.lexer.Keywords.add(kw);
-                seq.symbols.emplace_back(TokenKind { Keyword_Value, kw });
+                seq.symbols.emplace_back(TokenKind { KindTag::Keyword, kw });
                 lexer.advance();
             } break;
             default:

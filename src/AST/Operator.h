@@ -15,37 +15,37 @@
 #include <string_view>
 
 #include <Lexer/Lexer.h>
-#include <Type/Type.h>
 #include <Lib.h>
 #include <Logging.h>
+#include <Type/Type.h>
 #include <utility>
 
 namespace Arwen {
 
-#define BinaryOperators(S)                                    \
-    S(None, true, TokenKind { Null_Value })                   \
-    S(Add, true, TokenKind { Symbol_Value, '+' })             \
-    S(Assign, false, TokenKind { Symbol_Value, '=' })         \
-    S(BinaryAnd, true, TokenKind { Symbol_Value, '&' })       \
-    S(BinaryOr, true, TokenKind { Symbol_Value, '|' })        \
-    S(BinaryXor, true, TokenKind { Symbol_Value, '^' })       \
-    S(Call, false, TokenKind { Null_Value })                  \
-    S(Divide, true, TokenKind { Symbol_Value, '/' })          \
-    S(Equal, false, TokenKind { Keyword_Value, "==" })        \
-    S(Greater, false, TokenKind { Symbol_Value, '>' })        \
-    S(GreaterEqual, false, TokenKind { Keyword_Value, ">=" }) \
-    S(Less, false, TokenKind { Symbol_Value, '<' })           \
-    S(LessEqual, false, TokenKind { Keyword_Value, "<=" })    \
-    S(LogicalAnd, false, TokenKind { Keyword_Value, "&&" })   \
-    S(LogicalOr, false, TokenKind { Keyword_Value, "||" })    \
-    S(MemberAccess, true, TokenKind { Symbol_Value, '.' })    \
-    S(Modulo, true, TokenKind { Symbol_Value, '%' })          \
-    S(Multiply, true, TokenKind { Symbol_Value, '*' })        \
-    S(NotEqual, false, TokenKind { Keyword_Value, "!=" })     \
-    S(Shl, true, TokenKind { Keyword_Value, "<<" })           \
-    S(Shr, true, TokenKind { Keyword_Value, ">>" })           \
-    S(Subtract, true, TokenKind { Symbol_Value, '-' })        \
-    S(Subscript, false, TokenKind { Symbol_Value, '[' })
+#define BinaryOperators(S)                                       \
+    S(None, true, TokenKind { KindTag::Null })                   \
+    S(Add, true, TokenKind { KindTag::Symbol, '+' })             \
+    S(Assign, false, TokenKind { KindTag::Symbol, '=' })         \
+    S(BinaryAnd, true, TokenKind { KindTag::Symbol, '&' })       \
+    S(BinaryOr, true, TokenKind { KindTag::Symbol, '|' })        \
+    S(BinaryXor, true, TokenKind { KindTag::Symbol, '^' })       \
+    S(Call, false, TokenKind { KindTag::Null })                  \
+    S(Divide, true, TokenKind { KindTag::Symbol, '/' })          \
+    S(Equal, false, TokenKind { KindTag::Keyword, "==" })        \
+    S(Greater, false, TokenKind { KindTag::Symbol, '>' })        \
+    S(GreaterEqual, false, TokenKind { KindTag::Keyword, ">=" }) \
+    S(Less, false, TokenKind { KindTag::Symbol, '<' })           \
+    S(LessEqual, false, TokenKind { KindTag::Keyword, "<=" })    \
+    S(LogicalAnd, false, TokenKind { KindTag::Keyword, "&&" })   \
+    S(LogicalOr, false, TokenKind { KindTag::Keyword, "||" })    \
+    S(MemberAccess, true, TokenKind { KindTag::Symbol, '.' })    \
+    S(Modulo, true, TokenKind { KindTag::Symbol, '%' })          \
+    S(Multiply, true, TokenKind { KindTag::Symbol, '*' })        \
+    S(NotEqual, false, TokenKind { KindTag::Keyword, "!=" })     \
+    S(Shl, true, TokenKind { KindTag::Keyword, "<<" })           \
+    S(Shr, true, TokenKind { KindTag::Keyword, ">>" })           \
+    S(Subtract, true, TokenKind { KindTag::Symbol, '-' })        \
+    S(Subscript, false, TokenKind { KindTag::Symbol, '[' })
 
 enum class BinaryOperator {
 #undef S
@@ -325,14 +325,14 @@ struct BinaryOperatorMapping {
     }
 };
 
-#define UnaryOperators(S)                             \
-    S(None, TokenKind { Null_Value })                 \
-    S(AddressOf, TokenKind { Symbol_Value, '&' })     \
-    S(Deref, TokenKind { Symbol_Value, '*' })         \
-    S(Idempotent, TokenKind { Symbol_Value, '+' })    \
-    S(Invert, TokenKind { Symbol_Value, '~' })        \
-    S(LogicalNegate, TokenKind { Symbol_Value, '!' }) \
-    S(Negate, TokenKind { Symbol_Value, '-' })
+#define UnaryOperators(S)                                \
+    S(None, TokenKind { KindTag::Null })                 \
+    S(AddressOf, TokenKind { KindTag::Symbol, '&' })     \
+    S(Deref, TokenKind { KindTag::Symbol, '*' })         \
+    S(Idempotent, TokenKind { KindTag::Symbol, '+' })    \
+    S(Invert, TokenKind { KindTag::Symbol, '~' })        \
+    S(LogicalNegate, TokenKind { KindTag::Symbol, '!' }) \
+    S(Negate, TokenKind { KindTag::Symbol, '-' })
 
 enum class UnaryOperator {
 #undef S
