@@ -28,18 +28,30 @@ TypeRegistry::TypeRegistry()
         .typespec = TypeSpec {        \
             TypeKind::Primitive,      \
             Primitive {               \
-                BasicType::T,         \
+                PrimitiveType::T,     \
                 sizeof(__VA_ARGS__),  \
                 alignof(__VA_ARGS__), \
             },                        \
         } });
     PrimitiveTypes(S)
 #undef S
-        std::vector<std::pair<std::string, TypeReference>>
-            string_fields {
-                std::make_pair("len", (*this)[PrimitiveType::U64].ref),
-                std::make_pair("ptr", *resolve_pointer((*this)[PrimitiveType::U8].ref)),
-            };
+#undef S
+#define S(T, L, ...) register_type( \
+    Type {                          \
+        .name = #L,                 \
+        .typespec = TypeSpec {      \
+            TypeKind::Pseudo,       \
+            Pseudo {                \
+                PseudoType::T,      \
+            },                      \
+        } });
+        PseudoTypes(S)
+#undef S
+            std::vector<std::pair<std::string, TypeReference>>
+                string_fields {
+                    std::make_pair("len", (*this)[PrimitiveType::U64].ref),
+                    std::make_pair("ptr", *resolve_pointer((*this)[PrimitiveType::U8].ref)),
+                };
     register_type(Type {
         .name = "string",
         .typespec = TypeSpec {

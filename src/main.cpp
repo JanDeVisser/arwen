@@ -58,14 +58,13 @@ void arwen_main(int argc, char const **argv)
             p.impl.dump();
 
             Binder binder { p.impl.node_cache };
-            BoundNodeReference ref;
             auto bound_program = binder.bind(p.impl.program).on_error(
-                [&binder,&ref](auto) {
+                [&binder](auto) {
                     for (auto const& err : binder.errors) {
                         auto const &node = binder.bound_nodes[err];
                         std::println("{}: {}", node.location, std::get<BindError>(node.impl).message);
                     }
-                    return ref;
+                    return binder.entrypoint;
                 });
             binder.dump(*bound_program, "Program");
         }

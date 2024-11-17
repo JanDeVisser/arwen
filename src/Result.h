@@ -125,14 +125,9 @@ public:
     template<typename Catch>
     Result<ResultType, ErrorType> &on_error(Catch const &catch_)
     {
-        std::visit(
-            overload {
-                [this, &catch_](ErrorType &&value) {
-                    m_value = catch_(value);
-                },
-                [](ResultType &&value) {
-                } },
-            m_value);
+        if (std::holds_alternative<ErrorType>(m_value)) {
+            m_value = catch_(*this);
+        }
         return *this;
     }
 

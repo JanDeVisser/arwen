@@ -20,7 +20,7 @@ Error<bool> Program::generate(Binder &binder)
     if (!binder.entrypoint) {
         return false;
     }
-    auto const &program_impl = I(BoundProgram, *binder.entrypoint);
+    auto const &program_impl = I(BoundProgram, binder.entrypoint);
     for (auto mod_ref : program_impl.modules) {
         auto const &mod = I(BoundModule, mod_ref);
         modules.emplace_back(modules.size(), mod_ref, mod.name);

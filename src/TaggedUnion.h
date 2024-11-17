@@ -42,11 +42,11 @@ public:
         set<sizeof...(Types) - 1>(tag);
     }
 
-    template<typename Value>
-    constexpr explicit TaggedUnion(TagType tag, Value const &value)
+    template<typename... Args>
+    constexpr explicit TaggedUnion(TagType tag, Args&&... args)
     {
         assert(static_cast<size_t>(tag) < sizeof...(Types));
-        set<sizeof...(Types) - 1>(tag, value);
+        set<sizeof...(Types) - 1>(tag, std::forward<Args>(args)...);
     }
 
     [[nodiscard]] constexpr TagType tag() const
@@ -90,17 +90,17 @@ private:
         return *this;
     }
 
-    template<size_t Idx, typename Value>
-    constexpr TaggedUnion &set(TagType tag, Value const &value)
+    template<size_t Idx, typename... Args>
+    constexpr TaggedUnion &set(TagType tag, Args&& ...args)
     {
         if (static_cast<size_t>(tag) == Idx) {
-            if constexpr (std::is_same_v<Value, std::variant_alternative_t<Idx, Payload>>) {
-                m_payload.template emplace<Idx>(value);
+            if constexpr (std::is_constructible_v<std::variant_alternative_t<Idx, Payload>, Args...>) {
+                m_payload.template emplace<Idx>(std::forward<Args>(args)...);
             }
             return *this;
         }
         if constexpr (Idx > 0) {
-            return set<Idx - 1>(tag, value);
+            return set<Idx - 1>(tag, std::forward<Args>(args)...);
         }
         assert(false);
         return *this;

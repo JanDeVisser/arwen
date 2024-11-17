@@ -145,22 +145,33 @@ inline std::optional<PseudoType> decode(std::string_view s, ...)
 
 using TypeReference = size_t;
 
+#define TypeKinds(S) \
+    S(Primitive) \
+    S(Pseudo) \
+    S(Alias) \
+    S(Array) \
+    S(Enum) \
+    S(Object) \
+    S(Pointer) \
+    S(PointerToArray) \
+    S(Slice) \
+    S(Union) \
+
 enum class TypeKind {
-    Primitive,
-    Alias,
-    Array,
-    Enum,
-    Object,
-    Pointer,
-    PointerToArray,
-    Slice,
-    Union,
+#undef S
+#define S(K) K,
+    TypeKinds(S)
+#undef S
 };
 
 struct Primitive {
-    BasicType type;
+    PrimitiveType type;
     size_t    size;
     size_t    alignment;
+};
+
+struct Pseudo {
+    PseudoType type;
 };
 
 struct Alias {
@@ -200,15 +211,11 @@ struct Union {
 };
 
 using TypeSpec = TaggedUnion<TypeKind,
-    Alias,
-    Primitive,
-    Array,
-    Enum,
-    Object,
-    Pointer,
-    PointerToArray,
-    Slice,
-    Union>;
+#undef S
+#define S(K) K,
+    TypeKinds(S)
+#undef S
+    std::monostate>;
 
 struct Type {
     std::string   name;
