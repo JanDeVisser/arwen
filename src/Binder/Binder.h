@@ -7,14 +7,11 @@
 #pragma once
 
 #include <cstddef>
-#include <format>
-#include <ios>
 #include <iostream>
 #include <map>
 #include <optional>
 #include <string>
 #include <string_view>
-#include <type_traits>
 #include <typeindex>
 #include <variant>
 #include <vector>
@@ -28,6 +25,7 @@
 #include <Logging.h>
 #include <Result.h>
 #include <ScopeGuard.h>
+#include <TaggedUnion.h>
 #include <Unescape.h>
 
 namespace Arwen {
@@ -174,9 +172,13 @@ struct BoundVariableDeclaration {
     S(BoundUnaryExpression)      \
     S(BoundVariableDeclaration)
 
-using BoundNodeImpl = std::variant<
 #undef S
 #define S(T) T,
+enum class BoundNodeType {
+    BoundNodeImpls(S)
+};
+
+using BoundNodeImpl = std::variant<
     BoundNodeImpls(S)
 #undef S
         BindError>;
@@ -190,22 +192,7 @@ struct BoundNode {
     BoundNodeImpl                                 impl;
     static std::map<std::type_index, std::string> type_names;
 
-    [[nodiscard]] std::string_view type_name() const
-    {
-        if (type_names.empty()) {
-#undef S
-#define S(T) type_names[std::type_index(typeid(T))] = #T;
-            BoundNodeImpls(S)
-#undef S
-                type_names[std::type_index(typeid(BindError))]
-                = "BindError";
-        }
-        return std::visit([](auto impl) -> std::string_view {
-            using T = std::decay_t<decltype(impl)>;
-            return type_names[std::type_index(typeid(T))];
-        },
-            impl);
-    }
+    [[nodiscard]] std::string_view type_name() const;
 
     template<typename Impl>
     static BoundNode make(NodeReference ast_ref, Location location)
@@ -259,23 +246,16 @@ struct Binder {
     BoundNodeReference               bind_node(NodeReference ast_ref);
     BoundNodeReference               rebind_node(BoundNodeReference ref);
     Result<BoundNodeReference, bool> bind(NodeReference ast_entrypoint);
+    BoundNodeType                    type_of(NodeReference ref) const;
     void                             push_namespace(BoundNodeReference ref);
     void                             set_name(std::string_view name, BoundNodeReference ref);
     void                             pop_namespace();
     std::optional<NodeReference>     resolve(std::string_view name);
-    BoundNodeReference               add_error(BoundNodeReference ref, std::string const &message);
-    void                             dump(BoundNodeReference ref, std::string_view caption, int indent = 0);
-    void                             dump(std::optional<BoundNodeReference> ref, std::string_view caption, int indent);
-    void                             dump(BoundNodeReferences refs, std::string_view caption, int indent);
-    void                             list();
-
-    template<class Impl>
-    BoundNodeReference add_node(NodeReference ref, Location location)
-    {
-        bound_nodes.push_back(BoundNode::make<Impl>(ref, location));
-        bound_nodes.back().ref = bound_nodes.size() - 1;
-        return bound_nodes.back().ref;
-    }
+    void                             to_string(std::ostream &out, BoundNodeReference ref);
+    void                             dump(std::ostream &out, BoundNodeReference ref, std::string_view caption, int indent = 0);
+    void                             dump(std::ostream &out, std::optional<BoundNodeReference> ref, std::string_view caption, int indent);
+    void                             dump(std::ostream &out, BoundNodeReferences refs, std::string_view caption, int indent);
+    void                             list(std::ostream &out = std::cout);
 };
 
 #define I(Cls, Ref) (binder.impl<Cls>(Ref))

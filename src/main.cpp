@@ -14,6 +14,7 @@
 #include <Grammar/Grammar.h>
 #include <Grammar/Parser.h>
 #include <GrammarParser/GrammarParser.h>
+#include <IR/IR.h>
 
 #include <FileBuffer.h>
 #include <Lib.h>
@@ -55,18 +56,21 @@ void arwen_main(int argc, char const **argv)
         } else {
             std::println("{}", fb->contents());
             p.parse(fb->contents(), file_name).must();
-            p.impl.dump();
+//            p.impl.dump();
 
             Binder binder { p.impl.node_cache };
-            auto bound_program = binder.bind(p.impl.program).on_error(
-                [&binder](auto) {
+            auto bound_program = binder.bind(p.impl.program).must(
+                [&binder](auto const &e) {
                     for (auto const& err : binder.errors) {
                         auto const &node = binder.bound_nodes[err];
                         std::println("{}: {}", node.location, std::get<BindError>(node.impl).message);
                     }
                     return binder.entrypoint;
                 });
-            binder.dump(*bound_program, "Program");
+//            binder.dump(*bound_program, "Program");
+            Arwen::IR::Program ir { binder };
+            ir.generate().must();
+            ir.list();
         }
     }
 }

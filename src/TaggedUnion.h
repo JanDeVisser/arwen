@@ -43,7 +43,7 @@ public:
     }
 
     template<typename... Args>
-    constexpr explicit TaggedUnion(TagType tag, Args&&... args)
+    constexpr explicit TaggedUnion(TagType tag, Args &&...args)
     {
         assert(static_cast<size_t>(tag) < sizeof...(Types));
         set<sizeof...(Types) - 1>(tag, std::forward<Args>(args)...);
@@ -74,6 +74,12 @@ public:
     constexpr Payload       &payload() { return m_payload; }
     constexpr Payload const &payload() const { return m_payload; }
 
+    template<class T>
+    TaggedUnion &operator=(T &&t) noexcept
+    {
+        m_payload = t;
+    }
+
 private:
     Payload m_payload;
 
@@ -91,7 +97,7 @@ private:
     }
 
     template<size_t Idx, typename... Args>
-    constexpr TaggedUnion &set(TagType tag, Args&& ...args)
+    constexpr TaggedUnion &set(TagType tag, Args &&...args)
     {
         if (static_cast<size_t>(tag) == Idx) {
             if constexpr (std::is_constructible_v<std::variant_alternative_t<Idx, Payload>, Args...>) {

@@ -290,7 +290,7 @@ struct BinaryOperatorMapping {
             UNREACHABLE();
     }
 
-    std::optional<PrimitiveType> compatible(PrimitiveType const &lhs, PrimitiveType const &rhs)
+    std::optional<PrimitiveType> compatible(PrimitiveType const &lhs, PrimitiveType const &rhs) const
     {
         for (auto ix = 0; ix < binary_operator_compatibility_size; ++ix) {
             auto const &compatibility = binary_operator_compatibility[ix];
@@ -312,7 +312,7 @@ struct BinaryOperatorMapping {
         return {};
     }
 
-    std::optional<Value> operator()(Value const &v1, Value const &v2)
+    std::optional<Value> operator()(Value const &v1, Value const &v2) const
     {
         switch (op) {
 #undef S
@@ -444,7 +444,7 @@ struct UnaryOperatorMapping {
             UNREACHABLE();
     }
 
-    std::optional<PrimitiveType> compatible(PrimitiveType const &operand)
+    std::optional<PrimitiveType> compatible(PrimitiveType const &operand) const
     {
         for (auto ix = 0; ix < unary_operator_compatibility_size; ++ix) {
             auto const &compatibility = unary_operator_compatibility[ix];
@@ -463,7 +463,7 @@ struct UnaryOperatorMapping {
         return {};
     }
 
-    std::optional<Value> operator()(Value const &v)
+    std::optional<Value> operator()(Value const &v) const
     {
         switch (op) {
 #undef S

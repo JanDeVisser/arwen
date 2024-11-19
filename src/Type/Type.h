@@ -221,6 +221,11 @@ struct Type {
     std::string   name;
     TypeReference ref;
     TypeSpec      typespec;
+
+    bool is_assignable_to(TypeReference other)
+    {
+        return ref == other;
+    }
 };
 
 struct TypeRegistry {

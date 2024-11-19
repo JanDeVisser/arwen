@@ -357,10 +357,10 @@ private:
 template<>
 struct std::formatter<Arwen::ASTNodeKind, char> : public Arwen::SimpleFormatParser {
     template<class FmtContext>
-    FmtContext::iterator format(Arwen::ASTNodeKind const &node, FmtContext &ctx) const
+    FmtContext::iterator format(Arwen::ASTNodeKind const &k, FmtContext &ctx) const
     {
         std::ostringstream out;
-        out << Arwen::to_string(node);
+        out << Arwen::to_string(k);
         return std::ranges::copy(std::move(out).str(), ctx.out()).out;
     }
 };

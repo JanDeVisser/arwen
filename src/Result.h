@@ -92,34 +92,34 @@ public:
     }
 
     template<typename Catch>
-    ResultType &&must(Catch const &catch_)
+    ResultType &must(Catch const &catch_)
     {
-        return std::visit(
+        std::visit(
             overload {
-                [&catch_](ErrorType &&value) {
+                [this, &catch_](ErrorType const& value) {
                     if (R caught = catch_(value); caught.is_error()) {
                         fatal("Aborting: Result::must(): {}", caught.error());
                     } else {
-                        return std::move(caught.value());
+                        *this = caught;
                     }
                 },
-                [](ResultType &&value) -> R {
-                    return std::move(value);
+                [](ResultType const&) {
                 } },
             m_value);
+        return value();
     }
 
-    ResultType &&must()
+    ResultType &must()
     {
         return std::visit(
             overload {
-                [](ErrorType &&value) {
+                [](ErrorType const &value) {
                     fatal("Aborting: Result::must(): {}", value);
                 },
-                [](ResultType &&value) -> R {
-                    return std::move(value);
+                [](ResultType const &value) {
                 } },
             m_value);
+        return value();
     }
 
     template<typename Catch>
