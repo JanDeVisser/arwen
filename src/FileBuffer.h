@@ -11,8 +11,6 @@
 #include <cstring>
 #include <fcntl.h>
 #include <filesystem>
-#include <iostream>
-#include <memory>
 #include <string_view>
 #include <sys/fcntl.h>
 #include <sys/stat.h>
@@ -35,9 +33,9 @@ public:
 
 class FileBuffer {
 public:
-    FileBuffer(fs::path, char const *);
+    FileBuffer(fs::path, char const *, size_t);
 
-    FileBuffer(FileBuffer const&other) = default;
+    FileBuffer(FileBuffer const &other) = default;
 
     FileBuffer(FileBuffer &&other) noexcept
         : m_path(std::move(other.m_path))
@@ -48,8 +46,8 @@ public:
 
     ~FileBuffer();
 
-    template<typename Locator=SimpleBufferLocator>
-    static Result<FileBuffer> from_file(std::string_view file_name, Locator const &locator = Locator {})
+    template<typename Filter, typename Locator = SimpleBufferLocator>
+    static Result<FileBuffer> from_file_filter(std::string_view file_name, Filter const &filter, Locator const &locator = Locator {})
     {
         auto full_file_name = TRY_EVAL(locator.locate(file_name));
         auto fh = ::open(full_file_name.c_str(), O_RDONLY);
@@ -60,48 +58,40 @@ public:
         if (fh < 0) {
             return LibCError {};
         }
-        struct stat sb {};
+        struct stat sb { };
         if (auto rc = fstat(fh, &sb); rc < 0)
             return LibCError {};
         if (S_ISDIR(sb.st_mode))
             return LibCError(EISDIR);
 
-        auto size = sb.st_size;
+        size_t size = sb.st_size;
         auto buffer = new char[size + 1];
         if (auto rc = ::read(fh, (void *) buffer, size); rc < size) {
             return LibCError {};
         }
-        size_t dst = 0;
-        for (auto ix = 0; ix < size - 1; ) {
-            char ch = buffer[ix++];
-            if (ch == '\\' && ix < size - 1) {
-                ch = buffer[ix++];
-                switch (ch) {
-                case 'n':
-                    ch = '\n';
-                    break;
-                case 't':
-                    ch = '\t';
-                    break;
-                case 'r':
-                    ch = '\r';
-                    break;
-                default:
-                    break;
-                }
-            }
-            buffer[dst++] = ch;
-        }
-        buffer[dst] = 0;
-        return FileBuffer { full_file_name, buffer };
+        size = filter(buffer, size);
+        return FileBuffer { full_file_name, buffer, size };
+    }
+
+
+    template<typename Locator = SimpleBufferLocator>
+    static Result<FileBuffer> from_file(std::string_view file_name, Locator const &locator = Locator {})
+    {
+        return from_file_filter(
+            file_name,
+            [](char const *buffer, size_t size) -> size_t {
+                return size;
+            },
+            locator);
     }
 
     [[nodiscard]] std::string_view contents() const;
-    [[nodiscard]] fs::path const &file_path() const { return m_path; }
+    [[nodiscard]] fs::path const  &file_path() const { return m_path; }
 
 private:
     fs::path    m_path;
     char const *m_contents;
+    size_t      m_size;
 };
 
 }

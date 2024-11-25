@@ -22,13 +22,10 @@
 #include <Unescape.h>
 #include <Binder/Binder.h>
 #include <IR/Execute.h>
+#include <IR/Foreign.h>
 #include <IR/IR.h>
 #include <Type/Type.h>
 #include <Type/Value.h>
-
-namespace Arwen {
-Result<Value, ResolveError> foreign_call(std::string_view name, std::vector<Value> const &values, PrimitiveType ret_type);
-}
 
 namespace Arwen::IR {
 

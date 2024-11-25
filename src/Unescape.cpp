@@ -82,4 +82,31 @@ Result<std::optional<std::string>, UnescapeError> unescape(std::string_view s)
     return ret;
 }
 
+size_t unescape(char *buffer, size_t size)
+{
+    size_t dst = 0;
+    for (auto ix = 0; ix < size - 1;) {
+        char ch = buffer[ix++];
+        if (ch == '\\' && ix < size - 1) {
+            ch = buffer[ix++];
+            switch (ch) {
+            case 'n':
+                ch = '\n';
+                break;
+            case 't':
+                ch = '\t';
+                break;
+            case 'r':
+                ch = '\r';
+                break;
+            default:
+                break;
+            }
+        }
+        buffer[dst++] = ch;
+    }
+    buffer[dst] = 0;
+    return dst;
+}
+
 }

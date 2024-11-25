@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -21,5 +22,6 @@ enum class UnescapeError {
 };
 
 Result<std::optional<std::string>, UnescapeError> unescape(std::string_view s);
+size_t                                            unescape(char *buffer, size_t size);
 
 }

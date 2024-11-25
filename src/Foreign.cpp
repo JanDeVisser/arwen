@@ -16,6 +16,7 @@
 #include <Result.h>
 #include <Type/Type.h>
 #include <Type/Value.h>
+#include <IR/Foreign.h>
 
 struct Trampoline {
     void (*fnc)();
@@ -33,7 +34,6 @@ struct Trampoline {
 
 extern "C" {
 int trampoline(Trampoline *trampoline);
-void arwen$write();
 }
 
 namespace Arwen {

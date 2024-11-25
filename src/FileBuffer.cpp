@@ -5,12 +5,20 @@
  */
 
 #include <cerrno>
+#include <cstddef>
 #include <fcntl.h>
+#include <filesystem>
+#include <string_view>
+#include <sys/fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <utility>
 
+#include <Error.h>
 #include <FileBuffer.h>
 #include <Logging.h>
+#include <Result.h>
+#include <ScopeGuard.h>
 
 namespace Arwen {
 
@@ -38,9 +46,10 @@ Result<fs::path> SimpleBufferLocator::locate(std::string_view file_name) const
     return file_name;
 }
 
-FileBuffer::FileBuffer(fs::path path, char const *text)
+FileBuffer::FileBuffer(fs::path path, char const *text, size_t size)
     : m_contents(text)
     , m_path(std::move(path))
+    , m_size(size)
 {
 }
 
