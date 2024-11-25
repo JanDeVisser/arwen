@@ -10,7 +10,6 @@ namespace Arwen {
 
 Token::Token(TokenKind kind, std::string_view text)
     : location()
-    , raw_text(text)
     , text(text)
     , kind(kind)
 {

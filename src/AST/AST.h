@@ -18,43 +18,44 @@
 #include <variant>
 #include <vector>
 
-#include <Type/Type.h>
 #include <AST/Operator.h>
 #include <Grammar/Parser.h>
 #include <Lexer/Lexer.h>
 #include <Lib.h>
 #include <Logging.h>
+#include <Type/Type.h>
+#include <Unescape.h>
 
 namespace Arwen {
 
-#define ASTNodeKinds(S)     \
-    S(ArrayType)            \
-    S(AssignmentExpression) \
-    S(BasicTypeNode)        \
-    S(BinaryExpression)     \
-    S(Block)                \
-    S(BoolConstant)         \
-    S(ConstantDeclaration)  \
-    S(FloatConstant)        \
-    S(ForeignFunction)      \
-    S(Function)             \
-    S(FunctionCall)         \
-    S(FunctionDecl)         \
-    S(Identifier)           \
-    S(If)                   \
-    S(IntConstant)          \
-    S(Label)                \
-    S(Loop)                 \
-    S(Member)               \
-    S(Module)               \
-    S(Parameter)            \
-    S(PointerType)          \
-    S(Program)              \
-    S(QString)              \
-    S(Return)               \
-    S(StartBlock)           \
-    S(Subscript)            \
-    S(UnaryExpression)      \
+#define ASTNodeKinds(S)       \
+    S(ArrayType)              \
+    S(AssignmentExpression)   \
+    S(BasicTypeNode)          \
+    S(BinaryExpression)       \
+    S(Block)                  \
+    S(BoolConstant)           \
+    S(ConstantDeclaration)    \
+    S(FloatConstant)          \
+    S(ForeignFunction)        \
+    S(Function)               \
+    S(FunctionCall)           \
+    S(FunctionImplementation) \
+    S(Identifier)             \
+    S(If)                     \
+    S(IntConstant)            \
+    S(Label)                  \
+    S(Loop)                   \
+    S(Member)                 \
+    S(Module)                 \
+    S(Parameter)              \
+    S(PointerType)            \
+    S(Program)                \
+    S(Return)                 \
+    S(StartBlock)             \
+    S(StringConstant)         \
+    S(Subscript)              \
+    S(UnaryExpression)        \
     S(VariableDeclaration)
 
 enum class ASTNodeKind {
@@ -132,13 +133,14 @@ struct FloatConstant {
 };
 
 struct ForeignFunction {
-    NodeReference declaration;
-    NodeReference foreign_function;
+    std::string_view foreign_name;
 };
 
 struct Function {
-    NodeReference declaration;
-    NodeReference implementation;
+    std::string_view             name;
+    std::vector<NodeReference>   parameters;
+    std::optional<NodeReference> return_type;
+    NodeReference                implementation;
 };
 
 struct FunctionCall {
@@ -146,10 +148,8 @@ struct FunctionCall {
     std::vector<NodeReference> arguments;
 };
 
-struct FunctionDecl {
-    std::string_view             name;
-    std::vector<NodeReference>   parameters;
-    std::optional<NodeReference> return_type;
+struct FunctionImplementation {
+    NodeReference implementation;
 };
 
 struct Identifier {
@@ -203,8 +203,19 @@ struct Return {
 struct StartBlock {
 };
 
-struct StringConstant {
-    std::string value;
+class StringConstant {
+public:
+    StringConstant() = default;
+    StringConstant(StringConstant const &) = default;
+    StringConstant(std::string_view sv)
+    {
+        assert(sv.length() > 1 && sv[0] == sv[sv.length() - 1]);
+        quote = sv[0];
+        value = sv.substr(1, sv.size() - 2);
+    }
+
+    char             quote = 0;
+    std::string_view value = {};
 };
 
 struct Subscript {
@@ -234,7 +245,7 @@ using ASTNodeImpl = std::variant<
     ForeignFunction,
     Function,
     FunctionCall,
-    FunctionDecl,
+    FunctionImplementation,
     Identifier,
     If,
     IntConstant,
@@ -420,11 +431,24 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
         } break;
         case Arwen::ASTNodeKind::ForeignFunction: {
             auto &impl = std::get<Arwen::ForeignFunction>(node.impl);
-            out << std::format("{} -> {}\n", node.get_node(impl.declaration), node.get_node(impl.foreign_function));
+            out << std::format(" -> \"{}\"\n", impl.foreign_name);
         } break;
         case Arwen::ASTNodeKind::Function: {
             auto &impl = std::get<Arwen::Function>(node.impl);
-            out << std::format("{} \n{}\n", node.get_node(impl.declaration), node.get_node(impl.implementation));
+            out << std::format("func {}(", impl.name);
+            bool first { true };
+            for (auto &param : impl.parameters) {
+                if (!first) {
+                    out << ", ";
+                }
+                out << std::format("{}", node.get_node(param));
+                first = false;
+            }
+            out << ")";
+            if (impl.return_type) {
+                out << std::format(" {}", node.get_node(*impl.return_type));
+            }
+            out << std::format("\n{}", node.get_node(impl.implementation));
         } break;
         case Arwen::ASTNodeKind::FunctionCall: {
             auto &impl = std::get<Arwen::FunctionCall>(node.impl);
@@ -439,21 +463,9 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
             }
             out << ")";
         } break;
-        case Arwen::ASTNodeKind::FunctionDecl: {
-            auto &impl = std::get<Arwen::FunctionDecl>(node.impl);
-            out << std::format("func {}(", impl.name);
-            bool first { true };
-            for (auto &param : impl.parameters) {
-                if (!first) {
-                    out << ", ";
-                }
-                out << std::format("{}", node.get_node(param));
-                first = false;
-            }
-            out << ")";
-            if (impl.return_type) {
-                out << std::format(" {}", node.get_node(*impl.return_type));
-            }
+        case Arwen::ASTNodeKind::FunctionImplementation: {
+            auto &impl = std::get<Arwen::FunctionImplementation>(node.impl);
+            out << std::format("{}", node.get_node(impl.implementation));
         } break;
         case Arwen::ASTNodeKind::Identifier: {
             auto &impl = std::get<Arwen::Identifier>(node.impl);
@@ -472,6 +484,10 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
             auto &impl = std::get<Arwen::IntConstant>(node.impl);
             out << impl.value;
         } break;
+        // case Arwen::ASTNodeKind::Intrinsic: {
+        //     auto &impl = std::get<Arwen::ForeignFunction>(node.impl);
+        //     out << std::format(" -> {}\n", impl.foreign_name);
+        // } break;
         case Arwen::ASTNodeKind::Label: {
             auto &impl = std::get<Arwen::Label>(node.impl);
             out << std::format("#{}", impl.label);
@@ -504,16 +520,16 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
                 out << std::format("{}\n", node.get_node(decl));
             }
         } break;
-        case Arwen::ASTNodeKind::QString: {
-            auto &impl = std::get<Arwen::StringConstant>(node.impl);
-            out << impl.value;
-        } break;
         case Arwen::ASTNodeKind::Return: {
             auto &impl = std::get<Arwen::Return>(node.impl);
             out << "return";
             if (impl.expression) {
                 out << std::format(" {}", node.get_node(*impl.expression));
             }
+        } break;
+        case Arwen::ASTNodeKind::StringConstant: {
+            auto &impl = std::get<Arwen::StringConstant>(node.impl);
+            out << impl.quote << impl.value << impl.quote;
         } break;
         case Arwen::ASTNodeKind::Subscript: {
             auto &impl = std::get<Arwen::Subscript>(node.impl);

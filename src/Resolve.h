@@ -6,15 +6,20 @@
 
 #pragma once
 
+#include <algorithm>
 #include <filesystem>
+#include <format>
 #include <functional>
 #include <optional>
+#include <sstream>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 
 #include <Lib.h>
 #include <Logging.h>
 #include <Result.h>
+#include <utility>
 
 namespace Arwen {
 
@@ -26,11 +31,63 @@ constexpr static char const *ARWEN_INIT = "_arwen_init";
 using void_t = void (*)();
 using lib_handle_t = void *;
 
-enum ResolveError {
-    CouldNotFindLibrary,
-    DLError,
-    InvalidFunctionReference,
+#define ResolveErrorCodes(S)   \
+    S(CouldNotFindLibrary) \
+    S(DLError)             \
+    S(InvalidFunctionReference)
+
+enum ResolveErrorCode {
+#undef S
+#define S(E) E,
+    ResolveErrorCodes(S)
+#undef S
 };
+
+template<>
+inline std::string_view to_string(ResolveErrorCode const &e)
+{
+    switch (e) {
+#undef S
+#define S(E) \
+    case E:  \
+        return #E;
+        ResolveErrorCodes(S)
+#undef S
+            default : UNREACHABLE();
+    }
+}
+
+}
+
+template<>
+struct std::formatter<Arwen::ResolveErrorCode, char> : public Arwen::SimpleFormatParser {
+    template<class FmtContext>
+    FmtContext::iterator format(Arwen::ResolveErrorCode const &e, FmtContext &ctx) const
+    {
+        std::ostringstream out;
+        out << to_string(e);
+        return std::ranges::copy(std::move(out).str(), ctx.out()).out;
+    }
+};
+
+namespace Arwen {
+
+struct ResolveError {
+    ResolveErrorCode code;
+    std::string      message;
+
+    ResolveError(ResolveErrorCode c, std::string_view m)
+        : code(c)
+    {
+        message = std::format("{}: {}", code, m);
+    }
+};
+
+template<>
+inline std::string_view to_string(ResolveError const &e)
+{
+    return e.message;
+}
 
 using LibOpenResult = Result<lib_handle_t, ResolveError>;
 using ResolveResult = Result<void_t, ResolveError>;
@@ -49,14 +106,14 @@ struct FunctionName {
         std::string_view function;
         if (auto colon = uri.find(':'); colon != std::string::npos) {
             if (uri.find(':', colon + 1) != std::string::npos) {
-                return ResolveError::InvalidFunctionReference;
+                return ResolveError { ResolveErrorCode::InvalidFunctionReference, std::format("Invalid function reference '{}'", uri) };
             }
             lib_name = uri.substr(0, colon);
             function = uri.substr(colon + 1);
         } else {
             function = uri;
         }
-        return FunctionName{ std::string(lib_name), std::string(function) };
+        return FunctionName { std::string(lib_name), std::string(function) };
     }
 };
 
@@ -75,7 +132,7 @@ public:
     template<typename FncType>
     Result<std::function<FncType>, ResolveError> resolve(FunctionName const &func_name)
     {
-        return std::function<FncType> { (FncType*) TRY_EVAL(resolve_(func_name)) };
+        return std::function<FncType> { (FncType *) TRY_EVAL(resolve_(func_name)) };
     }
 
 private:
@@ -135,7 +192,7 @@ struct SearchingResolver {
     Result<std::function<FncType>, ResolveError> resolve(FunctionName func_name) const
     {
         auto &resolver = Resolver::get_resolver();
-        auto res = resolver.resolve<FncType>(func_name);
+        auto  res = resolver.resolve<FncType>(func_name);
         if (res.has_value() && res.value() != nullptr) {
             return res.value();
         }
@@ -156,3 +213,14 @@ struct SearchingResolver {
 };
 
 }
+
+template<>
+struct std::formatter<Arwen::ResolveError, char> : public Arwen::SimpleFormatParser {
+    template<class FmtContext>
+    FmtContext::iterator format(Arwen::ResolveError const &e, FmtContext &ctx) const
+    {
+        std::ostringstream out;
+        out << to_string(e);
+        return std::ranges::copy(std::move(out).str(), ctx.out()).out;
+    }
+};

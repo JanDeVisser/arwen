@@ -14,13 +14,25 @@
 #include <Grammar/Grammar.h>
 #include <Grammar/Parser.h>
 #include <GrammarParser/GrammarParser.h>
+#include <IR/Execute.h>
 #include <IR/IR.h>
 
 #include <FileBuffer.h>
 #include <Lib.h>
 #include <Options.h>
 
+extern "C" {
+    void arwen$write();
+
+    void unused_make_sure_rt_is_linked()
+    {
+        arwen$write();
+    }
+}
+
 namespace Arwen {
+
+using namespace Arwen::IR;
 
 #include <arwen.grammar>
 
@@ -29,10 +41,11 @@ void arwen_main(int argc, char const **argv)
     AppDescription app_descr {
         .name { "arwen" },
         .shortdescr { "Yet another stupid programming language" },
-        .description {"This is a language."},
+        .description { "This is a language." },
         .legal { "Licensed under the MIT License" },
         .options {
             CmdLineOption { .shortopt = 0, .longopt = "grammar-dump", .description = "Dump the grammar", .flags = 0 },
+            CmdLineOption { .shortopt = 'l', .longopt = "log", .description = "Turn on logging", .flags = 0 },
         },
         .flags = APP_FLAG_MANY_ARG,
     };
@@ -47,30 +60,36 @@ void arwen_main(int argc, char const **argv)
     if (app.options.contains("grammar-dump")) {
         grammar.dump();
     }
+    bool log = app.options.contains("log");
     Parser<ArwenParser> p { grammar };
-    p.log = true;
+    p.log = log;
     for (auto const file_name : app.args) {
         if (auto fb = FileBuffer::from_file(file_name); fb.is_error()) {
             std::println(stderr, "Error opening {}: {} ={}=", file_name, fb.error().to_string(), fs::current_path().string());
             exit(1);
         } else {
-            std::println("{}", fb->contents());
             p.parse(fb->contents(), file_name).must();
-//            p.impl.dump();
+            if (log) {
+                p.impl.dump();
+            }
 
             Binder binder { p.impl.node_cache };
-            auto bound_program = binder.bind(p.impl.program).must(
-                [&binder](auto const &e) {
-                    for (auto const& err : binder.errors) {
-                        auto const &node = binder.bound_nodes[err];
-                        std::println("{}: {}", node.location, std::get<BindError>(node.impl).message);
-                    }
-                    return binder.entrypoint;
-                });
-//            binder.dump(*bound_program, "Program");
+            binder.log = log;
+            auto   bound_program = binder.bind(p.impl.program).must([&binder](auto const &e) {
+                for (auto const &err : binder.errors) {
+                    auto const &node = binder.bound_nodes[err];
+                    std::println("{}: {}", node.location, std::get<BindError>(node.impl).message);
+                }
+                return binder.entrypoint;
+            });
             Arwen::IR::Program ir { binder };
             ir.generate().must();
-            ir.list();
+            if (log) {
+                ir.list();
+            }
+
+            Machine machine { ir };
+            machine.run();
         }
     }
 }

@@ -79,11 +79,11 @@ BinaryOperatorCompatibility constexpr binary_operator_compatibility[] = {
     { BinaryOperator::Multiply, BasicType::Numeric, BasicType::Numeric, BasicType::Numeric },
     { BinaryOperator::Divide, BasicType::Numeric, BasicType::Numeric, BasicType::Numeric },
     { BinaryOperator::Modulo, BasicType::Numeric, BasicType::Numeric, BasicType::Numeric },
-    { BinaryOperator::BinaryAnd, BasicType::Int, BasicType::Int, BasicType::Int },
-    { BinaryOperator::BinaryOr, BasicType::Int, BasicType::Int, BasicType::Int },
-    { BinaryOperator::BinaryXor, BasicType::Int, BasicType::Int, BasicType::Int },
-    { BinaryOperator::Shl, BasicType::Int, BasicType::Int, BasicType::Int },
-    { BinaryOperator::Shr, BasicType::Int, BasicType::Int, BasicType::Int },
+    { BinaryOperator::BinaryAnd, BasicType::U64, BasicType::U64, BasicType::U64 },
+    { BinaryOperator::BinaryOr, BasicType::U64, BasicType::U64, BasicType::U64 },
+    { BinaryOperator::BinaryXor, BasicType::U64, BasicType::U64, BasicType::U64 },
+    { BinaryOperator::Shl, BasicType::U64, BasicType::U64, BasicType::U64 },
+    { BinaryOperator::Shr, BasicType::U64, BasicType::U64, BasicType::U64 },
     { BinaryOperator::LogicalAnd, BasicType::Bool, BasicType::Bool, BasicType::Bool },
     { BinaryOperator::LogicalOr, BasicType::Bool, BasicType::Bool, BasicType::Bool },
     { BinaryOperator::Equal, BasicType::Any, BasicType::Self, BasicType::Bool },
@@ -295,7 +295,7 @@ struct BinaryOperatorMapping {
         for (auto ix = 0; ix < binary_operator_compatibility_size; ++ix) {
             auto const &compatibility = binary_operator_compatibility[ix];
             if (compatibility.op == op) {
-                if (is_a(lhs, compatibility.lhs) && is_a(rhs, compatibility.rhs)) {
+                if (is_a(static_cast<TypeReference>(lhs), compatibility.lhs) && is_a(static_cast<TypeReference>(rhs), compatibility.rhs)) {
                     switch (compatibility.result) {
                     case BasicType::Numeric:
                         return lhs == PrimitiveType::Float || rhs == PrimitiveType::Float
@@ -373,10 +373,10 @@ struct UnaryOperatorCompatibility {
 };
 
 UnaryOperatorCompatibility constexpr unary_operator_compatibility[] = {
-    { UnaryOperator::AddressOf, BasicType::Any, BasicType::Int },
+    { UnaryOperator::AddressOf, BasicType::Any, BasicType::U64 },
     { UnaryOperator::Deref, BasicType::Aggregate, BasicType::Any },
     { UnaryOperator::Idempotent, BasicType::Numeric, BasicType::Self },
-    { UnaryOperator::Invert, BasicType::Int, BasicType::Self },
+    { UnaryOperator::Invert, BasicType::U64, BasicType::Self },
     { UnaryOperator::LogicalNegate, BasicType::Bool, BasicType::Self },
     { UnaryOperator::Negate, BasicType::Numeric, BasicType::Self },
 };
@@ -449,7 +449,7 @@ struct UnaryOperatorMapping {
         for (auto ix = 0; ix < unary_operator_compatibility_size; ++ix) {
             auto const &compatibility = unary_operator_compatibility[ix];
             if (compatibility.op == op) {
-                if (is_a(operand, compatibility.operand)) {
+                if (is_a(static_cast<TypeReference>(operand), compatibility.operand)) {
                     switch (compatibility.result) {
                     case BasicType::Numeric:
                     case BasicType::Self:

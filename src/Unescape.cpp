@@ -6,7 +6,13 @@
 
 #include <cctype>
 #include <charconv>
+#include <cstddef>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <system_error>
 
+#include <Result.h>
 #include <Unescape.h>
 
 namespace Arwen {

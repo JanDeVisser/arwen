@@ -6,15 +6,20 @@
 
 #pragma once
 
+#include "Error.h"
 #include <cerrno>
+#include <cstring>
 #include <fcntl.h>
 #include <filesystem>
 #include <memory>
+#include <string_view>
+#include <sys/fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
 #include <Result.h>
 #include <ScopeGuard.h>
+#include <utility>
 
 namespace Arwen {
 
@@ -62,10 +67,33 @@ public:
 
         auto size = sb.st_size;
         auto buffer = new char[size + 1];
+        memset(buffer, 0, size+1);
         if (auto rc = ::read(fh, (void *) buffer, size); rc < size) {
             return LibCError {};
         }
-        buffer[size] = '\0';
+        for (auto ix = 0; ix < size - 1; ++ix) {
+            if (buffer[ix] == '\\') {
+                char ch = buffer[ix+1];
+                switch (ch) {
+                case 'n':
+                    ch = '\n';
+                    break;
+                case 't':
+                    ch = '\t';
+                    break;
+                case 'r':
+                    ch = '\r';
+                    break;
+                default:
+                    break;
+                }
+                buffer[ix] = ch;
+                ix += 1;
+                memmove(buffer+ix, buffer+(ix+1), size - ix - 1);
+                size -= 1;
+            }
+        }
+        buffer[size] = 0;
         return FileBuffer { full_file_name, buffer };
     }
 

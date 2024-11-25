@@ -9,15 +9,13 @@
 #include <algorithm>
 #include <cerrno>
 #include <charconv>
-#include <cmath>
-#include <cstdint>
 #include <cstdlib>
 #include <format>
-#include <ios>
 #include <optional>
+#include <ostream>
 #include <sstream>
-#include <string>
 #include <string_view>
+#include <system_error>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -26,109 +24,221 @@
 
 #include <Lib.h>
 #include <Logging.h>
+#include <SimpleFormat.h>
+#include <vector>
 
 namespace Arwen {
 
 template<typename T>
 concept Numeric = std::is_arithmetic_v<T> && !std::is_same_v<T, bool> && !std::is_same_v<T, std::monostate>;
 
-inline bool is_a(PrimitiveType concrete, BasicType abstract)
-{
-    switch (abstract) {
-    case BasicType::Any:
-        return true;
-    case BasicType::Numeric:
-        return concrete == PrimitiveType::Int || concrete == PrimitiveType::Float;
-    case BasicType::Aggregate:
-        return false;
-    case BasicType::Self:
-        UNREACHABLE();
-    default:
-        return static_cast<BasicType>(concrete) == abstract;
+struct SliceValue {
+    size_t      len;
+    char const *ptr;
+
+    SliceValue(size_t len, char const *ptr)
+        : len(len)
+        , ptr(ptr)
+    {
     }
-}
+
+    SliceValue(std::string_view const &sv)
+        : len(sv.length())
+        , ptr(sv.data())
+    {
+    }
+
+    [[nodiscard]] bool operator<(SliceValue const &rhs) const
+    {
+        std::string_view lhs_sv { ptr, len };
+        std::string_view rhs_sv { rhs.ptr, rhs.len };
+        return lhs_sv < rhs_sv;
+    }
+
+    [[nodiscard]] bool operator==(SliceValue const &rhs) const
+    {
+        std::string_view lhs_sv { ptr, len };
+        std::string_view rhs_sv { rhs.ptr, rhs.len };
+        return lhs_sv == rhs_sv;
+    }
+};
+
+using Val = std::variant<
+#undef S
+#define S(T, L, ...) __VA_ARGS__,
+    PrimitiveTypes(S)
+#undef S
+        SliceValue>;
+
+using Vals = std::vector<Val>;
 
 class Value {
 public:
+#undef S
+#define S(T, L, ...) constexpr static TypeReference T##Type = static_cast<TypeReference>(PrimitiveType::T);
+    PrimitiveTypes(S)
+#undef S
+        constexpr static TypeReference StringType
+        = static_cast<TypeReference>(BuiltinType::String);
+    constexpr static TypeReference IntType = static_cast<TypeReference>(BuiltinType::Int);
+    constexpr static TypeReference SliceKind = static_cast<TypeReference>(PrimitiveType::ConstPtr) + 1;
+
     constexpr Value() = default;
 
-    constexpr Value(Numeric auto val)
+#define ValueConstructors(S)     \
+    S(Bool, bool)                \
+    S(Double, f64)               \
+    S(Float, f32)                \
+    S(U8, u8)                    \
+    S(I8, i8)                    \
+    S(U16, u16)                  \
+    S(I16, i16)                  \
+    S(U32, u32)                  \
+    S(I32, i32)                  \
+    S(U64, u64)                  \
+    S(I64, i64)                  \
+    S(Ptr, void *)               \
+    S(ConstPtr, void const *)    \
+    S(Ptr, std::integral auto *) \
+    S(ConstPtr, std::integral auto const *)
+
+#undef S
+#define S(T, ...)                  \
+    constexpr Value(__VA_ARGS__ v) \
+        : m_type(T##Type)          \
+    {                              \
+        m_payload = Val { v };     \
+    }
+    ValueConstructors(S)
+#undef S
+
+        Value(std::string_view v)
+        : m_type(StringType)
     {
-        using T = std::decay_t<decltype(val)>;
-        if (std::is_floating_point_v<T>) {
-            m_type = PrimitiveType::Float;
-            m_payload = static_cast<double>(val);
-        } else if (std::is_integral_v<T>) {
-            m_type = PrimitiveType::Int;
-            m_payload = static_cast<int64_t>(val);
-        } else {
-            UNREACHABLE();
-        }
+        m_payload = Val { SliceValue { v } };
     }
 
-    constexpr Value(bool b)
-        : m_type(PrimitiveType::Bool)
-        , m_payload(b)
+    [[nodiscard]] constexpr TypeReference type() const
     {
+        return m_type;
     }
 
-    [[nodiscard]] constexpr PrimitiveType type() const
+    [[nodiscard]] constexpr size_t index() const
     {
-        return static_cast<PrimitiveType>(m_payload.index());
+        return m_payload.index();
     }
 
     [[nodiscard]] constexpr bool operator<(Arwen::Value const &rhs) const
     {
-        if (is_null()) {
-            return !rhs.is_null();
-        }
-        return m_payload < rhs.m_payload;
+        return std::visit(
+            overload {
+                [](Val const &lhs, Val const &rhs) {
+                    return lhs < rhs;
+                },
+                [](Vals const &lhs, Vals const &rhs) {
+                    return lhs < rhs;
+                },
+                [](auto const &, auto const &) {
+                    return false;
+                } },
+            m_payload, rhs.m_payload);
     }
 
     [[nodiscard]] constexpr bool operator==(Value const &rhs) const
     {
-        if (is_null()) {
-            return rhs.is_null();
-        }
-        if (rhs.is_null()) {
-            return false;
-        }
-        return !(*this < rhs) && !(rhs < *this);
+        return std::visit(
+            overload {
+                [](Val const &lhs, Val const &rhs) {
+                    return lhs == rhs;
+                },
+                [](Vals const &lhs, Vals const &rhs) {
+                    return lhs == rhs;
+                },
+                [](auto const &, auto const &) {
+                    return false;
+                },
+            },
+            m_payload, rhs.m_payload);
     }
 
     [[nodiscard]] constexpr bool is_null() const
     {
-        return type() == PrimitiveType::Null;
+        return type() == NullType;
     }
 
     [[nodiscard]] constexpr bool is_bool() const
     {
-        return type() == PrimitiveType::Bool;
+        return type() == BoolType;
     }
 
     [[nodiscard]] constexpr bool is_int() const
     {
-        return type() == PrimitiveType::Int;
+        return type() >= U8Type && type() <= I64Type;
     }
 
     [[nodiscard]] constexpr bool is_float() const
     {
-        return type() == PrimitiveType::Float;
+        return type() == FloatType || type() == DoubleType;
     }
 
     [[nodiscard]] constexpr bool as_bool() const
     {
-        return std::get<bool>(m_payload);
+        return std::get<bool>(std::get<Val>(m_payload));
     }
 
-    [[nodiscard]] constexpr int64_t as_int() const
+    template<TypeReference Tag>
+    constexpr std::variant_alternative_t<static_cast<std::size_t>(Tag), Val> get() const
     {
-        return std::get<int64_t>(m_payload);
+        return std::get<static_cast<std::size_t>(Tag)>(std::get<Val>(m_payload));
     }
 
-    [[nodiscard]] constexpr double as_float() const
+    template<typename T>
+    [[nodiscard]] constexpr T value() const
     {
-        return (is_float()) ? std::get<double>(m_payload) : static_cast<double>(as_int());
+        if constexpr (std::is_same_v<T, bool>) {
+            return std::get<static_cast<std::size_t>(BoolType)>(std::get<Val>(m_payload));
+        }
+        if constexpr (std::is_same_v<T, u8>) {
+            return std::get<static_cast<std::size_t>(U8Type)>(std::get<Val>(m_payload));
+        }
+        if constexpr (std::is_same_v<T, i8>) {
+            return std::get<static_cast<std::size_t>(I8Type)>(std::get<Val>(m_payload));
+        }
+        if constexpr (std::is_same_v<T, u16>) {
+            return std::get<static_cast<std::size_t>(U16Type)>(std::get<Val>(m_payload));
+        }
+        if constexpr (std::is_same_v<T, i16>) {
+            return std::get<static_cast<std::size_t>(I16Type)>(std::get<Val>(m_payload));
+        }
+        if constexpr (std::is_same_v<T, u32>) {
+            return std::get<static_cast<std::size_t>(U32Type)>(std::get<Val>(m_payload));
+        }
+        if constexpr (std::is_same_v<T, i32>) {
+            return std::get<static_cast<std::size_t>(I32Type)>(std::get<Val>(m_payload));
+        }
+        if constexpr (std::is_same_v<T, u64>) {
+            return std::get<static_cast<std::size_t>(U64Type)>(std::get<Val>(m_payload));
+        }
+        if constexpr (std::is_same_v<T, i64>) {
+            return std::get<static_cast<std::size_t>(I64Type)>(std::get<Val>(m_payload));
+        }
+        if constexpr (std::is_same_v<T, double>) {
+            return std::get<static_cast<std::size_t>(DoubleType)>(std::get<Val>(m_payload));
+        }
+        if constexpr (std::is_same_v<T, float>) {
+            return std::get<static_cast<std::size_t>(FloatType)>(std::get<Val>(m_payload));
+        }
+        if constexpr (std::is_same_v<T, void *>) {
+            return std::get<static_cast<std::size_t>(PtrType)>(std::get<Val>(m_payload));
+        }
+        if constexpr (std::is_same_v<T, void const *>) {
+            return std::get<static_cast<std::size_t>(ConstPtrType)>(std::get<Val>(m_payload));
+        }
+        if constexpr (std::is_same_v<T, std::string_view>) {
+            auto const &slice = std::get<static_cast<std::size_t>(SliceKind)>(std::get<Val>(m_payload));
+            return { slice.ptr, slice.len };
+        }
+        UNREACHABLE();
     }
 
     [[nodiscard]] constexpr bool is_numeric() const
@@ -136,243 +246,56 @@ public:
         return is_int() || is_float();
     }
 
-    [[nodiscard]] constexpr bool is_truthy() const
-    {
-        if (is_bool()) {
-            return as_bool();
-        }
-        if (is_numeric()) {
-            return as_int() != 0;
-        }
-        return false;
-    }
+    [[nodiscard]] std::optional<Value> add(Value const &other) const;
+    [[nodiscard]] std::optional<Value> subtract(Value const &other) const;
+    [[nodiscard]] std::optional<Value> multiply(Value const &other) const;
+    [[nodiscard]] std::optional<Value> divide(Value const &other) const;
+    [[nodiscard]] std::optional<Value> modulo(Value const &other) const;
+    [[nodiscard]] std::optional<Value> shl(Value const &other) const;
+    [[nodiscard]] std::optional<Value> shr(Value const &other) const;
+    [[nodiscard]] std::optional<Value> binary_or(Value const &other) const;
+    [[nodiscard]] std::optional<Value> binary_and(Value const &other) const;
+    [[nodiscard]] std::optional<Value> binary_xor(Value const &other) const;
+    [[nodiscard]] std::optional<Value> logical_or(Value const &other) const;
+    [[nodiscard]] std::optional<Value> logical_and(Value const &other) const;
+    [[nodiscard]] std::optional<Value> idempotent() const;
+    [[nodiscard]] std::optional<Value> negate() const;
+    [[nodiscard]] std::optional<Value> logical_negate() const;
+    [[nodiscard]] std::optional<Value> invert() const;
 
-    [[nodiscard]] constexpr bool is_falsy() const
-    {
-        return !is_truthy();
-    }
-
-    [[nodiscard]] constexpr std::optional<Value> add(Value const &other) const
-    {
-        return std::visit(
-            overload {
-                [](Numeric auto v1, Numeric auto v2) -> std::optional<Value> {
-                    return Value { v1 + v2 };
-                },
-                [](auto, auto) -> std::optional<Value> {
-                    return {};
-                } },
-            m_payload, other.m_payload);
-    }
-
-    [[nodiscard]] constexpr std::optional<Value> subtract(Value const &other) const
-    {
-        return std::visit(
-            overload {
-                [](Numeric auto v1, Numeric auto v2) -> std::optional<Value> {
-                    return Value { v1 - v2 };
-                },
-                [](auto, auto) -> std::optional<Value> {
-                    return {};
-                } },
-            m_payload, other.m_payload);
-    }
-
-    [[nodiscard]] constexpr std::optional<Value> multiply(Value const &other) const
-    {
-        return std::visit(
-            overload {
-                [](Numeric auto v1, Numeric auto v2) -> std::optional<Value> {
-                    return Value { v1 * v2 };
-                },
-                [](auto, auto) -> std::optional<Value> {
-                    return {};
-                } },
-            m_payload, other.m_payload);
-    }
-
-    [[nodiscard]] constexpr std::optional<Value> divide(Value const &other) const
-    {
-        return std::visit(
-            overload {
-                [](Numeric auto v1, Numeric auto v2) -> std::optional<Value> {
-                    return Value { v1 / v2 };
-                },
-                [](auto, auto) -> std::optional<Value> {
-                    return {};
-                } },
-            m_payload, other.m_payload);
-    }
-
-    [[nodiscard]] constexpr std::optional<Value> modulo(Value const &other) const
-    {
-        return std::visit(
-            overload {
-                [](int64_t v1, int64_t v2) -> std::optional<Value> {
-                    return Value { v1 % v2 };
-                },
-                [](Numeric auto v1, Numeric auto v2) -> std::optional<Value> {
-                    return Value { fmod(v1, v2) };
-                },
-                [](auto, auto) -> std::optional<Value> {
-                    return {};
-                } },
-            m_payload, other.m_payload);
-    }
-
-    [[nodiscard]] constexpr std::optional<Value> shl(Value const &other) const
-    {
-        return std::visit(
-            overload {
-                [](int64_t v1, int64_t v2) -> std::optional<Value> {
-                    return Value { v1 << v2 };
-                },
-                [](auto, auto) -> std::optional<Value> {
-                    return {};
-                },
-            },
-            m_payload, other.m_payload);
-    }
-
-    [[nodiscard]] constexpr std::optional<Value> shr(Value const &other) const
-    {
-        return std::visit(
-            overload {
-                [](int64_t v1, int64_t v2) -> std::optional<Value> {
-                    return Value { v1 >> v2 };
-                },
-                [](auto, auto) -> std::optional<Value> {
-                    return {};
-                } },
-            m_payload, other.m_payload);
-    }
-
-    [[nodiscard]] constexpr std::optional<Value> binary_or(Value const &other) const
-    {
-        return std::visit(
-            overload {
-                [](int64_t v1, int64_t v2) -> std::optional<Value> {
-                    return Value { v1 | v2 };
-                },
-                [](auto, auto) -> std::optional<Value> {
-                    return {};
-                } },
-            m_payload, other.m_payload);
-    }
-
-    [[nodiscard]] constexpr std::optional<Value> binary_and(Value const &other) const
-    {
-        return std::visit(
-            overload {
-                [](int64_t v1, int64_t v2) -> std::optional<Value> {
-                    return Value { v1 & v2 };
-                },
-                [](auto, auto) -> std::optional<Value> {
-                    return {};
-                } },
-            m_payload, other.m_payload);
-    }
-
-    [[nodiscard]] constexpr std::optional<Value> binary_xor(Value const &other) const
-    {
-        return std::visit(
-            overload {
-                [](int64_t v1, int64_t v2) -> std::optional<Value> {
-                    return Value { v1 ^ v2 };
-                },
-                [](auto, auto) -> std::optional<Value> {
-                    return {};
-                } },
-            m_payload, other.m_payload);
-    }
-
-    [[nodiscard]] constexpr std::optional<Value> logical_or(Value const &other) const
-    {
-        return std::visit(
-            overload {
-                [](bool v1, bool v2) -> std::optional<Value> {
-                    return Value { v1 || v2 };
-                },
-                [](auto, auto) -> std::optional<Value> {
-                    return {};
-                } },
-            m_payload, other.m_payload);
-    }
-
-    [[nodiscard]] constexpr std::optional<Value> logical_and(Value const &other) const
-    {
-        return std::visit(
-            overload {
-                [](bool v1, bool v2) -> std::optional<Value> {
-                    return Value { v1 && v2 };
-                },
-                [](auto, auto) -> std::optional<Value> {
-                    return {};
-                } },
-            m_payload, other.m_payload);
-    }
-
-    [[nodiscard]] constexpr std::optional<Value> idempotent() const
-    {
-        return std::visit(
-            overload {
-                [](Numeric auto v) -> std::optional<Value> {
-                    return Value { v };
-                },
-                [](auto) -> std::optional<Value> {
-                    return {};
-                } },
-            m_payload);
-    }
-
-    [[nodiscard]] constexpr std::optional<Value> negate() const
-    {
-        return std::visit(
-            overload {
-                [](Numeric auto v) -> std::optional<Value> {
-                    return Value { -v };
-                },
-                [](auto) -> std::optional<Value> {
-                    return {};
-                } },
-            m_payload);
-    }
-
-    [[nodiscard]] constexpr std::optional<Value> logical_negate() const
-    {
-        return std::visit(
-            overload {
-                [](bool v) -> std::optional<Value> {
-                    return Value { !v };
-                },
-                [](auto) -> std::optional<Value> {
-                    return {};
-                } },
-            m_payload);
-    }
-
-    [[nodiscard]] constexpr std::optional<Value> invert() const
-    {
-        return std::visit(
-            overload {
-                [](int64_t v) -> std::optional<Value> {
-                    return Value { ~v };
-                },
-                [](auto) -> std::optional<Value> {
-                    return {};
-                } },
-            m_payload);
-    }
+    using Payload = std::variant<Val, Vals>;
 
 private:
-    PrimitiveType              m_type { PrimitiveType::Null };
-    std::optional<std::string> m_str {};
-    std::variant<
-#undef S
-#define S(T, L, ...) __VA_ARGS__,
-        PrimitiveTypes(S)
-            std::monostate>
-        m_payload {};
+    TypeReference m_type { NullType };
+    Payload       m_payload {};
+};
+
+template<typename T>
+std::optional<Value> parse(std::string_view val_str)
+{
+    UNREACHABLE();
+}
+
+template<std::floating_point T = double>
+auto parse(std::string_view val_str) -> std::optional<Value>
+{
+    char *end;
+    T     result = std::strtod(val_str.data(), &end);
+    if (errno == ERANGE || (result == 0 && end == val_str.data())) {
+        return {};
+    }
+    return Value { result };
+};
+
+template<std::integral T = i64>
+std::optional<Value> parse(std::string_view val_str)
+{
+    T result;
+    auto [ptr, ec] = std::from_chars(val_str.data(), val_str.data() + val_str.size(), result);
+    if (ec != std::errc()) {
+        return {};
+    }
+    return Value { result };
 };
 
 template<>
@@ -385,22 +308,26 @@ inline std::optional<Value> decode(std::string_view s, ...)
             switch (*m_type) {
             case PrimitiveType::Bool:
                 return Value { iequals(val_str, "true") };
-            case PrimitiveType::Int: {
-                int64_t result {};
-                auto [ptr, ec] = std::from_chars(val_str.data(), val_str.data() + val_str.size(), result);
-                if (ec != std::errc()) {
-                    return {};
-                }
-                return Value { result };
-            }
-            case PrimitiveType::Float: {
-                char  *end;
-                double flt = std::strtod(val_str.data(), &end);
-                if (errno == ERANGE || (flt == 0 && end == val_str.data())) {
-                    return {};
-                }
-                return Value { flt };
-            }
+            case PrimitiveType::U8:
+                return parse<u8>(val_str);
+            case PrimitiveType::I8:
+                return parse<i8>(val_str);
+            case PrimitiveType::U16:
+                return parse<u16>(val_str);
+            case PrimitiveType::I16:
+                return parse<i16>(val_str);
+            case PrimitiveType::U32:
+                return parse<u32>(val_str);
+            case PrimitiveType::I32:
+                return parse<i32>(val_str);
+            case PrimitiveType::U64:
+                return parse<u64>(val_str);
+            case PrimitiveType::I64:
+                return parse<i64>(val_str);
+            case PrimitiveType::Double:
+                return parse<f64>(val_str);
+            case PrimitiveType::Float:
+                return parse<f32>(val_str);
             default:
                 UNREACHABLE();
             }
@@ -408,8 +335,24 @@ inline std::optional<Value> decode(std::string_view s, ...)
     }
     return {};
 }
-
 }
+
+inline std::ostream &operator<<(std::ostream &os, std::monostate const &)
+{
+    os << "{null}";
+    return os;
+}
+
+template<>
+struct std::formatter<std::monostate, char> : public Arwen::SimpleFormatParser {
+    template<class FmtContext>
+    FmtContext::iterator format(std::monostate const &v, FmtContext &ctx) const
+    {
+        std::ostringstream out;
+        out << "{null}";
+        return std::ranges::copy(std::move(out).str(), ctx.out()).out;
+    }
+};
 
 template<>
 struct std::formatter<Arwen::Value, char> : public Arwen::SimpleFormatParser {
@@ -417,20 +360,20 @@ struct std::formatter<Arwen::Value, char> : public Arwen::SimpleFormatParser {
     FmtContext::iterator format(Arwen::Value const &v, FmtContext &ctx) const
     {
         std::ostringstream out;
+        out << std::format("[{}, {}] ", v.type(), v.index());
         switch (v.type()) {
-        case Arwen::PrimitiveType::Null:
-            break;
-        case Arwen::PrimitiveType::Bool:
-            out << ios::boolalpha << v.as_bool();
-            break;
-        case Arwen::PrimitiveType::Int:
-            out << v.as_int();
-            break;
-        case Arwen::PrimitiveType::Float:
-            out << v.as_float();
+#undef S
+#define S(T, L, ...)                                      \
+    case Arwen::Value::T##Type:                           \
+        out << std::format("{}", v.value<__VA_ARGS__>()); \
+        break;
+        PrimitiveTypes(S)
+#undef S
+            case Arwen::Value::StringType:
+            out << std::format("{}", v.value<std::string_view>());
             break;
         default:
-            UNREACHABLE();
+            fatal("Cannot format value of type [{}, {}]", v.type(), v.index());
         }
         return std::ranges::copy(std::move(out).str(), ctx.out()).out;
     }

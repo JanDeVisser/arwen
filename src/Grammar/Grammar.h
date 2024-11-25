@@ -132,7 +132,7 @@ struct GrammarAction {
     Error<GrammarError> call(Parser &parser) const
     {
         auto         fnc = TRY_EVAL(action<Parser>(parser.grammar.resolver));
-        Value const *d = (data.type() != PrimitiveType::Null) ? &data : nullptr;
+        Value const *d = (data.type() != Value::NullType) ? &data : nullptr;
         fnc(&parser, d);
         return {};
     }

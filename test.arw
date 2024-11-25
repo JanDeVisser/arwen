@@ -1,7 +1,7 @@
-func write(fd: int, bytes: *u8, num: u64) i64 -> "libc:write"
+func write(fd: u32, bytes: *u8, num: u64) i64 -> "arwen$write"
 
 func print(s: string) {
-    write(0, s.ptr, s.len);
+    write(1, ptr(s), len(s));
 }
 
 func println(s: string) {
@@ -10,5 +10,5 @@ func println(s: string) {
 }
 
 func main() {
-    println("1234");
+    println("Hello, World!");
 }

@@ -41,10 +41,12 @@ using Ref = size_t;
     S(BinaryOperation)    \
     S(Call)               \
     S(ForeignCall)        \
+    S(Intrinsic)          \
     S(Jump)               \
     S(JumpF)              \
     S(JumpT)              \
     S(Label)              \
+    S(PopVariable)        \
     S(PushBoolean)        \
     S(PushFloat)          \
     S(PushInt)            \
@@ -59,16 +61,26 @@ enum class OperationType {
 #undef S
 };
 
+struct Function;
+struct Module;
+struct Program;
+
 struct BinaryOperation {
     BinaryOperator op;
 };
 
 struct Call {
-    std::string function;
+    std::string_view   name;
+    BoundNodeReference decl;
 };
 
 struct ForeignCall {
-    std::string foreign_function;
+    std::string_view   name;
+    BoundNodeReference decl;
+};
+
+struct Intrinsic {
+    std::string_view   name;
 };
 
 struct Jump {
@@ -87,6 +99,10 @@ struct Label {
     std::string_view name;
 };
 
+struct PopVariable {
+    std::string_view name;
+};
+
 struct PushBoolean {
     bool value;
 };
@@ -100,25 +116,27 @@ struct PushInt {
 };
 
 struct PushString {
-    std::string value;
+    std::string_view value;
 };
 
 struct PushVariableRef {
-    std::string name;
+    std::string_view name;
 };
 
 struct PushVariableValue {
-    std::string name;
+    std::string_view name;
 };
 
 using Op = std::variant<
     BinaryOperation,
     Call,
     ForeignCall,
+    Intrinsic,
     Jump,
     JumpF,
     JumpT,
     Label,
+    PopVariable,
     PushBoolean,
     PushFloat,
     PushInt,
@@ -146,7 +164,19 @@ inline void to_string(std::ostream &out, BinaryOperation const &op)
 template<>
 inline void to_string(std::ostream &out, Call const &op)
 {
-    out << op.function;
+    out << op.name;
+}
+
+template<>
+inline void to_string(std::ostream &out, ForeignCall const &op)
+{
+    out << op.name;
+}
+
+template<>
+inline void to_string(std::ostream &out, Intrinsic const &op)
+{
+    out << op.name;
 }
 
 template<>
@@ -156,9 +186,9 @@ inline void to_string(std::ostream &out, Label const &op)
 }
 
 template<>
-inline void to_string(std::ostream &out, ForeignCall const &op)
+inline void to_string(std::ostream &out, PopVariable const &op)
 {
-    out << op.foreign_function;
+    out << op.name;
 }
 
 template<>
@@ -212,6 +242,7 @@ inline void to_string(std::ostream &out, PushVariableValue const &op)
 }
 
 struct Function {
+    Program               &program;
     Ref                    ref;
     BoundNodeReference     bound_ref;
     std::string_view       name;
@@ -221,19 +252,20 @@ struct Function {
 };
 
 struct Module {
-    Ref                        ref;
-    BoundNodeReference         bound_ref;
-    std::string_view           name;
-    std::vector<Function>      functions;
-    std::map<std::string, Ref> function_refs;
+    Program                        &program;
+    Ref                             ref;
+    BoundNodeReference              bound_ref;
+    std::string_view                name;
+    std::vector<Function>           functions;
+    std::map<std::string_view, Ref> function_refs;
 
-    void list(Binder& binder) const;
+    void list(Binder &binder) const;
 };
 
 struct Program {
-    Binder                    &binder;
-    std::vector<Module>        modules;
-    std::map<std::string, Ref> module_refs;
+    Binder                         &binder;
+    std::vector<Module>             modules;
+    std::map<std::string_view, Ref> module_refs;
 
     Error<bool> generate();
     void        list() const;

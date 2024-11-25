@@ -9,7 +9,6 @@
 #include <cstdio>
 #include <optional>
 #include <print>
-#include <string>
 #include <string_view>
 #include <vector>
 
@@ -33,7 +32,7 @@ std::vector<ASTNodeKind> expressionKinds = {
     ASTNodeKind::Identifier,
     ASTNodeKind::IntConstant,
     ASTNodeKind::Member,
-    ASTNodeKind::QString,
+    ASTNodeKind::StringConstant,
     ASTNodeKind::UnaryExpression,
 };
 
@@ -42,6 +41,13 @@ std::array<ASTNodeKind, 3> typeKinds = {
     ASTNodeKind::ArrayType,
     ASTNodeKind::PointerType,
 };
+
+void list_cache(ArwenParser const &parser)
+{
+    for (auto const &node : parser.node_cache) {
+        std::println("{:4}. {:20}{:20}", node.ref, to_string(node.kind), to_string(static_cast<ASTNodeKind>(node.impl.index())));
+    }
+}
 
 ASTNode::ASTNode(ASTNodeKind kind, ASTNodeImpl impl)
     : kind(kind)
@@ -70,7 +76,7 @@ void ArwenParser::startup(std::string_view buffer)
     if (mod.ends_with(".arw") || mod.ends_with(".ARW")) {
         mod = mod.substr(0, mod.length() - 4);
     }
-    auto &module_node = push_node({buffer}, ASTNodeKind::Module, Module { mod });
+    auto &module_node = push_node({ buffer }, ASTNodeKind::Module, Module { mod });
     module = module_node.ref;
     auto &program_node = get_typed_node(program, ASTNodeKind::Program);
     auto &program_impl = std::get<Program>(program_node.impl);
@@ -107,18 +113,18 @@ ASTNode const &ArwenParser::peek_node() const
 
 ASTNode &ArwenParser::pop_node()
 {
-    dump_node_stack("pop_node");
     if (node_stack.empty()) {
         fatal("node_stack underflow");
     }
     auto ret = node_stack.back();
     node_stack.pop_back();
+    dump_node_stack("pop_node");
+    // list_cache(*this);
     return get_node(ret);
 }
 
 ASTNode &ArwenParser::pop_typed_node(ASTNodeKind kind)
 {
-    dump_node_stack("pop_typed_node");
     auto &ret = pop_node();
     if (ret.kind == kind) {
         return ret;
@@ -128,7 +134,6 @@ ASTNode &ArwenParser::pop_typed_node(ASTNodeKind kind)
 
 std::optional<ASTNode> ArwenParser::try_pop_typed_node(ASTNodeKind kind)
 {
-    dump_node_stack("pop_typed_node_optional");
     auto &top = peek_node();
     if (top.kind == kind) {
         return pop_node();
@@ -148,6 +153,8 @@ ASTNode const &ArwenParser::push_node(Location location, ASTNodeKind kind, ASTNo
 {
     auto const &ret = make_node(location, kind, impl);
     node_stack.push_back(ret.ref);
+    dump_node_stack("push_node");
+    // list_cache(*this);
     return ret;
 }
 
@@ -174,6 +181,7 @@ NodeReference ArwenParser::cache_node(ASTNode const &n)
     n_.ref = node_cache.size();
     n_.parser = this;
     node_cache.push_back(n_);
+    assert(node_cache.size() == n_.ref + 1);
     return n_.ref;
 }
 
@@ -243,7 +251,7 @@ void ArwenParser::dump_node_stack(std::string_view caption) const
 
 void ArwenParser::dump()
 {
-    auto const& program_node = get_node(program);
+    auto const &program_node = get_node(program);
     std::println("{}", program_node);
 }
 
@@ -275,7 +283,7 @@ extern "C" {
     if (parser->last_token.tag() != KindTag::String) {
         fatal("Expected quoted string, got '{s}'", parser->last_token.kind);
     }
-    parser->impl.push_node(parser->last_token.location, ASTNodeKind::QString, StringConstant { std::string { parser->last_token.text } });
+    parser->impl.push_node(parser->last_token.location, ASTNodeKind::StringConstant, StringConstant { parser->last_token.text });
 }
 
 [[maybe_unused]] void arwen_make_int(P *parser)
@@ -313,7 +321,7 @@ extern "C" {
     if (!data) {
         fatal("Expected boolean Value as argument");
     }
-    if (data->type() != PrimitiveType::Bool) {
+    if (data->type() != Value::BoolType) {
         fatal("Expected boolean Value as argument, got '{}'", data->type());
     }
     parser->impl.push_node(parser->last_token.location, ASTNodeKind::BoolConstant, BoolConstant { data->as_bool() });
@@ -488,10 +496,10 @@ void make_function_decl_(P *parser, std::optional<NodeReference> return_type)
     }
     std::reverse(params.begin(), params.end());
     auto &name = parser->impl.pop_typed_node(ASTNodeKind::Identifier);
-    parser->impl.push_node(
+    auto &ret = parser->impl.push_node(
         name.location,
-        ASTNodeKind::FunctionDecl,
-        FunctionDecl {
+        ASTNodeKind::Function,
+        Function {
             .name = std::get<Identifier>(name.impl).text,
             .parameters = params,
             .return_type = return_type,
@@ -511,35 +519,31 @@ void make_function_decl_(P *parser, std::optional<NodeReference> return_type)
 [[maybe_unused]] void arwen_make_function(P *parser)
 {
     auto &block = parser->impl.pop_typed_node(ASTNodeKind::Block);
-    auto &decl = parser->impl.pop_typed_node(ASTNodeKind::FunctionDecl);
-    auto  func = parser->impl.push_node(
-        decl.location,
-        ASTNodeKind::Function,
-        Function {
-             .declaration = decl.ref,
-             .implementation = block.ref,
+    auto &decl = parser->impl.pop_typed_node(ASTNodeKind::Function);
+    auto &function_impl = parser->impl.make_node(
+        block.location,
+        ASTNodeKind::FunctionImplementation,
+        FunctionImplementation {
+            .implementation = block.ref,
         });
-    parser->impl.pop_node();
+    std::get<Function>(decl.impl).implementation = function_impl.ref;
     auto &module_node = parser->impl.get_typed_node(*parser->impl.module, ASTNodeKind::Module);
     auto &mod = std::get<Module>(module_node.impl);
-    mod.names.push_back(func.ref);
+    mod.names.push_back(decl.ref);
 }
 
 [[maybe_unused]] void arwen_make_foreign_function(P *parser)
 {
-    auto &foreign_func = parser->impl.pop_typed_node(ASTNodeKind::QString);
-    auto &decl = parser->impl.pop_typed_node(ASTNodeKind::FunctionDecl);
-    auto  func = parser->impl.push_node(
-        decl.location,
+    auto &foreign_func = parser->impl.pop_typed_node(ASTNodeKind::StringConstant);
+    auto  decl_ref = parser->impl.pop_typed_node(ASTNodeKind::Function).ref;
+    auto &foreign_func_node = parser->impl.make_node(
+        foreign_func.location,
         ASTNodeKind::ForeignFunction,
-        ForeignFunction {
-             .declaration = decl.ref,
-             .foreign_function = foreign_func.ref,
-        });
-    parser->impl.pop_node();
+        ForeignFunction { std::get<StringConstant>(foreign_func.impl).value });
+    std::get<Function>(parser->impl.get_node(decl_ref).impl).implementation = foreign_func_node.ref;
     auto &module_node = parser->impl.get_typed_node(*parser->impl.module, ASTNodeKind::Module);
     auto &mod = std::get<Module>(module_node.impl);
-    mod.names.push_back(func.ref);
+    mod.names.push_back(decl_ref);
 }
 
 [[maybe_unused]] void arwen_start_block(P *parser)
@@ -679,5 +683,4 @@ void make_function_decl_(P *parser, std::optional<NodeReference> return_type)
             .subscripts = subscripts,
         });
 }
-
 }

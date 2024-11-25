@@ -18,11 +18,6 @@
 
 namespace Arwen {
 
-template<class... Ts>
-struct overload : Ts... {
-    using Ts::operator()...;
-};
-
 template<typename ResultType, typename ErrorType = LibCError>
 class [[nodiscard]] Result {
 public:
@@ -92,34 +87,26 @@ public:
     }
 
     template<typename Catch>
-    ResultType &must(Catch const &catch_)
+    ResultType const& must(Catch const &catch_)
     {
         std::visit(
             overload {
                 [this, &catch_](ErrorType const& value) {
                     if (R caught = catch_(value); caught.is_error()) {
-                        fatal("Aborting: Result::must(): {}", caught.error());
+                        fatal("Aborting: Result::must() failed");
                     } else {
-                        *this = caught;
+                        *this = std::move(caught);
                     }
                 },
-                [](ResultType const&) {
+                [](ResultType const& value) {
                 } },
             m_value);
         return value();
     }
 
-    ResultType &must()
+    ResultType const &must()
     {
-        return std::visit(
-            overload {
-                [](ErrorType const &value) {
-                    fatal("Aborting: Result::must(): {}", value);
-                },
-                [](ResultType const &value) {
-                } },
-            m_value);
-        return value();
+        return must([](ErrorType const &error) -> R { return error; });
     }
 
     template<typename Catch>

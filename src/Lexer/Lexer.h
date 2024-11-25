@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <cerrno>
 #include <charconv>
-#include <concepts>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdlib>
@@ -180,7 +179,6 @@ struct TokenKind : TaggedUnion<KindTag, std::monostate, std::string_view, std::m
 
 struct Token {
     Location         location {};
-    std::string_view raw_text {};
     std::string_view text {};
     TokenKind        kind {};
 
@@ -369,7 +367,6 @@ public:
     Location                 location = {};
     std::optional<Token>     current = {};
     bool                     exhausted = false;
-    std::vector<std::string> unescaped_strings = {};
 
     Lexer() = default;
     Lexer(Config &config, std::string_view source, std::string_view buffer = "");
@@ -383,9 +380,6 @@ public:
     std::optional<Token>        accept_identifier();
     Arwen::Error<Lexer::Error>  expect_symbol(char symbol);
     bool                        accept_symbol(char symbol);
-
-private:
-    std::string_view unescape(std::string_view s);
 };
 
 template<>

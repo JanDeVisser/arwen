@@ -4,7 +4,15 @@
 // SPDX-License-Identifier: MIT
 //
 
+#include <cctype>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <string_view>
+
 #include <Lexer/Lexer.h>
+#include <Logging.h>
+#include <Result.h>
 #include <Unescape.h>
 
 namespace Arwen {
@@ -27,20 +35,10 @@ Lexer::Lexer(Config &config, std::string_view source, std::string_view buffer)
     }
 }
 
-std::string_view Lexer::unescape(std::string_view s)
-{
-    if (auto unesc = Arwen::unescape(s); unesc.has_value() && unesc.value()) {
-        unescaped_strings.push_back(*unesc.value());
-        return unescaped_strings[this->unescaped_strings.size() - 1];
-    }
-    return s;
-}
-
 Token Lexer::buildToken(uint64_t len, Arwen::TokenKind kind)
 {
-    current = Token { kind, unescape((source.empty() || len == 0) ? "" : source.substr(0, len)) };
+    current = Token { kind, (source.empty() || len == 0) ? "" : source.substr(0, len) };
     current->location = location;
-    current->raw_text = (source.empty() || len == 0) ? "" : source.substr(0, len);
     return *current;
 }
 
@@ -50,8 +48,8 @@ void Lexer::advance()
         UNREACHABLE();
     }
     Token token = *current;
-    location.pos += token.raw_text.length();
-    source = source.substr(token.raw_text.length());
+    location.pos += token.text.length();
+    source = source.substr(token.text.length());
     current = {};
 }
 

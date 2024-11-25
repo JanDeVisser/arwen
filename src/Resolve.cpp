@@ -4,12 +4,21 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <cstdlib>
 #include <dlfcn.h>
+#include <filesystem>
+#include <format>
+#include <iostream>
 #include <mutex>
+#include <optional>
+#include <ostream>
+#include <string>
+#include <string_view>
 
 #include <Lib.h>
 #include <Logging.h>
 #include <Resolve.h>
+#include <Result.h>
 
 namespace Arwen {
 
@@ -69,7 +78,7 @@ LibOpenResult Resolver::Library::try_open(fs::path const &dir)
     if (auto lib_handle = dlopen((!image.empty()) ? path.c_str() : nullptr, RTLD_NOW | RTLD_GLOBAL); lib_handle != nullptr) {
         return lib_handle;
     }
-    return ResolveError::CouldNotFindLibrary;
+    return ResolveError { ResolveErrorCode::CouldNotFindLibrary, std::format("Could not find library '{}' at location '{}'", m_image, dir.string()) };
 }
 
 LibOpenResult Resolver::Library::search_and_open()
@@ -94,7 +103,7 @@ LibOpenResult Resolver::Library::search_and_open()
             return ret;
         }
     }
-    return ResolveError::CouldNotFindLibrary;
+    return ResolveError { ResolveErrorCode::CouldNotFindLibrary, std::format("Could not find library '{}'", m_image) };
 }
 
 LibOpenResult Resolver::Library::open()
@@ -105,18 +114,14 @@ LibOpenResult Resolver::Library::open()
     if (!ret.is_error()) {
         m_handle = ret.value();
         if (!image.empty()) {
-            auto result = get_function(ARWEN_INIT);
-            if (result.has_value()) {
-                (result.value())();
-            } else {
-                log_error("resolve_open('{s}') Error finding initializer", to_string());
-                m_my_error = result.error();
-                return *m_my_error;
+            auto result = TRY_EVAL(get_function(ARWEN_INIT));
+            if (result != nullptr) {
+                result();
             }
         }
         return m_handle;
     } else {
-        log_error("Resolver::Library::open('{s}') FAILED", to_string());
+        std::println(std::cerr, "Resolver::Library::open('{}') FAILED", to_string());
         m_my_error = ret.error();
         return ret;
     }
@@ -133,15 +138,17 @@ ResolveResult Resolver::Library::get_function(std::string const &function_name)
 
     if (!res) {
         std::string err = dlerror();
-
         // 'undefined symbol' is returned with an empty result pointer
 #ifdef __APPLE__
         if (err.find("symbol not found") == std::string::npos) {
 #else
         if (err.find("undefined symbol") == std::string::npos) {
 #endif
-            return ResolveError::DLError;
+            std:;println(std::cerr, "Resolver::Library::get_function('{}') Error finding function: {}", function_name, err);
+            m_my_error = { ResolveErrorCode::DLError, std::format("Error finding function '{}': {}", function_name, err) };
+            return *m_my_error;
         } else {
+            // std:;println(std::cerr, "Resolver::Library::get_function('{}') dlerror(): {}", function_name, err);
             return ResolveResult {};
         }
     }

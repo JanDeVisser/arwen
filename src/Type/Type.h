@@ -23,8 +23,6 @@
 #include <Logging.h>
 #include <TaggedUnion.h>
 
-namespace Arwen {
-
 using u8 = uint8_t;
 using i8 = int8_t;
 using u16 = uint16_t;
@@ -36,12 +34,13 @@ using i64 = int64_t;
 using f32 = float;
 using f64 = double;
 
+namespace Arwen {
+
 #define PrimitiveTypes(S)         \
     S(Null, null, std::monostate) \
     S(Bool, bool, bool)           \
     S(Double, f64, f64)           \
     S(Float, f32, f32)            \
-    S(Int, int, int)              \
     S(U8, u8, u8)                 \
     S(I8, i8, i8)                 \
     S(U16, u16, u16)              \
@@ -49,7 +48,9 @@ using f64 = double;
     S(U32, u32, u32)              \
     S(I32, i32, i32)              \
     S(U64, u64, u64)              \
-    S(I64, i64, i64)
+    S(I64, i64, i64)              \
+    S(Ptr, ptr, void *)           \
+    S(ConstPtr, const_ptr, void const *)
 
 #define PseudoTypes(S)                 \
     S(Aggregate, aggregate, aggregate) \
@@ -82,6 +83,15 @@ enum class BasicType {
 #define S(T, L, ...) T,
     BasicTypes(S)
 #undef S
+};
+
+enum class BuiltinType {
+#undef S
+#define S(T, L, ...) T,
+    BasicTypes(S)
+#undef S
+        String,
+    Int,
 };
 
 template<>
@@ -145,17 +155,17 @@ inline std::optional<PseudoType> decode(std::string_view s, ...)
 
 using TypeReference = size_t;
 
-#define TypeKinds(S) \
-    S(Primitive) \
-    S(Pseudo) \
-    S(Alias) \
-    S(Array) \
-    S(Enum) \
-    S(Object) \
-    S(Pointer) \
+#define TypeKinds(S)  \
+    S(Primitive)      \
+    S(Pseudo)         \
+    S(Alias)          \
+    S(Array)          \
+    S(Enum)           \
+    S(Object)         \
+    S(Pointer)        \
     S(PointerToArray) \
-    S(Slice) \
-    S(Union) \
+    S(Slice)          \
+    S(Union)
 
 enum class TypeKind {
 #undef S
@@ -166,8 +176,8 @@ enum class TypeKind {
 
 struct Primitive {
     PrimitiveType type;
-    size_t    size;
-    size_t    alignment;
+    size_t        size;
+    size_t        alignment;
 };
 
 struct Pseudo {
@@ -215,17 +225,16 @@ using TypeSpec = TaggedUnion<TypeKind,
 #define S(K) K,
     TypeKinds(S)
 #undef S
-    std::monostate>;
+        std::monostate>;
 
 struct Type {
     std::string   name;
     TypeReference ref;
     TypeSpec      typespec;
 
-    bool is_assignable_to(TypeReference other)
-    {
-        return ref == other;
-    }
+    [[nodiscard]] bool        is_numeric() const;
+    [[nodiscard]] Type const &decay() const;
+    [[nodiscard]] bool        is_assignable_to(Type const &other) const;
 };
 
 struct TypeRegistry {
@@ -249,6 +258,13 @@ private:
     std::map<std::string, size_t> index;
     std::vector<Type>             types;
 };
+
+inline bool is_a(TypeReference concrete, BasicType abstract)
+{
+    auto const &registry = TypeRegistry::the();
+    assert(registry.has(concrete));
+    return registry[concrete].is_assignable_to(registry[abstract]);
+}
 
 }
 

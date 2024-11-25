@@ -67,36 +67,43 @@ struct BoundConstantDeclaration {
 };
 
 struct BoundForeignFunction {
+    std::string_view   foreign_name;
     BoundNodeReference declaration;
-    BoundNodeReference foreign_function;
 };
 
 struct BoundFunction {
-    BoundNodeReference declaration;
-    BoundNodeReference implementation;
+    std::string_view                  name;
+    BoundNodeReferences               parameters;
+    std::optional<BoundNodeReference> return_type;
+    BoundNodeReference                implementation;
 };
 
 struct BoundFunctionCall {
     std::string_view                  name;
-    std::optional<BoundNodeReference> function;
+    std::optional<BoundNodeReference> function = {};
     BoundNodeReferences               arguments;
 };
 
-struct BoundFunctionDecl {
-    std::string_view                  name;
-    BoundNodeReferences               parameters;
-    std::optional<BoundNodeReference> return_type;
+struct BoundFunctionImplementation {
+    std::string_view   name;
+    BoundNodeReference declaration;
+    BoundNodeReference implementation;
 };
 
 struct BoundIdentifier {
-    std::string_view   name;
-    BoundNodeReference declaration;
+    std::string_view                  name;
+    std::optional<BoundNodeReference> declaration = {};
 };
 
 struct BoundIf {
     BoundNodeReference                condition;
     BoundNodeReference                true_branch;
     std::optional<BoundNodeReference> false_branch;
+};
+
+struct BoundIntrinsic {
+    std::string_view   name;
+    BoundNodeReference declaration;
 };
 
 struct BoundLoop {
@@ -118,7 +125,7 @@ struct BoundParameter {
 };
 
 struct BoundPointerType {
-    TypeReference element_type;
+    BoundNodeReference element_type;
 };
 
 struct BoundProgram {
@@ -144,32 +151,33 @@ struct BoundVariableDeclaration {
     std::optional<BoundNodeReference> initializer;
 };
 
-#define BoundNodeImpls(S)        \
-    S(BoundArrayType)            \
-    S(BoundAssignmentExpression) \
-    S(BasicTypeNode)             \
-    S(BoundBinaryExpression)     \
-    S(BoundBlock)                \
-    S(BoolConstant)              \
-    S(BoundConstantDeclaration)  \
-    S(FloatConstant)             \
-    S(BoundForeignFunction)      \
-    S(BoundFunction)             \
-    S(BoundFunctionCall)         \
-    S(BoundFunctionDecl)         \
-    S(BoundIdentifier)           \
-    S(BoundIf)                   \
-    S(IntConstant)               \
-    S(BoundLoop)                 \
-    S(BoundMember)               \
-    S(BoundModule)               \
-    S(BoundParameter)            \
-    S(BoundPointerType)          \
-    S(BoundProgram)              \
-    S(BoundReturn)               \
-    S(StringConstant)            \
-    S(BoundSubscript)            \
-    S(BoundUnaryExpression)      \
+#define BoundNodeImpls(S)          \
+    S(BoundArrayType)              \
+    S(BoundAssignmentExpression)   \
+    S(BasicTypeNode)               \
+    S(BoundBinaryExpression)       \
+    S(BoundBlock)                  \
+    S(BoolConstant)                \
+    S(BoundConstantDeclaration)    \
+    S(FloatConstant)               \
+    S(BoundForeignFunction)        \
+    S(BoundFunction)               \
+    S(BoundFunctionCall)           \
+    S(BoundFunctionImplementation) \
+    S(BoundIdentifier)             \
+    S(BoundIf)                     \
+    S(BoundIntrinsic)              \
+    S(IntConstant)                 \
+    S(BoundLoop)                   \
+    S(BoundMember)                 \
+    S(BoundModule)                 \
+    S(BoundParameter)              \
+    S(BoundPointerType)            \
+    S(BoundProgram)                \
+    S(BoundReturn)                 \
+    S(StringConstant)              \
+    S(BoundSubscript)              \
+    S(BoundUnaryExpression)        \
     S(BoundVariableDeclaration)
 
 #undef S
@@ -225,6 +233,7 @@ struct Binder {
     BoundNodeReferences         errors;
     size_t                      unbound { 0 };
     BoundNodeReference          entrypoint;
+    bool                        log { false };
 
     explicit Binder(std::vector<ASTNode> const &ast)
         : registry(TypeRegistry::the())
@@ -243,7 +252,7 @@ struct Binder {
         return bound_nodes[ref].implementation<Impl>();
     };
 
-    BoundNodeReference               bind_node(NodeReference ast_ref);
+    BoundNodeReference               bind_node(NodeReference ast_ref, BoundNodeReference parent = 0);
     BoundNodeReference               rebind_node(BoundNodeReference ref);
     Result<BoundNodeReference, bool> bind(NodeReference ast_entrypoint);
     BoundNodeType                    type_of(NodeReference ref) const;

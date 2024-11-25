@@ -7,9 +7,6 @@
 #pragma once
 
 #include <format>
-#include <sstream>
-
-#include <SimpleFormat.h>
 
 namespace Arwen {
 

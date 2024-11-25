@@ -19,6 +19,44 @@
 
 namespace Arwen {
 
+bool Type::is_numeric() const
+{
+    if (typespec.tag() != TypeKind::Primitive) {
+        return false;
+    }
+    auto const &p = typespec.get<TypeKind::Primitive>().type;
+    return (p >= PrimitiveType::Double) && (p <= PrimitiveType::U64);
+}
+
+Type const &Type::decay() const
+{
+    if (typespec.tag() == TypeKind::Alias) {
+        return TypeRegistry::the()[typespec.get<TypeKind::Alias>().alias_of].decay();
+    }
+    return *this;
+}
+
+bool Type::is_assignable_to(Type const &other) const
+{
+    auto const &registry = TypeRegistry::the();
+    auto const &t = decay();
+    auto const &o = other.decay();
+    if (o.typespec.tag() == TypeKind::Pseudo) {
+        switch (o.typespec.get<TypeKind::Pseudo>().type) {
+        case PseudoType::Any:
+        case PseudoType::Self:
+            return true;
+        case PseudoType::Numeric:
+            return t.is_numeric();
+        case PseudoType::Function:
+        case PseudoType::Void:
+        case PseudoType::Aggregate:
+            UNREACHABLE();
+        }
+    }
+    return t.ref == o.ref;
+}
+
 TypeRegistry::TypeRegistry()
 {
 #undef S
@@ -47,16 +85,18 @@ TypeRegistry::TypeRegistry()
         } });
         PseudoTypes(S)
 #undef S
-            std::vector<std::pair<std::string, TypeReference>>
-                string_fields {
-                    std::make_pair("len", (*this)[PrimitiveType::U64].ref),
-                    std::make_pair("ptr", *resolve_pointer((*this)[PrimitiveType::U8].ref)),
-                };
     register_type(Type {
         .name = "string",
         .typespec = TypeSpec {
-            TypeKind::Object,
-            Object { std::move(string_fields) },
+            TypeKind::Slice,
+            Slice { static_cast<TypeReference>(PrimitiveType::U8) },
+        },
+    });
+    register_type(Type {
+        .name = "int",
+        .typespec = TypeSpec {
+            TypeKind::Alias,
+            Alias { static_cast<TypeReference>(PrimitiveType::I32) },
         },
     });
 }

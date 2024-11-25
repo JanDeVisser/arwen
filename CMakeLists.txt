@@ -4,13 +4,18 @@ project(arwen)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_EXPORT_COMPILE_COMMANDS on)
 
+enable_language(ASM-ATT)
+
 include_directories(src)
+
+add_subdirectory(rt)
 
 add_executable(
         arwen
 
         src/Error.cpp
         src/FileBuffer.cpp
+        src/Foreign.cpp
         src/Lib.h
         src/Logging.cpp
         src/Options.cpp
@@ -20,6 +25,7 @@ add_executable(
         src/Set.h
         src/TaggedUnion.h
         src/Unescape.cpp
+        src/trampoline.s
 
         src/Lexer/Config.cpp
         src/Lexer/Lexer.cpp
@@ -35,14 +41,20 @@ add_executable(
         src/GrammarParser/GrammarParser.cpp
 
         src/Type/Type.cpp
-        src/Type/Value.h
+        src/Type/Value.cpp
 
         src/AST/Arwen.cpp
         src/AST/Operator.h
 
         src/Binder/Binder.cpp
 
+        src/IR/Execute.cpp
         src/IR/IR.cpp
 
         src/main.cpp
+)
+
+target_link_libraries(
+        arwen
+        arwenrt
 )

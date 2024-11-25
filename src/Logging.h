@@ -20,6 +20,12 @@
 
 namespace Arwen {
 
+// Want this somewhere that's included basically everywhere.
+template<class... Ts>
+struct overload : Ts... {
+    using Ts::operator()...;
+};
+
 #define ENUMERATE_LOG_LEVELS(S) \
     S(None, 0)                  \
     S(Trace, 1)                 \
