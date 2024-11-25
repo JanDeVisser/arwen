@@ -11,6 +11,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <filesystem>
+#include <iostream>
 #include <memory>
 #include <string_view>
 #include <sys/fcntl.h>
@@ -67,13 +68,14 @@ public:
 
         auto size = sb.st_size;
         auto buffer = new char[size + 1];
-        memset(buffer, 0, size+1);
         if (auto rc = ::read(fh, (void *) buffer, size); rc < size) {
             return LibCError {};
         }
-        for (auto ix = 0; ix < size - 1; ++ix) {
-            if (buffer[ix] == '\\') {
-                char ch = buffer[ix+1];
+        size_t dst = 0;
+        for (auto ix = 0; ix < size - 1; ) {
+            char ch = buffer[ix++];
+            if (ch == '\\' && ix < size - 1) {
+                ch = buffer[ix++];
                 switch (ch) {
                 case 'n':
                     ch = '\n';
@@ -87,13 +89,10 @@ public:
                 default:
                     break;
                 }
-                buffer[ix] = ch;
-                ix += 1;
-                memmove(buffer+ix, buffer+(ix+1), size - ix - 1);
-                size -= 1;
             }
+            buffer[dst++] = ch;
         }
-        buffer[size] = 0;
+        buffer[dst] = 0;
         return FileBuffer { full_file_name, buffer };
     }
 
