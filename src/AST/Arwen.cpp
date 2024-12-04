@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cstdio>
 #include <optional>
 #include <print>
@@ -294,7 +295,7 @@ extern "C" {
     if (parser->last_token.kind.number_type() == NumberType::Float) {
         fatal("Expected integer number, got float");
     }
-    auto res = parser->last_token.as<ssize_t>();
+    auto res = parser->last_token.as<uint64_t>();
     if (res.is_error()) {
         fatal("Could not convert {} to number", parser->last_token.text);
     }
@@ -321,7 +322,7 @@ extern "C" {
     if (!data) {
         fatal("Expected boolean Value as argument");
     }
-    if (data->type() != Value::BoolType) {
+    if (data->type() != BoolType) {
         fatal("Expected boolean Value as argument, got '{}'", data->type());
     }
     parser->impl.push_node(parser->last_token.location, ASTNodeKind::BoolConstant, BoolConstant { data->as_bool() });
@@ -358,6 +359,13 @@ extern "C" {
     case ASTNodeKind::UnaryExpression: {
         auto &impl = std::get<UnaryExpression>(left.impl);
         if (impl.op == UnaryOperator::Deref) {
+            break;
+        }
+        fatal("Expected lvalue, got '{}'", left);
+    }
+    case ASTNodeKind::BinaryExpression: {
+        auto &impl = std::get<BinaryExpression>(left.impl);
+        if (impl.op == BinaryOperator::Subscript) {
             break;
         }
     }
@@ -452,16 +460,15 @@ extern "C" {
 
 [[maybe_unused]] void arwen_make_array_type(P *parser)
 {
-#if 0
     auto &element_type = parser->impl.pop_one_of(typeKinds).ref;
+    auto &array_size = parser->impl.pop_node().ref;
     parser->impl.push_node(
         parser->last_token.location,
         ASTNodeKind::ArrayType,
         ArrayType {
             .element_type = element_type,
+            .size = array_size,
         });
-#endif
-    fatal("Array types unsupported right now");
 }
 
 [[maybe_unused]] void arwen_make_pointer_type(P *parser)
@@ -535,15 +542,28 @@ void make_function_decl_(P *parser, std::optional<NodeReference> return_type)
 [[maybe_unused]] void arwen_make_foreign_function(P *parser)
 {
     auto &foreign_func = parser->impl.pop_typed_node(ASTNodeKind::StringConstant);
-    auto  decl_ref = parser->impl.pop_typed_node(ASTNodeKind::Function).ref;
+    auto &decl = parser->impl.pop_typed_node(ASTNodeKind::Function);
     auto &foreign_func_node = parser->impl.make_node(
         foreign_func.location,
         ASTNodeKind::ForeignFunction,
         ForeignFunction { std::get<StringConstant>(foreign_func.impl).value });
-    std::get<Function>(parser->impl.get_node(decl_ref).impl).implementation = foreign_func_node.ref;
+    std::get<Function>(decl.impl).implementation = foreign_func_node.ref;
     auto &module_node = parser->impl.get_typed_node(*parser->impl.module, ASTNodeKind::Module);
     auto &mod = std::get<Module>(module_node.impl);
-    mod.names.push_back(decl_ref);
+    mod.names.push_back(decl.ref);
+}
+
+[[maybe_unused]] void arwen_make_intrinsic(P *parser)
+{
+    auto &decl = parser->impl.pop_typed_node(ASTNodeKind::Function);
+    auto &intrinsic_node = parser->impl.make_node(
+        decl.location,
+        ASTNodeKind::Intrinsic,
+        Intrinsic { .name = std::get<Function>(decl.impl).name });
+    std::get<Function>(decl.impl).implementation = intrinsic_node.ref;
+    auto &module_node = parser->impl.get_typed_node(*parser->impl.module, ASTNodeKind::Module);
+    auto &mod = std::get<Module>(module_node.impl);
+    mod.names.push_back(decl.ref);
 }
 
 [[maybe_unused]] void arwen_start_block(P *parser)
@@ -597,6 +617,20 @@ void make_function_decl_(P *parser, std::optional<NodeReference> return_type)
             .condition = nodes[0],
             .true_branch = nodes[1],
             .false_branch = false_branch,
+        });
+}
+
+[[maybe_unused]] void arwen_finish_while(P *parser)
+{
+    auto &body = parser->impl.pop_typed_node(ASTNodeKind::Block);
+    auto &condition = parser->impl.pop_node();
+    auto &start = parser->impl.pop_typed_node(ASTNodeKind::StartBlock);
+    parser->impl.push_node(
+        start.location,
+        ASTNodeKind::While,
+        While {
+            .condition = condition.ref,
+            .body = body.ref,
         });
 }
 

@@ -1,0 +1,28 @@
+func main() {
+    const BOARD_CAP: u32 = 80;
+    var board: [BOARD_CAP]u8;
+    board[BOARD_CAP - 2] = 1;
+
+    var i: u32 = 0;
+    while (i < BOARD_CAP - 2) {
+        var j: u32 = 0;
+        while (j < BOARD_CAP) {
+            if (board[j] == 0) {
+                print(" ");
+            } else {
+                print("*");
+            }
+            j = j + 1;
+        }
+        println("");
+        var pattern: u8 = (board[0] << 1) | board[1];
+        j = 1;
+        while (j < BOARD_CAP - 1) {
+            pattern = ((pattern << 1) & 7) | board[j + 1];
+            board[j] = (110 >> pattern) & 1;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}

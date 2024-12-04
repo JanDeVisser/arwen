@@ -14,7 +14,6 @@
 #include <map>
 #include <ostream>
 #include <sstream>
-#include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -40,16 +39,22 @@ using Ref = size_t;
 #define OperationTypes(S) \
     S(BinaryOperation)    \
     S(Call)               \
+    S(Discard)            \
     S(ForeignCall)        \
+    S(FunctionReturn)     \
     S(Intrinsic)          \
     S(Jump)               \
     S(JumpF)              \
     S(JumpT)              \
     S(Label)              \
+    S(MakeArray)          \
+    S(PopArrayElement)    \
     S(PopVariable)        \
+    S(PushArrayElement)   \
     S(PushBoolean)        \
     S(PushFloat)          \
     S(PushInt)            \
+    S(PushNull)           \
     S(PushString)         \
     S(PushVariableRef)    \
     S(PushVariableValue)
@@ -74,13 +79,20 @@ struct Call {
     BoundNodeReference decl;
 };
 
+struct Discard {
+};
+
 struct ForeignCall {
     std::string_view   name;
     BoundNodeReference decl;
 };
 
+struct FunctionReturn {
+    bool has_result;
+};
+
 struct Intrinsic {
-    std::string_view   name;
+    std::string_view name;
 };
 
 struct Jump {
@@ -99,8 +111,18 @@ struct Label {
     std::string_view name;
 };
 
+struct MakeArray {
+    TypeReference type;
+};
+
+struct PopArrayElement {
+};
+
 struct PopVariable {
     std::string_view name;
+};
+
+struct PushArrayElement {
 };
 
 struct PushBoolean {
@@ -113,6 +135,9 @@ struct PushFloat {
 
 struct PushInt {
     int64_t value;
+};
+
+struct PushNull {
 };
 
 struct PushString {
@@ -130,16 +155,22 @@ struct PushVariableValue {
 using Op = std::variant<
     BinaryOperation,
     Call,
+    Discard,
     ForeignCall,
+    FunctionReturn,
     Intrinsic,
     Jump,
     JumpF,
     JumpT,
     Label,
+    MakeArray,
+    PopArrayElement,
     PopVariable,
+    PushArrayElement,
     PushBoolean,
     PushFloat,
     PushInt,
+    PushNull,
     PushString,
     PushVariableRef,
     PushVariableValue>;
@@ -168,9 +199,20 @@ inline void to_string(std::ostream &out, Call const &op)
 }
 
 template<>
+inline void to_string(std::ostream &, Discard const &)
+{
+}
+
+template<>
 inline void to_string(std::ostream &out, ForeignCall const &op)
 {
     out << op.name;
+}
+
+template<>
+inline void to_string(std::ostream &out, FunctionReturn const &op)
+{
+    out << std::boolalpha << op.has_result;
 }
 
 template<>
@@ -180,15 +222,49 @@ inline void to_string(std::ostream &out, Intrinsic const &op)
 }
 
 template<>
+inline void to_string(std::ostream &out, Jump const &op)
+{
+    out << op.target;
+}
+
+template<>
+inline void to_string(std::ostream &out, JumpF const &op)
+{
+    out << op.target;
+}
+
+template<>
+inline void to_string(std::ostream &out, JumpT const &op)
+{
+    out << op.target;
+}
+
+template<>
 inline void to_string(std::ostream &out, Label const &op)
 {
     out << op.name;
 }
 
 template<>
+inline void to_string(std::ostream &out, MakeArray const &op)
+{
+    out << TypeRegistry::the()[op.type].name;
+}
+
+template<>
+inline void to_string(std::ostream &, PopArrayElement const &)
+{
+}
+
+template<>
 inline void to_string(std::ostream &out, PopVariable const &op)
 {
     out << op.name;
+}
+
+template<>
+inline void to_string(std::ostream &, PushArrayElement const &)
+{
 }
 
 template<>
@@ -210,8 +286,14 @@ inline void to_string(std::ostream &out, PushInt const &op)
 }
 
 template<>
+inline void to_string(std::ostream &, PushNull const &)
+{
+}
+
+template<>
 inline void to_string(std::ostream &out, PushString const &op)
 {
+    out << '"';
     for (auto const &ch : op.value) {
         switch (ch) {
         case '\n':
@@ -227,6 +309,7 @@ inline void to_string(std::ostream &out, PushString const &op)
             out << ch;
         }
     }
+    out << '"';
 }
 
 template<>

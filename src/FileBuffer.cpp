@@ -46,7 +46,7 @@ Result<fs::path> SimpleBufferLocator::locate(std::string_view file_name) const
     return file_name;
 }
 
-FileBuffer::FileBuffer(fs::path path, char const *text, size_t size)
+FileBuffer::FileBuffer(fs::path const& path, char const *text, size_t size)
     : m_contents(text)
     , m_path(std::move(path))
     , m_size(size)

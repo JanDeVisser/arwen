@@ -9,8 +9,11 @@
 #include <algorithm>
 #include <cerrno>
 #include <charconv>
+#include <cmath>
+#include <concepts>
 #include <cstdlib>
 #include <format>
+#include <limits>
 #include <optional>
 #include <ostream>
 #include <sstream>
@@ -36,54 +39,35 @@ struct SliceValue {
     size_t      len;
     char const *ptr;
 
-    SliceValue(size_t len, char const *ptr)
+    constexpr SliceValue() = default;
+    constexpr SliceValue(SliceValue const &) = default;
+
+    constexpr SliceValue(size_t len, char const *ptr)
         : len(len)
         , ptr(ptr)
     {
     }
 
-    SliceValue(std::string_view const &sv)
+    constexpr SliceValue(std::string_view const &sv)
         : len(sv.length())
         , ptr(sv.data())
     {
     }
 
-    [[nodiscard]] bool operator<(SliceValue const &rhs) const
+    [[nodiscard]] constexpr bool operator<(SliceValue const &rhs) const
     {
         std::string_view lhs_sv { ptr, len };
         std::string_view rhs_sv { rhs.ptr, rhs.len };
         return lhs_sv < rhs_sv;
     }
 
-    [[nodiscard]] bool operator==(SliceValue const &rhs) const
+    [[nodiscard]] constexpr bool operator==(SliceValue const &rhs) const
     {
         std::string_view lhs_sv { ptr, len };
         std::string_view rhs_sv { rhs.ptr, rhs.len };
         return lhs_sv == rhs_sv;
     }
 };
-
-using Val = std::variant<
-#undef S
-#define S(T, L, ...) __VA_ARGS__,
-    PrimitiveTypes(S)
-#undef S
-        SliceValue>;
-
-using Vals = std::vector<Val>;
-
-class Value {
-public:
-#undef S
-#define S(T, L, ...) constexpr static TypeReference T##Type = static_cast<TypeReference>(PrimitiveType::T);
-    PrimitiveTypes(S)
-#undef S
-        constexpr static TypeReference StringType
-        = static_cast<TypeReference>(BuiltinType::String);
-    constexpr static TypeReference IntType = static_cast<TypeReference>(BuiltinType::Int);
-    constexpr static TypeReference SliceKind = static_cast<TypeReference>(PrimitiveType::ConstPtr) + 1;
-
-    constexpr Value() = default;
 
 #define ValueConstructors(S)     \
     S(Bool, bool)                \
@@ -102,6 +86,91 @@ public:
     S(Ptr, std::integral auto *) \
     S(ConstPtr, std::integral auto const *)
 
+using ValPayload = std::variant<
+#undef S
+#define S(T, L, ...) __VA_ARGS__,
+    PrimitiveTypes(S)
+#undef S
+        SliceValue>;
+
+struct Val : public ValPayload {
+    Val() = default;
+    Val(Val const &) = default;
+#undef S
+#define S(T, ...)                \
+    constexpr Val(__VA_ARGS__ v) \
+        : ValPayload(v)          \
+    {                            \
+    }
+    ValueConstructors(S)
+#undef S
+
+        constexpr Val(SliceValue const &slice)
+        : ValPayload(slice)
+    {
+    }
+
+    constexpr Val(std::string_view v)
+        : ValPayload(SliceValue { v })
+    {
+    }
+
+    constexpr Val& operator=(Val const &other) = default;
+    Val& operator=(struct Value const &other);
+
+    [[nodiscard]] constexpr bool operator==(Val const &other) const
+    {
+        return std::visit(
+            overload {
+                [](std::integral auto lhs, std::integral auto rhs) {
+                    return lhs == rhs;
+                },
+                [](std::floating_point auto lhs, std::floating_point auto rhs) {
+                    return lhs == rhs;
+                },
+                [](auto *lhs, auto *rhs) {
+                    return lhs == rhs;
+                },
+                [](auto lhs, auto rhs) -> bool {
+                    UNREACHABLE();
+                } },
+            *this, other);
+    }
+
+    [[nodiscard]] constexpr bool operator<(Val const &other) const
+    {
+        return std::visit(
+            overload {
+                [](std::integral auto lhs, std::integral auto rhs) {
+                    return lhs < rhs;
+                },
+                [](std::floating_point auto lhs, std::floating_point auto rhs) {
+                    return lhs < rhs;
+                },
+                [](auto *lhs, auto *rhs) {
+                    return lhs < rhs;
+                },
+                [](auto lhs, auto rhs) -> bool {
+                    UNREACHABLE();
+                } },
+            *this, other);
+    }
+
+    Val(struct Value const &value);
+};
+
+using Vals = std::vector<Val>;
+using ValuePayload = std::variant<Val, Vals>;
+
+class Value {
+public:
+    constexpr static TypeReference SliceKind = static_cast<TypeReference>(PrimitiveType::ConstPtr) + 1;
+
+    constexpr Value() = default;
+
+    struct MakeArray { };
+    constexpr static MakeArray make_array {};
+
 #undef S
 #define S(T, ...)                  \
     constexpr Value(__VA_ARGS__ v) \
@@ -112,10 +181,81 @@ public:
     ValueConstructors(S)
 #undef S
 
-        Value(std::string_view v)
+        Value(TypeReference type)
+        : m_type(type)
+    {
+        switch (type) {
+        case NullType:
+            m_payload = Val {};
+            break;
+        case I8Type:
+            m_payload = Val { i8 {} };
+            break;
+        case U8Type:
+            m_payload = Val { u8 {} };
+            break;
+        case I16Type:
+            m_payload = Val { i16 {} };
+            break;
+        case U16Type:
+            m_payload = Val { u16 {} };
+            break;
+        case I32Type:
+            m_payload = Val { i32 {} };
+            break;
+        case U32Type:
+            m_payload = Val { u32 {} };
+            break;
+        case I64Type:
+            m_payload = Val { i64 {} };
+            break;
+        case U64Type:
+            m_payload = Val { u64 {} };
+            break;
+        case BoolType:
+            m_payload = Val { bool {} };
+            break;
+        case FloatType:
+            m_payload = Val { f32 {} };
+            break;
+        case DoubleType:
+            m_payload = Val { f64 {} };
+            break;
+        case PtrType:
+            m_payload = Val { static_cast<void *>(nullptr) };
+            break;
+        case ConstPtrType:
+            m_payload = Val { static_cast<void const *>(nullptr) };
+            break;
+        default:
+            UNREACHABLE();
+        }
+    }
+
+    Value(TypeReference type, Val const &v)
+        : m_type(type)
+        , m_payload(Val { v })
+    {
+    }
+
+    Value(std::string_view v)
         : m_type(StringType)
     {
-        m_payload = Val { SliceValue { v } };
+        m_payload = Val { v };
+    }
+
+    Value(SliceValue const &slice)
+        : m_type(StringType)
+    {
+        m_payload = Val { slice };
+    }
+
+    Value(MakeArray const &, TypeReference type, size_t initial_size = 0)
+        : m_type(type)
+    {
+        Vals vals {};
+        vals.resize(initial_size, Value { type });
+        m_payload = vals;
     }
 
     [[nodiscard]] constexpr TypeReference type() const
@@ -128,7 +268,12 @@ public:
         return m_payload.index();
     }
 
-    [[nodiscard]] constexpr bool operator<(Arwen::Value const &rhs) const
+    [[nodiscard]] constexpr bool is_array() const
+    {
+        return m_payload.index() == 1;
+    }
+
+    [[nodiscard]] constexpr bool operator<(Value const &rhs) const
     {
         return std::visit(
             overload {
@@ -161,6 +306,47 @@ public:
             m_payload, rhs.m_payload);
     }
 
+    [[nodiscard]] Val const &operator[](size_t ix) const
+    {
+        assert(is_array());
+        auto const &values = std::get<Vals>(m_payload);
+        assert(ix < values.size());
+        return values[ix];
+    }
+
+    [[nodiscard]] Val &operator[](size_t ix)
+    {
+        assert(is_array());
+        auto &values = std::get<Vals>(m_payload);
+        assert(ix < values.size());
+        return values[ix];
+    }
+
+    void push_back(Value const &value)
+    {
+        assert(is_array());
+        std::get<Vals>(m_payload).push_back(value);
+    }
+
+    [[nodiscard]] Val const &back() const
+    {
+        assert(is_array());
+        auto const &values = std::get<Vals>(m_payload);
+        return values.back();
+    }
+
+    [[nodiscard]] Val &back()
+    {
+        assert(is_array());
+        auto &values = std::get<Vals>(m_payload);
+        return values.back();
+    }
+
+    [[nodiscard]] constexpr bool is_string() const
+    {
+        return type() == StringType;
+    }
+
     [[nodiscard]] constexpr bool is_null() const
     {
         return type() == NullType;
@@ -186,10 +372,68 @@ public:
         return std::get<bool>(std::get<Val>(m_payload));
     }
 
+    template <typename T>
+    [[nodiscard]] constexpr T as() const
+    {
+        UNREACHABLE();
+    }
+
+    template <std::integral IntType>
+    [[nodiscard]] constexpr IntType as() const
+    {
+        assert(m_payload.index() == 0);
+        return std::visit(
+            overload {
+                [](std::integral auto v) {
+                    if (v > std::numeric_limits<IntType>::max() || v < std::numeric_limits<IntType>::min()) {
+                        fatal("Integer value {} cannot be converted to {}", v, typeid(IntType).name());
+                    };
+                    return static_cast<IntType>(v);
+                },
+                [](std::floating_point auto fp) {
+                    if (fp > std::numeric_limits<IntType>::max() || fp < std::numeric_limits<IntType>::min()) {
+                        fatal("Floating point value {} cannot be converted to {}", fp, typeid(IntType).name());
+                    }
+                    return static_cast<IntType>(fp);
+                },
+                [](auto v) -> IntType { fatal("Cannot convert Value of type {} to type {}", typeid(decltype(v)).name(), typeid(IntType).name()); return 0; },
+            },
+            std::get<Val>(m_payload));
+    }
+
+    [[nodiscard]] constexpr u64 as_signed() const
+    {
+        return as<i64>();
+    }
+
+    [[nodiscard]] constexpr u64 as_unsigned() const
+    {
+        return as<u64>();
+    }
+
+    template <std::floating_point FltType>
+    [[nodiscard]] constexpr FltType as() const
+    {
+        assert(m_payload.index() == 0);
+        return std::visit(
+            overload {
+                [](std::floating_point auto v) { return static_cast<FltType>(v); },
+                [](std::integral auto v) { return static_cast<FltType>(v); },
+                [](auto v) -> FltType { fatal("Cannot convert Value of type {} to type {}", typeid(decltype(v)).name(), typeid(FltType).name()); return 0.0; },
+            },
+            std::get<Val>(m_payload));
+    }
+
     template<TypeReference Tag>
     constexpr std::variant_alternative_t<static_cast<std::size_t>(Tag), Val> get() const
     {
         return std::get<static_cast<std::size_t>(Tag)>(std::get<Val>(m_payload));
+    }
+
+    [[nodiscard]] std::vector<Val> const& values() const
+    {
+        assert(is_array());
+        return std::get<Vals>(m_payload);
     }
 
     template<typename T>
@@ -263,11 +507,17 @@ public:
     [[nodiscard]] std::optional<Value> logical_negate() const;
     [[nodiscard]] std::optional<Value> invert() const;
 
-    using Payload = std::variant<Val, Vals>;
-
 private:
+    Value(TypeReference type, ValuePayload const &payload)
+        : m_type(type)
+        , m_payload(payload)
+    {
+    }
+
     TypeReference m_type { NullType };
-    Payload       m_payload {};
+    ValuePayload  m_payload {};
+
+    friend struct Val;
 };
 
 template<typename T>
@@ -360,16 +610,31 @@ struct std::formatter<Arwen::Value, char> : public Arwen::SimpleFormatParser {
     FmtContext::iterator format(Arwen::Value const &v, FmtContext &ctx) const
     {
         std::ostringstream out;
-        out << std::format("[{}, {}] ", v.type(), v.index());
+        if (v.is_array()) {
+            out << "[";
+            for (size_t ix = 0; ix < v.values().size(); ++ix) {
+                if (ix > 0) {
+                    out << ", ";
+                }
+                out << std::format("{}", Arwen::Value { v.type(), v.values()[ix] });
+            }
+            out << "]";
+            return std::ranges::copy(std::move(out).str(), ctx.out()).out;
+        }
+        if (v.type() != Arwen::StringType) {
+            out << std::format("[{}] ", static_cast<Arwen::PrimitiveType>(v.type()));
+        } else {
+            out << "[String] ";
+        }
         switch (v.type()) {
 #undef S
 #define S(T, L, ...)                                      \
-    case Arwen::Value::T##Type:                           \
+    case Arwen::T##Type:                           \
         out << std::format("{}", v.value<__VA_ARGS__>()); \
         break;
         PrimitiveTypes(S)
 #undef S
-            case Arwen::Value::StringType:
+            case Arwen::StringType:
             out << std::format("{}", v.value<std::string_view>());
             break;
         default:

@@ -12,7 +12,7 @@ std::string_view arwen_grammar = R"(
   lexer:       identifier
   lexer:       "number: signed=false;float;hex;binary"
   lexer:       "qstring: quotes=\'\"`/"
-  lexer:       "comment: marker=/* */;marker=//"
+  lexer:       "comment: ignore=true;marker=/* */;marker=//"
 %
 
 module                     := declarations
@@ -46,6 +46,7 @@ statement                   := declaration
                              | expression
                              | loop
                              | return
+                             | while
                              | ';'
                              ;
 
@@ -104,6 +105,11 @@ loop_                       := "loop"
                                statements        [ make_loop                 ]
                              ;
 
+while                       := "while"           [ start_block               ]
+                               ( expr )
+                               statements        [ finish_while              ]
+                             ;
+
 return                      := "return"
                                return_value
                              ;
@@ -133,6 +139,7 @@ func_type                   := "func"
 
 func_block                  := statements        [ make_function             ]
                              | link_clause
+                             | "intrinsic"       [ make_intrinsic            ]
                              ;
 
 link_clause                 := "->" '"'          [ make_qstring              ]
@@ -158,7 +165,10 @@ parlist_tail                := ,
                              ;
 
 typespec                    := #ident            [ make_type                 ]
-                             | '[' ']' typespec  [ make_array_type           ]
+                             | '['
+                               expr
+                               ']'
+                               typespec          [ make_array_type           ]
                              | * typespec        [ make_pointer_type         ]
                              ;
 

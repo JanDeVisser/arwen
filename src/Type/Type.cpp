@@ -24,8 +24,39 @@ bool Type::is_numeric() const
     if (typespec.tag() != TypeKind::Primitive) {
         return false;
     }
+    return is_integer() || is_float();
+}
+
+bool Type::is_integer() const
+{
+    if (typespec.tag() != TypeKind::Primitive) {
+        return false;
+    }
     auto const &p = typespec.get<TypeKind::Primitive>().type;
-    return (p >= PrimitiveType::Double) && (p <= PrimitiveType::U64);
+    return (p >= PrimitiveType::I8) && (p <= PrimitiveType::U64);
+}
+
+bool Type::is_signed() const
+{
+    if (typespec.tag() != TypeKind::Primitive || !is_integer()) {
+        return false;
+    }
+    auto const &p = typespec.get<TypeKind::Primitive>().type;
+    return (p == PrimitiveType::I8) || (p == PrimitiveType::I16) || (p == PrimitiveType::I32) || (p == PrimitiveType::I64);
+}
+
+bool Type::is_unsigned() const
+{
+    return is_integer() && !is_signed();
+}
+
+bool Type::is_float() const
+{
+    if (typespec.tag() != TypeKind::Primitive) {
+        return false;
+    }
+    auto const &p = typespec.get<TypeKind::Primitive>().type;
+    return (p == PrimitiveType::Double) || (p == PrimitiveType::Float);
 }
 
 Type const &Type::decay() const
@@ -44,13 +75,18 @@ bool Type::is_assignable_to(Type const &other) const
     if (o.typespec.tag() == TypeKind::Pseudo) {
         switch (o.typespec.get<TypeKind::Pseudo>().type) {
         case PseudoType::Any:
-        case PseudoType::Self:
             return true;
         case PseudoType::Numeric:
             return t.is_numeric();
-        case PseudoType::Function:
-        case PseudoType::Void:
-        case PseudoType::Aggregate:
+        case PseudoType::Integer:
+            return t.is_integer();
+        case PseudoType::SignedInt:
+            return t.is_signed();
+        case PseudoType::UnsignedInt:
+            return t.is_unsigned();
+        case PseudoType::FloatingPoint:
+            return t.is_float();
+        default:
             UNREACHABLE();
         }
     }
@@ -85,13 +121,13 @@ TypeRegistry::TypeRegistry()
         } });
         PseudoTypes(S)
 #undef S
-    register_type(Type {
-        .name = "string",
-        .typespec = TypeSpec {
-            TypeKind::Slice,
-            Slice { static_cast<TypeReference>(PrimitiveType::U8) },
-        },
-    });
+            register_type(Type {
+                .name = "string",
+                .typespec = TypeSpec {
+                    TypeKind::Slice,
+                    Slice { static_cast<TypeReference>(PrimitiveType::U8) },
+                },
+            });
     register_type(Type {
         .name = "int",
         .typespec = TypeSpec {
@@ -147,32 +183,28 @@ Type const &TypeRegistry::operator[](std::string_view name) const
     return types[index.at(n)];
 }
 
-#if 0
-
-std::optional<TypeReference> TypeRegistry::resolve_array(TypeReference element_type, std::optional<size_t> size)
+std::optional<TypeReference> TypeRegistry::resolve_array(TypeReference element_type)
 {
     if (element_type >= types.size()) {
         return {};
     }
     for (auto const &t : types) {
-        if (!std::holds_alternative<Array>(t.typespec)) {
+        if (t.typespec.tag() != TypeKind::Array) {
             continue;
         }
-        auto const &arr = std::get<Array>(t.typespec);
-        if (arr.element_type == element_type && arr.size == size) {
+        auto const &arr = t.typespec.get<TypeKind::Array>();
+        if (arr.element_type == element_type) {
             return t.ref;
         }
     }
-    return register_type({
-        .name = std::format("[{}]{}", (size) ? *size : 0, types[element_type].name),
-        .typespec = Array {
-            .element_type = element_type,
-            .size = size,
-        },
-    });
+    return register_type({ .name = std::format("[x]{}", types[element_type].name),
+        .typespec = TypeSpec {
+            TypeKind::Array,
+            Array {
+                .element_type = element_type,
+            },
+        } });
 }
-
-#endif
 
 std::optional<TypeReference> TypeRegistry::resolve_pointer(TypeReference element_type)
 {

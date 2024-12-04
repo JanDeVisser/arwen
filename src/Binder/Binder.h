@@ -10,6 +10,7 @@
 #include <iostream>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <typeindex>
@@ -33,14 +34,19 @@ namespace Arwen {
 using BoundNodeReference = NodeReference;
 using BoundNodeReferences = std::vector<BoundNodeReference>;
 
+struct TypeAlternatives {
+    TypeReference              preferred;
+    std::vector<TypeReference> alternatives;
+};
+
 struct BindError {
     BoundNodeReference node;
     std::string        message;
 };
 
 struct BoundArrayType {
-    TypeReference element_type;
-    size_t        size;
+    TypeReference      element_type;
+    BoundNodeReference size;
 };
 
 struct BoundAssignmentExpression {
@@ -60,6 +66,10 @@ struct BoundBlock {
     BoundNodeReferences             statements;
 };
 
+struct BoundCoercion {
+    BoundNodeReference expression;
+};
+
 struct BoundConstantDeclaration {
     std::string_view                  name;
     std::optional<BoundNodeReference> type;
@@ -67,8 +77,7 @@ struct BoundConstantDeclaration {
 };
 
 struct BoundForeignFunction {
-    std::string_view   foreign_name;
-    BoundNodeReference declaration;
+    std::string_view foreign_name;
 };
 
 struct BoundFunction {
@@ -80,13 +89,13 @@ struct BoundFunction {
 
 struct BoundFunctionCall {
     std::string_view                  name;
+    bool                              discard_result { false };
     std::optional<BoundNodeReference> function = {};
     BoundNodeReferences               arguments;
 };
 
 struct BoundFunctionImplementation {
     std::string_view   name;
-    BoundNodeReference declaration;
     BoundNodeReference implementation;
 };
 
@@ -102,8 +111,7 @@ struct BoundIf {
 };
 
 struct BoundIntrinsic {
-    std::string_view   name;
-    BoundNodeReference declaration;
+    std::string_view name;
 };
 
 struct BoundLoop {
@@ -151,12 +159,18 @@ struct BoundVariableDeclaration {
     std::optional<BoundNodeReference> initializer;
 };
 
+struct BoundWhile {
+    BoundNodeReference condition;
+    BoundNodeReference body;
+};
+
 #define BoundNodeImpls(S)          \
     S(BoundArrayType)              \
     S(BoundAssignmentExpression)   \
     S(BasicTypeNode)               \
     S(BoundBinaryExpression)       \
     S(BoundBlock)                  \
+    S(BoundCoercion)               \
     S(BoolConstant)                \
     S(BoundConstantDeclaration)    \
     S(FloatConstant)               \
@@ -178,7 +192,8 @@ struct BoundVariableDeclaration {
     S(StringConstant)              \
     S(BoundSubscript)              \
     S(BoundUnaryExpression)        \
-    S(BoundVariableDeclaration)
+    S(BoundVariableDeclaration)    \
+    S(BoundWhile)
 
 #undef S
 #define S(T) T,
@@ -194,6 +209,7 @@ using BoundNodeImpl = std::variant<
 struct BoundNode {
     std::optional<TypeReference>                  type {};
     BoundNodeReference                            ref { 0 };
+    BoundNodeReference                            parent { 0 };
     NodeReference                                 ast_ref;
     Location                                      location;
     std::map<std::string_view, NodeReference>     names;
@@ -203,9 +219,9 @@ struct BoundNode {
     [[nodiscard]] std::string_view type_name() const;
 
     template<typename Impl>
-    static BoundNode make(NodeReference ast_ref, Location location)
+    static BoundNode make(NodeReference parent, NodeReference ast_ref, Location location)
     {
-        auto ret = BoundNode { ast_ref, location };
+        auto ret = BoundNode { parent, ast_ref, location };
         ret.impl = { Impl {} };
         return ret;
     };
@@ -217,23 +233,26 @@ struct BoundNode {
     };
 
 private:
-    BoundNode(NodeReference ast_ref, Location location)
-        : ast_ref(ast_ref)
+    BoundNode(BoundNodeReference parent, NodeReference ast_ref, Location location)
+        : parent(parent)
+        , ast_ref(ast_ref)
         , location(location)
     {
     }
 };
 
 struct Binder {
-    TypeRegistry                registry;
-    std::vector<ASTNode> const &ast;
-    std::vector<BoundNode>      bound_nodes;
-    BoundNodeReferences         namespaces;
-    int                         pass { 0 };
-    BoundNodeReferences         errors;
-    size_t                      unbound { 0 };
-    BoundNodeReference          entrypoint;
-    bool                        log { false };
+    TypeRegistry                 registry;
+    std::vector<ASTNode> const  &ast;
+    std::vector<BoundNode>       bound_nodes;
+    BoundNodeReferences          namespaces;
+    int                          pass { 0 };
+    BoundNodeReferences          errors;
+    size_t                       unbound { 0 };
+    BoundNodeReference           entrypoint;
+    bool                         log { false };
+    std::set<BoundNodeReference> visited;
+    std::set<BoundNodeReference> still_unbound;
 
     explicit Binder(std::vector<ASTNode> const &ast)
         : registry(TypeRegistry::the())
@@ -252,6 +271,8 @@ struct Binder {
         return bound_nodes[ref].implementation<Impl>();
     };
 
+    TypeAlternatives                 alternatives(NodeReference ref);
+    BoundNodeReference               accept(NodeReference ref, TypeReference type);
     BoundNodeReference               bind_node(NodeReference ast_ref, BoundNodeReference parent = 0);
     BoundNodeReference               rebind_node(BoundNodeReference ref);
     Result<BoundNodeReference, bool> bind(NodeReference ast_entrypoint);

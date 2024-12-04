@@ -1,0 +1,27 @@
+//
+// Copyright (c) 2024, Jan de Visser <jan@finiandarcy.com>
+//
+// SPDX-License-Identifier: MIT
+//
+
+char const *arwen_builtin = R"(
+
+func exit(code: i32) intrinsic
+func len(s: string) u64 intrinsic
+func ptr(s: string) *u8 intrinsic
+
+func read(fd: u32, bytes: *u8, num: u64) i64 -> "arwen$read"
+func write(fd: u32, bytes: *u8, num: u64) i64 -> "arwen$write"
+func open(path: string, flags: u32, mode: u32) i64 -> "arwen$open"
+func close(fd: u32) i64 -> "arwen$close"
+
+func print(s: string) {
+    write(1, ptr(s), len(s));
+}
+
+func println(s: string) {
+    print(s);
+    print("\n");
+}
+
+)";

@@ -33,7 +33,7 @@ public:
 
 class FileBuffer {
 public:
-    FileBuffer(fs::path, char const *, size_t);
+    FileBuffer(fs::path const &, char const *, size_t);
 
     FileBuffer(FileBuffer const &other) = default;
 
@@ -87,6 +87,7 @@ public:
 
     [[nodiscard]] std::string_view contents() const;
     [[nodiscard]] fs::path const  &file_path() const { return m_path; }
+    [[nodiscard]] size_t size() const { return m_size; }
 
 private:
     fs::path    m_path;

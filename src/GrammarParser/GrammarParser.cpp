@@ -97,7 +97,7 @@ Result<Value, GrammarParserError> GrammarParser::parse_value()
             value = t->text;
             break;
         case KindTag::String:
-            value = trim(t->text.substr(1, t->text.length() - 1));
+            value = trim(t->text.substr(1, t->text.length() - 2));
             break;
         case KindTag::Number:
             value_string = std::format("{}:{}", to_string(t->kind.number_type()), t->text);

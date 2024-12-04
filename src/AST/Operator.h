@@ -79,19 +79,19 @@ BinaryOperatorCompatibility constexpr binary_operator_compatibility[] = {
     { BinaryOperator::Multiply, BasicType::Numeric, BasicType::Numeric, BasicType::Numeric },
     { BinaryOperator::Divide, BasicType::Numeric, BasicType::Numeric, BasicType::Numeric },
     { BinaryOperator::Modulo, BasicType::Numeric, BasicType::Numeric, BasicType::Numeric },
-    { BinaryOperator::BinaryAnd, BasicType::U64, BasicType::U64, BasicType::U64 },
-    { BinaryOperator::BinaryOr, BasicType::U64, BasicType::U64, BasicType::U64 },
-    { BinaryOperator::BinaryXor, BasicType::U64, BasicType::U64, BasicType::U64 },
-    { BinaryOperator::Shl, BasicType::U64, BasicType::U64, BasicType::U64 },
-    { BinaryOperator::Shr, BasicType::U64, BasicType::U64, BasicType::U64 },
+    { BinaryOperator::BinaryAnd, BasicType::Integer, BasicType::Lhs, BasicType::Lhs },
+    { BinaryOperator::BinaryOr, BasicType::Integer, BasicType::Lhs, BasicType::Lhs },
+    { BinaryOperator::BinaryXor, BasicType::Integer, BasicType::Lhs, BasicType::Lhs },
+    { BinaryOperator::Shl, BasicType::Integer, BasicType::Integer, BasicType::Lhs },
+    { BinaryOperator::Shr, BasicType::Integer, BasicType::Integer, BasicType::Lhs },
     { BinaryOperator::LogicalAnd, BasicType::Bool, BasicType::Bool, BasicType::Bool },
     { BinaryOperator::LogicalOr, BasicType::Bool, BasicType::Bool, BasicType::Bool },
-    { BinaryOperator::Equal, BasicType::Any, BasicType::Self, BasicType::Bool },
-    { BinaryOperator::NotEqual, BasicType::Any, BasicType::Self, BasicType::Bool },
-    { BinaryOperator::Less, BasicType::Any, BasicType::Self, BasicType::Bool },
-    { BinaryOperator::LessEqual, BasicType::Any, BasicType::Self, BasicType::Bool },
-    { BinaryOperator::Greater, BasicType::Any, BasicType::Self, BasicType::Bool },
-    { BinaryOperator::GreaterEqual, BasicType::Any, BasicType::Self, BasicType::Bool },
+    { BinaryOperator::Equal, BasicType::Any, BasicType::Lhs, BasicType::Bool },
+    { BinaryOperator::NotEqual, BasicType::Any, BasicType::Lhs, BasicType::Bool },
+    { BinaryOperator::Less, BasicType::Any, BasicType::Lhs, BasicType::Bool },
+    { BinaryOperator::LessEqual, BasicType::Any, BasicType::Lhs, BasicType::Bool },
+    { BinaryOperator::Greater, BasicType::Any, BasicType::Lhs, BasicType::Bool },
+    { BinaryOperator::GreaterEqual, BasicType::Any, BasicType::Lhs, BasicType::Bool },
 };
 
 uint64_t constexpr binary_operator_compatibility_size = sizeof(binary_operator_compatibility) / sizeof(BinaryOperatorCompatibility);
@@ -161,21 +161,21 @@ struct ShrOp {
 struct BinaryAndOp {
     std::optional<Value> operator()(Value const &v1, Value const &v2)
     {
-        return v1.shl(v2);
+        return v1.binary_and(v2);
     }
 };
 
 struct BinaryOrOp {
     std::optional<Value> operator()(Value const &v1, Value const &v2)
     {
-        return v1.shl(v2);
+        return v1.binary_or(v2);
     }
 };
 
 struct BinaryXorOp {
     std::optional<Value> operator()(Value const &v1, Value const &v2)
     {
-        return v1.shl(v2);
+        return v1.binary_xor(v2);
     }
 };
 
@@ -196,7 +196,8 @@ struct LogicalOrOp {
 struct EqualOp {
     std::optional<Value> operator()(Value const &v1, Value const &v2)
     {
-        return v1 == v2;
+        auto ret { v1 == v2 };
+        return ret;
     }
 };
 
@@ -210,7 +211,8 @@ struct NotEqualOp {
 struct LessOp {
     std::optional<Value> operator()(Value const &v1, Value const &v2)
     {
-        return v1 < v2;
+        auto ret { v1 < v2 };
+        return ret;
     }
 };
 
@@ -292,19 +294,40 @@ struct BinaryOperatorMapping {
 
     std::optional<PrimitiveType> compatible(PrimitiveType const &lhs, PrimitiveType const &rhs) const
     {
+        auto lhs_type = TypeRegistry::the()[lhs].decay();
+        auto rhs_type = TypeRegistry::the()[rhs].decay();
         for (auto ix = 0; ix < binary_operator_compatibility_size; ++ix) {
             auto const &compatibility = binary_operator_compatibility[ix];
             if (compatibility.op == op) {
-                if (is_a(static_cast<TypeReference>(lhs), compatibility.lhs) && is_a(static_cast<TypeReference>(rhs), compatibility.rhs)) {
-                    switch (compatibility.result) {
-                    case BasicType::Numeric:
-                        return lhs == PrimitiveType::Float || rhs == PrimitiveType::Float
-                            ? PrimitiveType::Float
-                            : lhs;
-                    case BasicType::Self:
-                        return lhs;
-                    default:
-                        return static_cast<PrimitiveType>(compatibility.result);
+                if (is_a(lhs_type.ref, compatibility.lhs)) {
+                    if ((compatibility.rhs == BasicType::Lhs)
+                            ? is_a(rhs_type.ref, static_cast<BasicType>(lhs_type.ref))
+                            : is_a(rhs_type.ref, compatibility.rhs)) {
+                        switch (compatibility.result) {
+                        case BasicType::Numeric: {
+                            if (lhs_type.is_float() || rhs_type.is_float()) {
+                                return (lhs == PrimitiveType::Double || rhs == PrimitiveType::Double)
+                                    ? PrimitiveType::Double
+                                    : PrimitiveType::Float;
+                            }
+                            if (lhs_type.is_unsigned() && rhs_type.is_unsigned()) {
+                                return (lhs >= rhs) ? lhs : rhs;
+                            }
+                            if (lhs_type.is_signed() && rhs_type.is_signed()) {
+                                return (lhs >= rhs) ? lhs : rhs;
+                            }
+                            auto ret = std::max(lhs, rhs);
+                            if (TypeRegistry::the()[ret].is_unsigned() && ret != PrimitiveType::U64) {
+                                ret = static_cast<PrimitiveType>(static_cast<uint64_t>(ret) + 1);
+                            }
+                        }
+                        case BasicType::Lhs:
+                            return lhs;
+                        case BasicType::Rhs:
+                            return rhs;
+                        default:
+                            return static_cast<PrimitiveType>(compatibility.result);
+                        }
                     }
                 }
             }
@@ -366,22 +389,6 @@ inline constexpr std::string_view to_string(UnaryOperator const &v)
     }
 }
 
-struct UnaryOperatorCompatibility {
-    UnaryOperator op;
-    BasicType     operand;
-    BasicType     result;
-};
-
-UnaryOperatorCompatibility constexpr unary_operator_compatibility[] = {
-    { UnaryOperator::AddressOf, BasicType::Any, BasicType::U64 },
-    { UnaryOperator::Deref, BasicType::Aggregate, BasicType::Any },
-    { UnaryOperator::Idempotent, BasicType::Numeric, BasicType::Self },
-    { UnaryOperator::Invert, BasicType::U64, BasicType::Self },
-    { UnaryOperator::LogicalNegate, BasicType::Bool, BasicType::Self },
-    { UnaryOperator::Negate, BasicType::Numeric, BasicType::Self },
-};
-
-uint64_t constexpr unary_operator_compatibility_size = sizeof(unary_operator_compatibility) / sizeof(UnaryOperatorCompatibility);
 
 struct IdempotentOp {
     std::optional<Value> operator()(Value const &v)
@@ -410,6 +417,42 @@ struct InvertOp {
         return v.invert();
     }
 };
+
+inline std::optional<PrimitiveType> compatible(UnaryOperator op, PrimitiveType const &operand)
+{
+    auto type = TypeRegistry::the()[operand].decay();
+    switch (op) {
+    case UnaryOperator::AddressOf:
+        return PrimitiveType::Ptr;
+    case UnaryOperator::Deref:
+        return {};
+    case UnaryOperator::Idempotent:
+        if (type.is_numeric()) {
+            return operand;
+        }
+        return {};
+    case UnaryOperator::Invert:
+        if (type.is_integer()) {
+            return operand;
+        }
+        return {};
+    case UnaryOperator::LogicalNegate:
+        if (operand == PrimitiveType::Bool) {
+            return operand;
+        }
+        return {};
+    case UnaryOperator::Negate:
+        if (!type.is_numeric()) {
+            return {};
+        }
+        if (type.is_float() || type.is_signed() || operand == PrimitiveType::U64) {
+            return operand;
+        }
+        return static_cast<PrimitiveType>(static_cast<uint64_t>(operand) + 1);
+    default:
+        return {};
+    }
+}
 
 struct UnaryOperatorMapping {
     UnaryOperator op;
@@ -442,25 +485,6 @@ struct UnaryOperatorMapping {
         UnaryOperators(S)
 #undef S
             UNREACHABLE();
-    }
-
-    std::optional<PrimitiveType> compatible(PrimitiveType const &operand) const
-    {
-        for (auto ix = 0; ix < unary_operator_compatibility_size; ++ix) {
-            auto const &compatibility = unary_operator_compatibility[ix];
-            if (compatibility.op == op) {
-                if (is_a(static_cast<TypeReference>(operand), compatibility.operand)) {
-                    switch (compatibility.result) {
-                    case BasicType::Numeric:
-                    case BasicType::Self:
-                        return operand;
-                    default:
-                        return static_cast<PrimitiveType>(compatibility.result);
-                    }
-                }
-            }
-        }
-        return {};
     }
 
     std::optional<Value> operator()(Value const &v) const

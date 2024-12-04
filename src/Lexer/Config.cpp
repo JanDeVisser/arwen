@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "Lib.h"
 #include <Lexer/Lexer.h>
 
 namespace Arwen {
@@ -23,6 +24,9 @@ void Config::Comment::configure(std::string_view const &key, std::optional<std::
         } else {
             this->eol_marker.emplace_back(v);
         }
+    }
+    if (iequals(key, "ignore")) {
+        this->ignore = true;
     }
 }
 

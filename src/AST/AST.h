@@ -8,11 +8,11 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <format>
 #include <ios>
 #include <optional>
 #include <sstream>
-#include <string>
 #include <string_view>
 #include <utility>
 #include <variant>
@@ -44,6 +44,7 @@ namespace Arwen {
     S(Identifier)             \
     S(If)                     \
     S(IntConstant)            \
+    S(Intrinsic)              \
     S(Label)                  \
     S(Loop)                   \
     S(Member)                 \
@@ -56,7 +57,8 @@ namespace Arwen {
     S(StringConstant)         \
     S(Subscript)              \
     S(UnaryExpression)        \
-    S(VariableDeclaration)
+    S(VariableDeclaration)    \
+    S(While)
 
 enum class ASTNodeKind {
 #undef S
@@ -93,8 +95,8 @@ inline constexpr std::string_view to_string(ASTNodeKind const &v)
 using NodeReference = size_t;
 
 struct ArrayType {
-    NodeReference                element_type;
-    std::optional<NodeReference> size;
+    NodeReference element_type;
+    NodeReference size;
 };
 
 struct AssignmentExpression {
@@ -157,7 +159,11 @@ struct Identifier {
 };
 
 struct IntConstant {
-    ssize_t value;
+    uint64_t value;
+};
+
+struct Intrinsic {
+    std::string_view name;
 };
 
 struct If {
@@ -233,6 +239,11 @@ struct VariableDeclaration {
     std::optional<NodeReference> initializer {};
 };
 
+struct While {
+    NodeReference condition;
+    NodeReference body;
+};
+
 using ASTNodeImpl = std::variant<
     ArrayType,
     AssignmentExpression,
@@ -249,6 +260,7 @@ using ASTNodeImpl = std::variant<
     Identifier,
     If,
     IntConstant,
+    Intrinsic,
     Label,
     Loop,
     Member,
@@ -261,7 +273,8 @@ using ASTNodeImpl = std::variant<
     StringConstant,
     Subscript,
     UnaryExpression,
-    VariableDeclaration>;
+    VariableDeclaration,
+    While>;
 
 struct ASTNode {
     struct ArwenParser *parser = nullptr;
@@ -385,11 +398,7 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
         switch (node.kind) {
         case Arwen::ASTNodeKind::ArrayType: {
             auto &impl = std::get<Arwen::ArrayType>(node.impl);
-            if (impl.size) {
-                out << std::format("[{}]{}", node.parser->get_node(*impl.size), node.get_node(impl.element_type));
-            } else {
-                out << std::format("[]{}", node.parser->get_node(impl.element_type));
-            }
+            out << std::format("[]{}", node.parser->get_node(impl.element_type));
         } break;
         case Arwen::ASTNodeKind::AssignmentExpression: {
             auto &impl = std::get<Arwen::AssignmentExpression>(node.impl);
@@ -557,6 +566,10 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
             if (impl.initializer) {
                 out << std::format(" = {}", node.get_node(*impl.initializer));
             }
+        } break;
+        case Arwen::ASTNodeKind::While: {
+            auto &impl = std::get<Arwen::While>(node.impl);
+            out << std::format("while {} {{\n{} }}", node.get_node(impl.condition), node.get_node(impl.body));
         } break;
         default:
             out << Arwen::to_string(node.kind);

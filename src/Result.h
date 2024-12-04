@@ -54,12 +54,36 @@ public:
     {
     }
 
-    Result(Result &&) noexcept = default;
-    Result(Result const &) = default;
+    Result(Result const &other)
+    {
+        if (other.is_error()) {
+            m_value = other.error();
+        } else {
+            m_value = other.value();
+        }
+    }
+
     ~Result() = default;
 
-    Result &operator=(Result &&) noexcept = default;
-    Result &operator=(Result const &) = default;
+    Result &operator=(Result &&other)
+    {
+        if (other.is_error()) {
+            m_value = std::move(other.error());
+        } else {
+            m_value = std::move(other.value());
+        }
+        return *this;
+    }
+
+    Result &operator=(Result const &other)
+    {
+        if (other.is_error()) {
+            m_value = other.error();
+        } else {
+            m_value = other.value();
+        }
+        return *this;
+    }
 
     [[nodiscard]] bool          has_value() const { return std::holds_alternative<ResultType>(m_value); }
     ResultType const           &value() const { return std::get<ResultType>(m_value); }
@@ -87,18 +111,18 @@ public:
     }
 
     template<typename Catch>
-    ResultType const& must(Catch const &catch_)
+    ResultType const &must(Catch const &catch_)
     {
         std::visit(
             overload {
-                [this, &catch_](ErrorType const& value) {
+                [this, &catch_](ErrorType const &value) {
                     if (R caught = catch_(value); caught.is_error()) {
                         fatal("Aborting: Result::must() failed");
                     } else {
                         *this = std::move(caught);
                     }
                 },
-                [](ResultType const& value) {
+                [](ResultType const &value) {
                 } },
             m_value);
         return value();

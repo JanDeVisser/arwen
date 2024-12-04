@@ -7,6 +7,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <format>
@@ -21,6 +22,7 @@
 
 #include <Lib.h>
 #include <Logging.h>
+#include <SimpleFormat.h>
 #include <TaggedUnion.h>
 
 using u8 = uint8_t;
@@ -36,49 +38,67 @@ using f64 = double;
 
 namespace Arwen {
 
+using TypeReference = size_t;
+
 #define PrimitiveTypes(S)         \
     S(Null, null, std::monostate) \
-    S(Bool, bool, bool)           \
-    S(Double, f64, f64)           \
-    S(Float, f32, f32)            \
-    S(U8, u8, u8)                 \
     S(I8, i8, i8)                 \
-    S(U16, u16, u16)              \
+    S(U8, u8, u8)                 \
     S(I16, i16, i16)              \
-    S(U32, u32, u32)              \
+    S(U16, u16, u16)              \
     S(I32, i32, i32)              \
-    S(U64, u64, u64)              \
+    S(U32, u32, u32)              \
     S(I64, i64, i64)              \
+    S(U64, u64, u64)              \
+    S(Bool, bool, bool)           \
+    S(Float, f32, f32)            \
+    S(Double, f64, f64)           \
     S(Ptr, ptr, void *)           \
     S(ConstPtr, const_ptr, void const *)
 
-#define PseudoTypes(S)                 \
-    S(Aggregate, aggregate, aggregate) \
-    S(Any, any, any)                   \
-    S(Function, function, function)    \
-    S(Numeric, numeric, numeric)       \
-    S(Self, self, self)                \
+#define IntegerTypes(S)   \
+    S(I8, i8, 1, true)    \
+    S(U8, u8, 1, false)   \
+    S(I16, i16, 2, true)  \
+    S(U16, u16, 2, false) \
+    S(I32, i32, 4, true)  \
+    S(U32, u32, 4, false) \
+    S(I64, i64, 8, true)  \
+    S(U64, u64, 8, false)
+
+#define PseudoTypes(S)                             \
+    S(Aggregate, aggregate, aggregate)             \
+    S(Any, any, any)                               \
+    S(Function, function, function)                \
+    S(Numeric, numeric, numeric)                   \
+    S(Integer, integer, integer)                   \
+    S(SignedInt, signed, signed)                   \
+    S(UnsignedInt, unsigned, unsigned)             \
+    S(FloatingPoint, floatingpoint, floatingpoint) \
+    S(Self, self, self)                            \
+    S(Lhs, lhs, rhs)                               \
+    S(Rhs, lhs, rhs)                               \
     S(Void, void, void *)
 
 #define BasicTypes(S) \
     PrimitiveTypes(S) \
         PseudoTypes(S)
 
-enum class PrimitiveType {
+enum class PrimitiveType : TypeReference {
 #undef S
 #define S(T, L, ...) T = __COUNTER__,
     PrimitiveTypes(S)
 #undef S
 };
 
-enum class PseudoType {
+enum class PseudoType : TypeReference {
 #undef S
 #define S(T, L, ...) T = __COUNTER__,
     PseudoTypes(S)
 #undef S
 };
 
-enum class BasicType {
+enum class BasicType : TypeReference {
 #undef S
 #define S(T, L, ...) T,
     BasicTypes(S)
@@ -93,6 +113,14 @@ enum class BuiltinType {
         String,
     Int,
 };
+
+#undef S
+#define S(T, L, ...) constexpr static TypeReference T##Type = static_cast<TypeReference>(PrimitiveType::T);
+PrimitiveTypes(S)
+#undef S
+    constexpr static TypeReference StringType
+    = static_cast<TypeReference>(BuiltinType::String);
+constexpr static TypeReference IntType = static_cast<TypeReference>(BuiltinType::Int);
 
 template<>
 inline std::string_view to_string(BasicType const &t)
@@ -123,8 +151,8 @@ template<>
 inline std::optional<BasicType> decode(std::string_view s, ...)
 {
 #undef S
-#define S(T, L, ...) \
-    if (s == #L)     \
+#define S(T, L, ...)    \
+    if (iequals(s, #L)) \
         return BasicType::T;
     BasicTypes(S)
 #undef S
@@ -135,7 +163,7 @@ template<>
 inline std::optional<PrimitiveType> decode(std::string_view s, ...)
 {
     if (auto decoded = decode<BasicType>(s); decoded) {
-        if (*decoded <= BasicType::I64) {
+        if (*decoded <= BasicType::ConstPtr) {
             return static_cast<PrimitiveType>(*decoded);
         }
     }
@@ -152,8 +180,6 @@ inline std::optional<PseudoType> decode(std::string_view s, ...)
     }
     return {};
 }
-
-using TypeReference = size_t;
 
 #define TypeKinds(S)  \
     S(Primitive)      \
@@ -189,13 +215,12 @@ struct Alias {
 };
 
 struct Array {
-    TypeReference         element_type;
-    std::optional<size_t> size {};
+    TypeReference element_type;
 };
 
 struct Enum {
     std::optional<TypeReference>                 base_type;
-    std::vector<std::pair<std::string, ssize_t>> values;
+    std::vector<std::pair<std::string, int64_t>> values;
 };
 
 struct Object {
@@ -233,6 +258,10 @@ struct Type {
     TypeSpec      typespec;
 
     [[nodiscard]] bool        is_numeric() const;
+    [[nodiscard]] bool        is_integer() const;
+    [[nodiscard]] bool        is_signed() const;
+    [[nodiscard]] bool        is_unsigned() const;
+    [[nodiscard]] bool        is_float() const;
     [[nodiscard]] Type const &decay() const;
     [[nodiscard]] bool        is_assignable_to(Type const &other) const;
 };
@@ -246,7 +275,7 @@ struct TypeRegistry {
     [[nodiscard]] Type const    &operator[](PseudoType t) const { return operator[](static_cast<BasicType>(t)); }
     [[nodiscard]] Type const    &operator[](TypeReference ref) const;
     [[nodiscard]] Type const    &operator[](std::string_view name) const;
-    //    std::optional<TypeReference> resolve_array(TypeReference element_type, std::optional<size_t> size);
+    std::optional<TypeReference> resolve_array(TypeReference element_type);
     std::optional<TypeReference> resolve_pointer(TypeReference element_type);
     std::optional<TypeReference> resolve_object(Object const &obj);
     static TypeRegistry         &the();
