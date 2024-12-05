@@ -1,0 +1,4 @@
+func main() {
+  const p: *u8 = allocate(512);
+  deallocate(p, 512);
+}

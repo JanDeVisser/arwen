@@ -79,11 +79,6 @@ struct Parser {
     Error<ParserError> parse(std::string_view source, std::string_view buffer = "")
     {
         prod_stack.clear();
-        if (log) {
-            std::println("");
-            grammar.dump_parse_table();
-            std::println("");
-        }
         if (!grammar.entry_point) {
             return ParserError::NoEntryPoint;
         }
@@ -104,13 +99,13 @@ struct Parser {
             bool consumed { false };
             bool done { false };
             while (!done) {
-                if (log) {
-                    std::print("  ");
-                    for (auto &s : prod_stack) {
-                        std::print("{} ", s);
-                    }
-                    std::println("");
-                }
+                // if (log) {
+                //     std::print("  ");
+                //     for (auto &s : prod_stack) {
+                //         std::print("{} ", s);
+                //     }
+                //     std::println("");
+                // }
                 if (!prod_stack.empty()) {
                     auto s = prod_stack.back();
                     prod_stack.pop_back();

@@ -209,7 +209,29 @@ struct Token {
     Result<T, ConversionError> as() const
     {
         T ret;
-        auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.length(), ret);
+        if (kind.tag() != KindTag::Number) {
+            return ConversionError::ConversionError;
+        }
+        char const *begin = text.data();
+        char const *end = text.data() + text.length();
+        int base = 10;
+        switch (kind.number_type()) {
+            case NumberType::Binary:
+                if (text.length() > 2 && text[0] == '0' && (text[1] == 'b' || text[1] == 'B')) {
+                    begin += 2;
+                }
+                base = 2;
+                break;
+            case NumberType::Hex:
+                if (text.length() > 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X')) {
+                    begin += 2;
+                }
+                base = 16;
+                break;
+            default:
+                break;
+        }
+        auto [ptr, ec] = std::from_chars(begin, end, ret, base);
         if (ec != std::errc()) {
             return ConversionError::ConversionError;
         }

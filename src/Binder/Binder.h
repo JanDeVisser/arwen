@@ -185,6 +185,7 @@ struct BoundWhile {
     S(BoundLoop)                   \
     S(BoundMember)                 \
     S(BoundModule)                 \
+    S(Nullptr)                     \
     S(BoundParameter)              \
     S(BoundPointerType)            \
     S(BoundProgram)                \
@@ -242,7 +243,7 @@ private:
 };
 
 struct Binder {
-    TypeRegistry                 registry;
+    TypeRegistry                &registry;
     std::vector<ASTNode> const  &ast;
     std::vector<BoundNode>       bound_nodes;
     BoundNodeReferences          namespaces;
@@ -271,7 +272,7 @@ struct Binder {
         return bound_nodes[ref].implementation<Impl>();
     };
 
-    TypeAlternatives                 alternatives(NodeReference ref);
+    TypeAlternatives                 alternatives(NodeReference ref, TypeReference hint);
     BoundNodeReference               accept(NodeReference ref, TypeReference type);
     BoundNodeReference               bind_node(NodeReference ast_ref, BoundNodeReference parent = 0);
     BoundNodeReference               rebind_node(BoundNodeReference ref);

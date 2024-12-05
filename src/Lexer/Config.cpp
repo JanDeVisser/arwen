@@ -4,7 +4,15 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "Lib.h"
+#include <cassert>
+#include <cctype>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
+
+#include <Lib.h>
+#include <Logging.h>
 #include <Lexer/Lexer.h>
 
 namespace Arwen {
@@ -26,7 +34,7 @@ void Config::Comment::configure(std::string_view const &key, std::optional<std::
         }
     }
     if (iequals(key, "ignore")) {
-        this->ignore = true;
+        ignore = !value || iequals(*value, "true");
     }
 }
 
@@ -209,17 +217,17 @@ std::optional<Token> Config::Number::scan(Lexer &lexer) const
 
 void Config::Number::configure(std::string_view const &key, std::optional<std::string_view> const &value)
 {
-    if (iequals(key, "signed") || !iequals(key, "signed_numbers")) {
-        signed_numbers = true;
+    if (iequals(key, "signed") || iequals(key, "signed_numbers")) {
+        signed_numbers = !value || iequals(*value, "true");
     }
-    if (iequals(key, "decimal") || !iequals(key, "float")) {
-        decimal = true;
+    if (iequals(key, "decimal") || iequals(key, "float")) {
+        decimal = !value || iequals(*value, "true");
     }
-    if (iequals(key, "binary") || !iequals(key, "base2")) {
-        binary = true;
+    if (iequals(key, "binary") || iequals(key, "base2")) {
+        binary = !value || iequals(*value, "true");
     }
-    if (iequals(key, "hex") || !iequals(key, "base16")) {
-        hex = true;
+    if (iequals(key, "hex") || iequals(key, "base16")) {
+        hex = !value || iequals(*value, "true");
     }
 }
 
@@ -236,14 +244,13 @@ void Config::QString::configure(std::string_view const &key, std::optional<std::
 void Config::Whitespace::configure(std::string_view key, std::optional<std::string_view> value)
 {
     if (iequals(key, "ignore_ws")) {
-        this->ignore_ws = true;
+        ignore_ws = !value || iequals(*value, "true");
     }
     if (iequals(key, "ignore_nl")) {
-        this->ignore_nl = true;
+        ignore_nl = !value || iequals(*value, "true");
     }
     if (iequals(key, "ignoreall")) {
-        this->ignore_nl = true;
-        this->ignore_ws = true;
+        ignore_nl = ignore_ws = !value || iequals(*value, "true");
     }
 }
 
@@ -284,7 +291,7 @@ void Config::configure(std::string_view const &scanner, std::optional<std::strin
             if (auto ix = c.find(';'); ix != std::string_view::npos) {
                 semi_ix = ix;
             }
-            auto trimmed = trim(c.substr(0, semi_ix - 1));
+            auto trimmed = trim(c.substr(0, semi_ix));
             c = c.substr((semi_ix < c.length()) ? semi_ix + 1 : c.length());
             value = trimmed;
         }

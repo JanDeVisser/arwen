@@ -51,6 +51,7 @@ BoundNodeReference add_error(Binder &binder, BoundNodeReference ref, std::format
     auto              &impl = std::get<BindError>(binder.bound_nodes[err].impl);
     impl.node = ref;
     impl.message = std::format(message, std::forward<Args>(args)...);
+    std::println("{}:{}: {}", binder[ref].location, binder[ref].type_name(), impl.message);
     binder.errors.emplace_back(err);
     return err;
 }
@@ -69,14 +70,15 @@ BoundNodeReference rebind([[maybe_unused]] Binder &, BoundNodeReference ref)
 }
 
 template<typename BoundImpl>
-TypeAlternatives alternatives(Binder &binder, BoundNodeReference ref)
+TypeAlternatives alternatives(Binder &binder, BoundNodeReference ref, TypeReference hint)
 {
     assert(binder[ref].type.has_value());
     TypeAlternatives ret = { *binder[ref].type, {} };
-    auto type = TypeRegistry::the()[*binder[ref].type].decay();
+    auto const      &type = TypeRegistry::the()[*binder[ref].type].decay();
+    auto const      &hinted = TypeRegistry::the()[hint].decay();
     if (type.is_numeric()) {
-        ret.alternatives.push_back(static_cast<TypeReference>(PrimitiveType::Double));
-        ret.alternatives.push_back(static_cast<TypeReference>(PrimitiveType::Float));
+        ret.alternatives.push_back(DoubleType);
+        ret.alternatives.push_back(FloatType);
         if (type.is_integer()) {
             if (type.is_unsigned()) {
                 for (TypeReference t = type.ref + 1; binder.registry[t].is_integer(); ++t) {
@@ -89,6 +91,17 @@ TypeAlternatives alternatives(Binder &binder, BoundNodeReference ref)
             }
         }
     }
+    if (type.is_raw_pointer()) {
+        ret.alternatives.push_back(PtrType);
+        ret.alternatives.push_back(ConstPtrType);
+        if (hinted.typespec.tag() == TypeKind::Pointer) {
+            ret.alternatives.push_back(hint);
+        }
+    }
+    if (type.typespec.tag() == TypeKind::Pointer) {
+        ret.alternatives.push_back(ConstPtrType);
+        ret.alternatives.push_back(PtrType);
+    }
     return ret;
 }
 
@@ -98,6 +111,17 @@ BoundNodeReference accept(Binder &binder, BoundNodeReference ref, TypeReference 
     auto &node = binder[ref];
     assert(node.type.has_value());
     if (node.type == type) {
+        return ref;
+    }
+    auto        current = *node.type;
+    auto const &current_type = binder.registry[current];
+    auto const &desired = binder.registry[type];
+    if (current_type.is_raw_pointer() && desired.is_raw_pointer()) {
+        node.type = type;
+        return ref;
+    }
+    if (desired.typespec.tag() == TypeKind::Pointer && (current == PtrType || current == ConstPtrType)) {
+        node.type = type;
         return ref;
     }
     ref = add_node<BoundCoercion>(binder, node.ast_ref, node.location, node.parent);
@@ -175,7 +199,7 @@ BoundNodeReference rebind<BoundArrayType>(Binder &binder, BoundNodeReference ref
     }
     IMPL.size = binder.rebind_node(IMPL.size);
     if (binder[IMPL.size].type) {
-        auto size_types = binder.alternatives(IMPL.size);
+        auto size_types = binder.alternatives(IMPL.size, U64Type);
         if (binder.registry[size_types.preferred].is_signed()) {
             return ref;
         } else {
@@ -229,7 +253,7 @@ BoundNodeReference rebind<BoundAssignmentExpression>(Binder &binder, BoundNodeRe
         return add_error(binder, ref, "Assignment requires identifier, subscript, or member access LHS value");
     }
     auto left_type = binder.registry[*binder[IMPL.left].type];
-    auto right_types = binder.alternatives(IMPL.left);
+    auto right_types = binder.alternatives(IMPL.left, left_type.ref);
     if (right_types.preferred == left_type.ref) {
         binder[ref].type = left_type.ref;
         return ref;
@@ -312,8 +336,8 @@ BoundNodeReference rebind<BoundBinaryExpression>(Binder &binder, BoundNodeRefere
     if (!binder[IMPL.left].type || !binder[IMPL.right].type) {
         return ref;
     }
-    auto left_type = binder.registry[*binder[IMPL.left].type];
-    auto right_type = binder.registry[*binder[IMPL.right].type];
+    auto const &left_type = binder.registry[*binder[IMPL.left].type];
+    auto const &right_type = binder.registry[*binder[IMPL.right].type];
     switch (IMPL.op) {
     case BinaryOperator::MemberAccess: {
         if (left_type.typespec.tag() != TypeKind::Object) {
@@ -338,11 +362,26 @@ BoundNodeReference rebind<BoundBinaryExpression>(Binder &binder, BoundNodeRefere
     case BinaryOperator::Subscript: {
         if (binder[IMPL.left].type) {
             auto type = binder.registry[*binder[IMPL.left].type];
-            if (type.typespec.tag() != TypeKind::Array) {
-                return add_error(binder, ref, "Cannot subscript non-arrays");
-            } else {
+            switch (type.typespec.tag()) {
+            case TypeKind::Array: {
                 auto const &arr = type.typespec.get<TypeKind::Array>();
                 binder[ref].type = arr.element_type;
+            } break;
+            case TypeKind::Pointer: {
+                auto const &ptr = type.typespec.get<TypeKind::Pointer>();
+                binder[ref].type = ptr.element_type;
+            } break;
+            case TypeKind::Slice: {
+                auto const &slice = type.typespec.get<TypeKind::Slice>();
+                binder[ref].type = slice.element_type;
+            } break;
+            case TypeKind::Primitive:
+                if (type.is_raw_pointer()) {
+                    binder[ref].type = U8Type;
+                }
+                // Fall through
+            default:
+                return add_error(binder, ref, "Can only subscript arrays, slices, or pointers, not {}", type.typespec.tag());
             }
         }
         if (!std::holds_alternative<BoundSubscript>(binder[IMPL.right].impl)) {
@@ -350,8 +389,8 @@ BoundNodeReference rebind<BoundBinaryExpression>(Binder &binder, BoundNodeRefere
         }
     } break;
     default: {
-        auto                  left_types = binder.alternatives(IMPL.left);
-        auto                  right_types = binder.alternatives(IMPL.right);
+        auto                  left_types = binder.alternatives(IMPL.left, right_type.ref);
+        auto                  right_types = binder.alternatives(IMPL.right, left_type.ref);
         BinaryOperatorMapping m { IMPL.op };
 
         auto test_types = [&](TypeReference lhs, TypeReference rhs) {
@@ -534,7 +573,7 @@ BoundNodeReference rebind<BoundConstantDeclaration>(Binder &binder, BoundNodeRef
         binder[ref].type = binder[IMPL.initializer].type;
     } else if (binder[IMPL.initializer].type) {
         auto left_type = binder.registry[*binder[*IMPL.type].type];
-        auto right_types = binder.alternatives(IMPL.initializer);
+        auto right_types = binder.alternatives(IMPL.initializer, left_type.ref);
         if (right_types.preferred == left_type.ref) {
             binder[ref].type = binder[*IMPL.type].type;
             return ref;
@@ -592,7 +631,7 @@ void to_string(std::ostream &out, Binder &, FloatConstant const &impl)
 }
 
 template<>
-TypeAlternatives alternatives<FloatConstant>(Binder &binder, BoundNodeReference ref)
+TypeAlternatives alternatives<FloatConstant>(Binder &binder, BoundNodeReference ref, TypeReference)
 {
     TypeAlternatives result;
     result.preferred = *binder[ref].type;
@@ -811,12 +850,13 @@ BoundNodeReference rebind<BoundFunctionCall>(Binder &binder, BoundNodeReference 
         if (func_decl.parameters.size() != IMPL.arguments.size()) {
             return add_error(binder, ref, "In call to '{}': Expected {} arguments, got {}", func_decl.name, func_decl.parameters.size(), IMPL.arguments.size());
         }
-        if (*binder[*IMPL.function].type == static_cast<TypeReference>(PseudoType::Void) ||
-            binder.type_of(binder[ref].parent) == BoundNodeType::BoundBlock) { // Hack. FIXME later
+        if (*binder[*IMPL.function].type == static_cast<TypeReference>(PseudoType::Void) || binder.type_of(binder[ref].parent) == BoundNodeType::BoundBlock) { // Hack. FIXME later
             IMPL.discard_result = true;
         }
         size_t ix { 0 };
-        for (auto [param, arg] : std::views::zip(func_decl.parameters, IMPL.arguments)) {
+        for (auto ix = 0; ix < func_decl.parameters.size(); ++ix) {
+            auto param = func_decl.parameters[ix];
+            auto arg = IMPL.arguments[ix];
             if (!binder[param].type || !binder[arg].type) {
                 all_bound = false;
                 continue;
@@ -824,8 +864,8 @@ BoundNodeReference rebind<BoundFunctionCall>(Binder &binder, BoundNodeReference 
             if (binder[arg].type == binder[param].type) {
                 continue;
             }
-            auto param_type = binder.registry[*binder[param].type];
-            auto arg_types = binder.alternatives(arg);
+            auto const &param_type = binder.registry[*binder[param].type];
+            auto        arg_types = binder.alternatives(arg, param_type.ref);
             if (arg_types.preferred == param_type.ref) {
                 binder[arg].type = param_type.ref;
                 continue;
@@ -847,7 +887,6 @@ BoundNodeReference rebind<BoundFunctionCall>(Binder &binder, BoundNodeReference 
                         binder.registry[*binder[arg].type].name);
                 }
             }
-            ++ix;
         }
         if (all_bound) {
             binder[ref].type = binder[*IMPL.function].type;
@@ -1022,7 +1061,7 @@ BoundNodeReference bind<IntConstant>(Binder &binder, NodeReference ast_ref, Boun
 }
 
 template<>
-TypeAlternatives alternatives<IntConstant>(Binder &binder, BoundNodeReference ref)
+TypeAlternatives alternatives<IntConstant>(Binder &binder, BoundNodeReference ref, TypeReference)
 {
     TypeAlternatives result;
     result.preferred = *binder[ref].type;
@@ -1194,6 +1233,25 @@ void dump(std::ostream &out, Binder &binder, BoundModule const &impl, int indent
 }
 
 #undef STRUCT
+#define STRUCT Nullptr
+
+template<>
+BoundNodeReference bind<Nullptr>(Binder &binder, NodeReference ast_ref, BoundNodeReference parent)
+{
+    auto const &ast_node = binder.ast[ast_ref];
+    auto const &ast_impl = std::get<Nullptr>(ast_node.impl);
+    auto        ref = add_node<Nullptr>(binder, ast_node.ref, ast_node.location, parent);
+    binder[ref].type = binder.registry[PrimitiveType::ConstPtr].ref;
+    return ref;
+}
+
+template<>
+void to_string(std::ostream &out, Binder &, Nullptr const &impl)
+{
+    std::cout << "nullptr";
+}
+
+#undef STRUCT
 #define STRUCT BoundParameter
 
 template<>
@@ -1305,8 +1363,8 @@ BoundNodeReference bind<Program>(Binder &binder, NodeReference ast_ref, BoundNod
                                            [](BoundVariableDeclaration const &impl) {
                                                return impl.name;
                                            },
-                                           [](auto const &) -> std::string_view {
-                                               UNREACHABLE();
+                                           [](auto const &impl) -> std::string_view {
+                                               fatal("Why is there a {} in the builtin module?", typeid(decltype(impl)).name());
                                                return "";
                                            } },
                     binder[n].impl);
@@ -1355,6 +1413,12 @@ BoundNodeReference bind<Return>(Binder &binder, NodeReference ast_ref, BoundNode
         IMPL.expression = binder.bind_node(*ast_impl.expression, ref);
     }
     return ref;
+}
+
+template<>
+void dump(std::ostream &out, Binder &binder, BoundReturn const &impl, int indent)
+{
+    binder.dump(out, impl.expression, "Expression", indent);
 }
 
 #undef STRUCT
@@ -1456,11 +1520,10 @@ template<>
 BoundNodeReference rebind<BoundUnaryExpression>(Binder &binder, BoundNodeReference ref)
 {
     IMPL.operand = binder.rebind_node(IMPL.operand);
-    auto operand_types = binder.alternatives(IMPL.operand);
-
     if (!binder[IMPL.operand].type) {
         return ref;
     }
+    auto operand_types = binder.alternatives(IMPL.operand, *binder[IMPL.operand].type);
 
     auto test_type = [&](TypeReference t) {
         if (auto c = compatible(IMPL.op, static_cast<PrimitiveType>(t)); c) {
@@ -1524,7 +1587,7 @@ BoundNodeReference rebind<BoundVariableDeclaration>(Binder &binder, BoundNodeRef
         if (binder[*IMPL.initializer].type) {
             if (IMPL.type) {
                 auto left_type = binder.registry[*binder[*IMPL.type].type];
-                auto right_types = binder.alternatives(*IMPL.initializer);
+                auto right_types = binder.alternatives(*IMPL.initializer, left_type.ref);
                 if (right_types.preferred == left_type.ref) {
                     binder[ref].type = binder[*IMPL.type].type;
                     return ref;
@@ -1633,13 +1696,13 @@ std::string_view BoundNode::type_name() const
         impl);
 }
 
-TypeAlternatives Binder::alternatives(BoundNodeReference ref)
+TypeAlternatives Binder::alternatives(BoundNodeReference ref, TypeReference hint)
 {
     auto const &node = bound_nodes[ref];
     return std::visit(
-        [this, ref](auto &impl) -> TypeAlternatives {
+        [this, ref, hint](auto &impl) -> TypeAlternatives {
             using T = std::decay_t<decltype(impl)>;
-            return Arwen::alternatives<T>(*this, ref);
+            return Arwen::alternatives<T>(*this, ref, hint);
         },
         node.impl);
 }

@@ -33,6 +33,7 @@ std::vector<ASTNodeKind> expressionKinds = {
     ASTNodeKind::Identifier,
     ASTNodeKind::IntConstant,
     ASTNodeKind::Member,
+    ASTNodeKind::Nullptr,
     ASTNodeKind::StringConstant,
     ASTNodeKind::UnaryExpression,
 };
@@ -328,6 +329,11 @@ extern "C" {
     parser->impl.push_node(parser->last_token.location, ASTNodeKind::BoolConstant, BoolConstant { data->as_bool() });
 }
 
+[[maybe_unused]] void arwen_make_nullptr(P *parser)
+{
+    parser->impl.push_node(parser->last_token.location, ASTNodeKind::Nullptr, Nullptr {});
+}
+
 [[maybe_unused]] void arwen_make_binary_expression(P *parser)
 {
     auto  op_token { parser->impl.pop_token() };
@@ -526,44 +532,43 @@ void make_function_decl_(P *parser, std::optional<NodeReference> return_type)
 [[maybe_unused]] void arwen_make_function(P *parser)
 {
     auto &block = parser->impl.pop_typed_node(ASTNodeKind::Block);
+    auto block_ref = block.ref;
     auto &decl = parser->impl.pop_typed_node(ASTNodeKind::Function);
+    auto decl_ref = decl.ref;
     auto &function_impl = parser->impl.make_node(
         block.location,
         ASTNodeKind::FunctionImplementation,
         FunctionImplementation {
-            .implementation = block.ref,
+            .implementation = block_ref,
         });
-    std::get<Function>(decl.impl).implementation = function_impl.ref;
-    auto &module_node = parser->impl.get_typed_node(*parser->impl.module, ASTNodeKind::Module);
-    auto &mod = std::get<Module>(module_node.impl);
-    mod.names.push_back(decl.ref);
+    std::get<Function>(parser->impl.get_node(decl_ref).impl).implementation = function_impl.ref;
+    parser->impl.node_stack.push_back(decl.ref);
 }
 
 [[maybe_unused]] void arwen_make_foreign_function(P *parser)
 {
     auto &foreign_func = parser->impl.pop_typed_node(ASTNodeKind::StringConstant);
+    auto foreign_func_ref = foreign_func.ref;
     auto &decl = parser->impl.pop_typed_node(ASTNodeKind::Function);
+    auto decl_ref = decl.ref;
     auto &foreign_func_node = parser->impl.make_node(
         foreign_func.location,
         ASTNodeKind::ForeignFunction,
-        ForeignFunction { std::get<StringConstant>(foreign_func.impl).value });
-    std::get<Function>(decl.impl).implementation = foreign_func_node.ref;
-    auto &module_node = parser->impl.get_typed_node(*parser->impl.module, ASTNodeKind::Module);
-    auto &mod = std::get<Module>(module_node.impl);
-    mod.names.push_back(decl.ref);
+        ForeignFunction { std::get<StringConstant>(parser->impl.get_node(foreign_func_ref).impl).value });
+    std::get<Function>(parser->impl.get_node(decl_ref).impl).implementation = foreign_func_node.ref;
+    parser->impl.node_stack.push_back(decl.ref);
 }
 
 [[maybe_unused]] void arwen_make_intrinsic(P *parser)
 {
     auto &decl = parser->impl.pop_typed_node(ASTNodeKind::Function);
+    auto decl_ref = decl.ref;
     auto &intrinsic_node = parser->impl.make_node(
         decl.location,
         ASTNodeKind::Intrinsic,
         Intrinsic { .name = std::get<Function>(decl.impl).name });
-    std::get<Function>(decl.impl).implementation = intrinsic_node.ref;
-    auto &module_node = parser->impl.get_typed_node(*parser->impl.module, ASTNodeKind::Module);
-    auto &mod = std::get<Module>(module_node.impl);
-    mod.names.push_back(decl.ref);
+    std::get<Function>(parser->impl.get_node(decl_ref).impl).implementation = intrinsic_node.ref;
+    parser->impl.node_stack.push_back(decl.ref);
 }
 
 [[maybe_unused]] void arwen_start_block(P *parser)
@@ -717,4 +722,19 @@ void make_function_decl_(P *parser, std::optional<NodeReference> return_type)
             .subscripts = subscripts,
         });
 }
+
+[[maybe_unused]] void arwen_finish_module(P *parser)
+{
+    std::vector<NodeReference> declarations;
+    while (parser->impl.peek_kind() != ASTNodeKind::Module) {
+        auto &decl = parser->impl.pop_node();
+        declarations.push_back(decl.ref);
+    }
+    auto &module_node = parser->impl.get_typed_node(*parser->impl.module, ASTNodeKind::Module);
+    auto &mod = std::get<Module>(module_node.impl);
+    std::reverse(declarations.begin(), declarations.end());
+    mod.names = declarations;
+    parser->impl.node_stack.push_back(module_node.ref);
+}
+
 }

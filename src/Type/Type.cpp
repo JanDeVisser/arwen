@@ -5,6 +5,7 @@
  */
 
 #include <cstddef>
+#include <cstdio>
 #include <format>
 #include <optional>
 #include <string>
@@ -142,6 +143,7 @@ TypeReference TypeRegistry::register_type(Type t)
     t.ref = types.size();
     index.emplace(t.name, t.ref);
     types.emplace_back(std::move(t));
+    auto const &tt = types.back();
     return t.ref;
 }
 

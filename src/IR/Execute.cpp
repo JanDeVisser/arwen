@@ -21,6 +21,7 @@
 #include <IR/Execute.h>
 #include <IR/Foreign.h>
 #include <IR/IR.h>
+#include <IR/Intrinsics.h>
 #include <Logging.h>
 #include <Resolve.h>
 #include <Result.h>
@@ -73,7 +74,9 @@ void execute(Operation const &op, Call const &impl, Scope &scope)
             auto  ref = mod.function_refs.at(name);
             Scope child { scope, mod.functions.at(ref), args };
             if (auto ret = child.execute(); ret) {
-                scope.push(*ret);
+                if (scope.ip != scope.EXITED) {
+                    scope.push(*ret);
+                }
             }
             return;
         }
@@ -98,10 +101,24 @@ void execute(Operation const &op, ForeignCall const &impl, Scope &scope)
     if (scope.log) {
         std::println("{}({})", decl.name, args);
     }
-    auto ret_type = *(binder[impl.decl].type);
-    auto t = TypeRegistry::the()[ret_type];
-    assert(t.typespec.tag() == TypeKind::Primitive);
-    auto ret = foreign_call(impl.name, args, t.typespec.get<TypeKind::Primitive>().type).must();
+    auto          ret_type = *(binder[impl.decl].type);
+    auto          t = TypeRegistry::the()[ret_type];
+    PrimitiveType primitive_ret_type = PrimitiveType::Null;
+    switch (t.typespec.tag()) {
+    case TypeKind::Primitive:
+        primitive_ret_type = t.typespec.get<TypeKind::Primitive>().type;
+        break;
+    case TypeKind::Pointer:
+        if (t.typespec.get<TypeKind::Pointer>().element_type == U8Type) {
+            primitive_ret_type = PrimitiveType::ConstPtr;
+            break;
+        }
+        // Fall through
+    default:
+        fatal("Unsupported return type for foreign function");
+        break;
+    }
+    auto ret = foreign_call(impl.name, args, primitive_ret_type).must();
     scope.push(ret);
 }
 
@@ -114,20 +131,10 @@ void execute(Operation const &op, FunctionReturn const &impl, Scope &scope)
 template<>
 void execute(Operation const &op, Intrinsic const &impl, Scope &scope)
 {
-    if (impl.name == "ptr") {
-        auto value = scope.pop();
-        assert(TypeRegistry::the()[value.type()].decay().typespec.tag() == TypeKind::Slice);
-        auto sv = value.value<std::string_view>();
-        scope.push(Value { static_cast<void const *>(sv.data()) });
-        return;
+    if (!scope.machine.intrinsics.contains(impl.name)) {
+        fatal("Intrinsic {} not found", impl.name);
     }
-    if (impl.name == "len") {
-        auto value = scope.pop();
-        assert(TypeRegistry::the()[value.type()].decay().typespec.tag() == TypeKind::Slice);
-        auto sv = value.value<std::string_view>();
-        scope.push(Value { static_cast<u64>(sv.length()) });
-        return;
-    }
+    scope.machine.intrinsics[impl.name](scope);
 }
 
 template<>
@@ -166,9 +173,9 @@ void execute(Operation const &op, PopArrayElement const &impl, Scope &scope)
     auto ident = scope.pop();
     auto ix_size = scope.pop();
     assert(ix_size.as_unsigned() == 1);
-    auto ix = scope.pop();
+    auto   ix = scope.pop();
     Value &arr = scope.get(ident.value<std::string_view>());
-    arr[ix.as_unsigned()] = scope.pop();
+    arr.set(ix.as_unsigned(), scope.pop());
 }
 
 template<>
@@ -184,9 +191,9 @@ void execute(Operation const &op, PushArrayElement const &impl, Scope &scope)
     auto ident = scope.pop();
     auto ix_size = scope.pop();
     assert(ix_size.as_unsigned() == 1);
-    auto ix = scope.pop();
+    auto  ix = scope.pop();
     auto &value = scope.get(ident.value<std::string_view>());
-    scope.push({value.type(), value[ix.as_unsigned()]});
+    scope.push(std::move(value.at(ix.as_unsigned())));
 }
 
 template<>
@@ -208,9 +215,9 @@ void execute(Operation const &op, PushInt const &impl, Scope &scope)
 }
 
 template<>
-void execute(Operation const &op, PushNull const &impl, Scope &scope)
+void execute(Operation const &op, PushNullptr const &impl, Scope &scope)
 {
-    scope.push(Value {});
+    scope.push(Value { ConstPtrType });
 }
 
 template<>
@@ -222,16 +229,55 @@ void execute(Operation const &op, PushString const &impl, Scope &scope)
 template<>
 void execute(Operation const &op, PushVariableValue const &impl, Scope &scope)
 {
-    auto &value = scope.variables[impl.name];
+    auto &value = scope.get(impl.name);
     scope.push(value);
+}
+
+template<>
+void execute(Operation const &op, UnaryOperation const &impl, Scope &scope)
+{
+    auto                 operand = scope.pop();
+    UnaryOperatorMapping m { impl.op };
+    auto                 ret = m(operand)
+                   .or_else([]() -> std::optional<Value> {
+                       fatal("Could not apply operator");
+                       return {};
+                   })
+                   .and_then([&](Value const &v) -> std::optional<Value> {
+                       scope.push(v);
+                       return v;
+                   });
+}
+
+Machine::Machine(Program &program)
+    : program(program)
+{
+    intrinsics["exit"] = exit;
+    intrinsics["len"] = len;
+    intrinsics["make_string"] = make_string;
+    intrinsics["ptr"] = ptr;
 }
 
 std::optional<Value> Machine::run(std::vector<Value> const &args)
 {
+    auto builtin_ix = 0;
     for (auto &mod : program.modules) {
+        if (mod.name == "#builtin") {
+            builtin_ix = mod.ref;
+            break;
+        }
+    }
+    Function dummy { program };
+    Scope    root { *this, program.modules[builtin_ix].initializer };
+    root.execute();
+    for (auto &mod : program.modules) {
+        if (mod.name == "#builtin")
+            continue;
+        Scope mod_scope { root, mod.initializer };
+        mod_scope.execute();
         if (mod.function_refs.contains("main")) {
             auto &function = mod.functions[mod.function_refs["main"]];
-            Scope scope { *this, function, args };
+            Scope scope { mod_scope, function, args };
             return scope.execute();
         }
     }
@@ -255,7 +301,7 @@ Scope::Scope(Scope &parent, Function const &function, std::vector<Value> const &
     initialize(args);
 }
 
-void dump_vars(Scope const& scope)
+void dump_vars(Scope const &scope)
 {
     for (auto const &var : scope.variables) {
         std::print(" | {} = {}", var.first, var.second);
@@ -268,7 +314,8 @@ std::optional<Value> Scope::execute()
     ip = 0;
     while (ip < function.ops.size()) {
         auto const &op = function.ops[ip];
-        if (log) std::print("     {} ", op);
+        if (log)
+            std::print("     {} ", op);
         ++ip;
         std::visit(
             [&op, this](auto const &impl) {
@@ -277,7 +324,17 @@ std::optional<Value> Scope::execute()
             op.op);
         if (log) {
             dump_stack();
-            std::println(" -> {}", ip);
+            std::println(" -> {}", (ip == EXITED) ? "EXIT" : std::to_string(ip));
+        }
+        if (ip == EXITED) {
+            auto exit_code = pop();
+            if (parent) {
+                parent->push(exit_code);
+                parent->ip = EXITED;
+                return {};
+            } else {
+                return exit_code;
+            }
         }
     }
     if (!stack.empty()) {
@@ -289,6 +346,11 @@ std::optional<Value> Scope::execute()
 void Scope::jump(size_t target)
 {
     ip = target;
+}
+
+void Scope::exit()
+{
+    ip = EXITED;
 }
 
 void Scope::push(Value value)
@@ -305,50 +367,40 @@ Value Scope::pop()
 
 void Scope::set(std::string_view name, Value value)
 {
-    Scope *scope = this;
-    while (scope) {
+    for (Scope *scope = this; scope; scope = scope->parent) {
         if (scope->variables.contains(name)) {
             scope->variables[name] = value;
             return;
         }
-        scope = scope->parent;
     }
     variables[name] = value;
 }
 
 Value &Scope::get(std::string_view name)
 {
-    Scope *scope = this;
-    while (scope) {
+    for (Scope *scope = this; scope; scope = scope->parent) {
         if (scope->variables.contains(name)) {
             return scope->variables[name];
         }
-        scope = scope->parent;
     }
     UNREACHABLE();
 }
 
 Value const &Scope::get(std::string_view name) const
 {
-    Scope const *scope = this;
-    while (scope) {
-        if (scope->variables.contains(name)) {
-            return scope->variables.at(name);
-        }
-        scope = scope->parent;
-    }
-    UNREACHABLE();
+    return const_cast<Scope *>(this)->get(name);
 }
 
 void Scope::initialize(std::vector<Value> args)
 {
     auto       &binder = machine.program.binder;
     auto const &func_node = binder[function.bound_ref];
-    assert(std::holds_alternative<BoundFunction>(func_node.impl));
-    auto const &bound_function = std::get<BoundFunction>(func_node.impl);
-    assert(args.size() >= bound_function.parameters.size());
-    for (size_t i = 0; i < bound_function.parameters.size(); i++) {
-        variables[I(BoundParameter, bound_function.parameters[i]).name] = args[i];
+    if (std::holds_alternative<BoundFunction>(func_node.impl)) {
+        auto const &bound_function = std::get<BoundFunction>(func_node.impl);
+        assert(args.size() >= bound_function.parameters.size());
+        for (size_t i = 0; i < bound_function.parameters.size(); i++) {
+            variables[I(BoundParameter, bound_function.parameters[i]).name] = args[i];
+        }
     }
 }
 

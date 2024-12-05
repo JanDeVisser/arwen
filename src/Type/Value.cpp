@@ -46,6 +46,74 @@ Val& Val::operator=(Value const &other)
     return *this;
 }
 
+Val const &Value::operator[](size_t ix) const
+{
+    assert(is_array());
+    auto const &values = std::get<Vals>(m_payload);
+    assert(ix < values.size());
+    return values[ix];
+}
+
+Val &Value::operator[](size_t ix)
+{
+    assert (is_array());
+    auto &values = std::get<Vals>(m_payload);
+    assert(ix < values.size());
+    return values[ix];
+}
+
+Value Value::at(size_t ix) const
+{
+    if (is_array()) {
+        auto &values = std::get<Vals>(m_payload);
+        assert(ix < values.size());
+        return Value { type(), values[ix] };
+    }
+    if (type() == ConstPtrType || type() == PtrType) {
+        auto v = std::get<Val>(m_payload);
+        auto ptr = std::get<void *>(v);
+        return Value { static_cast<u8 const*>(ptr)[ix] };
+    }
+    UNREACHABLE();
+}
+
+void Value::set(size_t ix, Value const& v)
+{
+    if (is_array()) {
+        (*this)[ix] = v;
+    }
+    if (type() == PtrType) {
+        auto val = std::get<Val>(m_payload);
+        auto ptr = std::get<void *>(val);
+        static_cast<u8*>(ptr)[ix] = v.as<u8>();
+    }
+    if (type() == ConstPtrType) {
+        auto val = std::get<Val>(m_payload);
+        auto ptr = std::get<void const *>(val);
+        static_cast<u8*>(const_cast<void *>(ptr))[ix] = v.as<u8>();
+    }
+}
+
+void Value::push_back(Value const &value)
+{
+    assert(is_array());
+    std::get<Vals>(m_payload).push_back(value);
+}
+
+Val const &Value::back() const
+{
+    assert(is_array());
+    auto const &values = std::get<Vals>(m_payload);
+    return values.back();
+}
+
+Val &Value::back()
+{
+    assert(is_array());
+    auto &values = std::get<Vals>(m_payload);
+    return values.back();
+}
+
 std::optional<Value> Value::add(Value const &other) const
 {
     return std::visit(

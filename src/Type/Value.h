@@ -9,8 +9,6 @@
 #include <algorithm>
 #include <cerrno>
 #include <charconv>
-#include <cmath>
-#include <concepts>
 #include <cstdlib>
 #include <format>
 #include <limits>
@@ -115,8 +113,8 @@ struct Val : public ValPayload {
     {
     }
 
-    constexpr Val& operator=(Val const &other) = default;
-    Val& operator=(struct Value const &other);
+    constexpr Val &operator=(Val const &other) = default;
+    Val           &operator=(struct Value const &other);
 
     [[nodiscard]] constexpr bool operator==(Val const &other) const
     {
@@ -306,42 +304,6 @@ public:
             m_payload, rhs.m_payload);
     }
 
-    [[nodiscard]] Val const &operator[](size_t ix) const
-    {
-        assert(is_array());
-        auto const &values = std::get<Vals>(m_payload);
-        assert(ix < values.size());
-        return values[ix];
-    }
-
-    [[nodiscard]] Val &operator[](size_t ix)
-    {
-        assert(is_array());
-        auto &values = std::get<Vals>(m_payload);
-        assert(ix < values.size());
-        return values[ix];
-    }
-
-    void push_back(Value const &value)
-    {
-        assert(is_array());
-        std::get<Vals>(m_payload).push_back(value);
-    }
-
-    [[nodiscard]] Val const &back() const
-    {
-        assert(is_array());
-        auto const &values = std::get<Vals>(m_payload);
-        return values.back();
-    }
-
-    [[nodiscard]] Val &back()
-    {
-        assert(is_array());
-        auto &values = std::get<Vals>(m_payload);
-        return values.back();
-    }
-
     [[nodiscard]] constexpr bool is_string() const
     {
         return type() == StringType;
@@ -372,13 +334,13 @@ public:
         return std::get<bool>(std::get<Val>(m_payload));
     }
 
-    template <typename T>
+    template<typename T>
     [[nodiscard]] constexpr T as() const
     {
         UNREACHABLE();
     }
 
-    template <std::integral IntType>
+    template<std::integral IntType>
     [[nodiscard]] constexpr IntType as() const
     {
         assert(m_payload.index() == 0);
@@ -411,7 +373,7 @@ public:
         return as<u64>();
     }
 
-    template <std::floating_point FltType>
+    template<std::floating_point FltType>
     [[nodiscard]] constexpr FltType as() const
     {
         assert(m_payload.index() == 0);
@@ -430,7 +392,7 @@ public:
         return std::get<static_cast<std::size_t>(Tag)>(std::get<Val>(m_payload));
     }
 
-    [[nodiscard]] std::vector<Val> const& values() const
+    [[nodiscard]] std::vector<Val> const &values() const
     {
         assert(is_array());
         return std::get<Vals>(m_payload);
@@ -439,6 +401,9 @@ public:
     template<typename T>
     [[nodiscard]] constexpr T value() const
     {
+        if constexpr (std::is_same_v<T, std::monostate>) {
+            return std::get<static_cast<std::size_t>(NullType)>(std::get<Val>(m_payload));
+        }
         if constexpr (std::is_same_v<T, bool>) {
             return std::get<static_cast<std::size_t>(BoolType)>(std::get<Val>(m_payload));
         }
@@ -490,6 +455,13 @@ public:
         return is_int() || is_float();
     }
 
+    [[nodiscard]] Val const           &operator[](size_t ix) const;
+    [[nodiscard]] Val                 &operator[](size_t ix);
+    [[nodiscard]] Value                at(size_t ix) const;
+    void                               set(size_t ix, Value const &v);
+    void                               push_back(Value const &value);
+    [[nodiscard]] Val const           &back() const;
+    [[nodiscard]] Val                 &back();
     [[nodiscard]] std::optional<Value> add(Value const &other) const;
     [[nodiscard]] std::optional<Value> subtract(Value const &other) const;
     [[nodiscard]] std::optional<Value> multiply(Value const &other) const;
@@ -629,7 +601,7 @@ struct std::formatter<Arwen::Value, char> : public Arwen::SimpleFormatParser {
         switch (v.type()) {
 #undef S
 #define S(T, L, ...)                                      \
-    case Arwen::T##Type:                           \
+    case Arwen::T##Type:                                  \
         out << std::format("{}", v.value<__VA_ARGS__>()); \
         break;
         PrimitiveTypes(S)

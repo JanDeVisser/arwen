@@ -1,0 +1,4 @@
+func main() {
+    const txt = read_file("test/cat.arw");
+    println(txt);
+}

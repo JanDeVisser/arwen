@@ -28,15 +28,6 @@
 #include <Result.h>
 #include <Unescape.h>
 
-extern "C" {
-void arwen$write();
-
-void unused_make_sure_rt_is_linked()
-{
-    arwen$write();
-}
-}
-
 namespace Arwen {
 
 using namespace Arwen::IR;

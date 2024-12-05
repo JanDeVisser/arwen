@@ -4,8 +4,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "Logging.h"
-#include "Type/Type.h"
 #include <cstdint>
 #include <iostream>
 #include <print>
@@ -17,8 +15,10 @@
 #include <AST/Operator.h>
 #include <Binder/Binder.h>
 #include <IR/IR.h>
+#include "Type/Type.h"
 
 #include <Lib.h>
+#include <Logging.h>
 #include <Result.h>
 
 namespace Arwen::IR {
@@ -49,7 +49,6 @@ void generate(BoundNodeReference ref, BoundAssignmentExpression const &impl, Bin
         overload {
             [&impl, &ir](BoundIdentifier const &id) {
                 ir.ops.push_back({ ir.ops.size(), PopVariable { id.name } });
-
             },
             [&](BoundBinaryExpression const &binex) {
                 if (binex.op != BinaryOperator::Subscript) {
@@ -58,7 +57,7 @@ void generate(BoundNodeReference ref, BoundAssignmentExpression const &impl, Bin
                 generate(binex.right, ir.program.binder, ir);
                 assert(binder.type_of(binex.left) == BoundNodeType::BoundIdentifier);
                 auto const &lhs = I(BoundIdentifier, binex.left);
-                ir.ops.push_back({ ir.ops.size(), PushString{ lhs.name } });
+                ir.ops.push_back({ ir.ops.size(), PushString { lhs.name } });
                 ir.ops.push_back({ ir.ops.size(), PopArrayElement {} });
             },
             [](auto const &) {
@@ -82,7 +81,7 @@ void generate(BoundNodeReference ref, BoundBinaryExpression const &impl, Binder 
         assert(binder.type_of(impl.right) == BoundNodeType::BoundSubscript);
         assert(binder.type_of(impl.left) == BoundNodeType::BoundIdentifier);
         auto const &lhs = I(BoundIdentifier, impl.left);
-        ir.ops.push_back({ ir.ops.size(), PushString{ lhs.name } });
+        ir.ops.push_back({ ir.ops.size(), PushString { lhs.name } });
         ir.ops.push_back({ ir.ops.size(), PushArrayElement {} });
         return;
     } break;
@@ -145,7 +144,7 @@ void generate(BoundNodeReference, BoundFunctionCall const &impl, Binder &binder,
     assert(impl.function.has_value());
     generate(I(BoundFunction, *impl.function).implementation, binder, ir);
     if (impl.discard_result && *binder[*impl.function].type != static_cast<TypeReference>(PseudoType::Void)) {
-        ir.ops.push_back({ ir.ops.size(), Discard { } });
+        ir.ops.push_back({ ir.ops.size(), Discard {} });
     }
 }
 
@@ -197,6 +196,12 @@ void generate(BoundNodeReference, BoundMember const &impl, Binder &, Function &i
 }
 
 template<>
+void generate(BoundNodeReference, Nullptr const &impl, Binder &, Function &ir)
+{
+    ir.ops.push_back({ ir.ops.size(), PushNullptr {} });
+}
+
+template<>
 void generate(BoundNodeReference, BoundReturn const &impl, Binder &, Function &ir)
 {
     if (impl.expression) {
@@ -221,6 +226,13 @@ void generate(BoundNodeReference, BoundSubscript const &impl, Binder &, Function
 }
 
 template<>
+void generate(BoundNodeReference ref, BoundUnaryExpression const &impl, Binder &binder, Function &ir)
+{
+    generate(impl.operand, binder, ir);
+    ir.ops.push_back({ ir.ops.size(), UnaryOperation { impl.op } });
+}
+
+template<>
 void generate(BoundNodeReference ref, BoundVariableDeclaration const &impl, Binder &binder, Function &ir)
 {
     auto const &type = binder.registry[*binder[ref].type];
@@ -232,7 +244,7 @@ void generate(BoundNodeReference ref, BoundVariableDeclaration const &impl, Bind
         if (impl.initializer) {
             generate(*impl.initializer, ir.program.binder, ir);
         } else {
-            ir.ops.push_back({ ir.ops.size(), PushNull {} });
+            ir.ops.push_back({ ir.ops.size(), PushNullptr {} });
         }
     }
     ir.ops.push_back({ ir.ops.size(), PopVariable { impl.name } });
@@ -278,13 +290,17 @@ void generate(BoundNodeReference ref, BoundFunction const &func, Binder &binder,
 template<>
 void generate(BoundNodeReference ref, BoundModule const &impl, Binder &binder, Program &ir)
 {
-    ir.modules.emplace_back(ir, ir.modules.size(), ref, impl.name);
+    ir.modules.emplace_back(ir, ir.modules.size(), ref, Function { ir }, impl.name);
     auto &mod = ir.modules.back();
     for (auto name_ref : impl.names) {
-        std::visit(
-            [name_ref, &binder, &mod](auto const &impl) {
-                generate<std::decay_t<decltype(impl)>, Module>(name_ref, impl, binder, mod);
-            },
+        std::visit(overload {
+                       [name_ref, &binder, &mod](BoundFunction const &impl) {
+                           generate<BoundFunction, Module>(name_ref, impl, binder, mod);
+                       },
+                       [name_ref, &binder, &mod](auto const &impl) {
+                           generate<std::decay_t<decltype(impl)>, Function>(name_ref, impl, binder, mod.initializer);
+                       },
+                   },
             binder[name_ref].impl);
     }
 }

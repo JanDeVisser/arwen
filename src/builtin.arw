@@ -4,24 +4,112 @@
 // SPDX-License-Identifier: MIT
 //
 
+extern "C" {
+
+void unused_make_sure_rt_is_linked()
+{
+}
+
+}
+
 char const *arwen_builtin = R"(
 
-func exit(code: i32) intrinsic
 func len(s: string) u64 intrinsic
 func ptr(s: string) *u8 intrinsic
+func exit(code: i32) intrinsic
+func make_string(ptr: *u8, len: u64) string intrinsic
 
-func read(fd: u32, bytes: *u8, num: u64) i64 -> "arwen$read"
-func write(fd: u32, bytes: *u8, num: u64) i64 -> "arwen$write"
-func open(path: string, flags: u32, mode: u32) i64 -> "arwen$open"
-func close(fd: u32) i64 -> "arwen$close"
+const O_RDONLY: i32 = 0x00000000
+const O_WRONLY: i32 = 0x00000001
+const O_RDWR: i32 = 0x00000002
+const O_SEARCH: i32 = 0x40100000
+const O_EXEC: i32 = 0x40000000
+const O_NONBLOCK: i32 = 0x00000004
+const O_APPEND: i32 = 0x00000008
+const O_CREAT: i32 = 0x00000200
+const O_TRUNC: i32 = 0x00000400
+const O_EXCL: i32 = 0x00000800
+const O_SHLOCK: i32 = 0x00000010
+const O_EXLOCK: i32 = 0x00000020
+const O_DIRECTORY: i32 = 0x00100000
+const O_NOFOLLOW: i32 = 0x00000100
+const O_SYMLINK: i32 = 0x00200000
+const O_EVTONLY: i32 = 0x00008000
+const O_CLOEXEC: i32 = 0x01000000
+const O_NOFOLLOW_ANY: i32 = 0x20000000
+const SEEK_SET: i32 = 0x00000000
+const SEEK_CUR: i32 = 0x00000001
+const SEEK_END: i32 = 0x00000002
+const SEEK_DATA: i32 = 0x00000004
+const SEEK_HOLE: i32 = 0x00000003
+const MAP_ANON: i32 = 0x00001000
+const MAP_ANONYMOUS: i32 = 0x00001000
+const MAP_FILE: i32 = 0x00000000
+const MAP_FIXED: i32 = 0x00000010
+const MAP_HASSEMAPHORE: i32 = 0x00000200
+const MAP_PRIVATE: i32 = 0x00000002
+const MAP_SHARED: i32 = 0x00000001
+const MAP_NOCACHE: i32 = 0x00000400
+const MAP_JIT: i32 = 0x00000800
+const MAP_32BIT: i32 = 0x00008000
+const PROT_NONE: i32 = 0x00000000
+const PROT_READ: i32 = 0x00000001
+const PROT_WRITE: i32 = 0x00000002
+const PROT_EXEC: i32 = 0x00000004
+
+func memcpy(dst: *u8, src: *u8, len: u64) *u8 -> "memcpy"
+func open(path: string, flags: i32, mode: i32) i32 -> "open"
+func close(fd: i32) i32 -> "close"
+func read(fd: i32, bytes: *u8, num: u64) i64 -> "read"
+func write(fd: i32, bytes: *u8, num: u64) i64 -> "write"
+func lseek(fd: i32, offset: u64, whence: i32) i64 -> "lseek"
 
 func print(s: string) {
     write(1, ptr(s), len(s));
 }
-
 func println(s: string) {
     print(s);
     print("\n");
+}
+
+func file_size(fd: i32) u64 {
+    const current: u64 = lseek(fd, 0, SEEK_CUR);
+    const size: u64 = lseek(fd, 0, SEEK_END);
+    lseek(fd, current, SEEK_SET);
+    return size;
+}
+
+func mmap(addr: *u8, len: u64, prot: i32, flags: i32, fd: i32, offset: u64) *u8 -> "mmap"
+func munmap(addr: *u8, len: u64) i32 -> "munmap"
+
+func allocate(sz: u64) *u8 {
+    return mmap(nullptr, sz, PROT_READ | PROT_WRITE, MAP_ANON | MAP_NOCACHE | MAP_PRIVATE, -1, 0);
+}
+
+func deallocate(ptr: *u8, size: u64) {
+    munmap(ptr, size);
+}
+
+func read_file(path: string) string {
+    var c_path: *u8 = allocate(len(path) + 1);
+    memcpy(c_path, ptr(path), len(path));
+    c_path[len(path)] = 0;
+    const fd: i32 = open(c_path, O_RDONLY, 0);
+    deallocate(c_path, len(path) + 1);
+    if (fd < 0) {
+        print("Could not open file: ");
+        println(path);
+        return "";
+    }
+    const size: u64 = file_size(fd);
+    const ptr: *u8 = allocate(size);
+    if (read(fd, ptr, size) != size) {
+        deallocate(ptr, size);
+        close(fd);
+        return 0;
+    }
+    close(fd);
+    return make_string(ptr, size);
 }
 
 )";

@@ -262,6 +262,7 @@ struct Type {
     [[nodiscard]] bool        is_signed() const;
     [[nodiscard]] bool        is_unsigned() const;
     [[nodiscard]] bool        is_float() const;
+    [[nodiscard]] bool        is_raw_pointer() const { return ref == PtrType || ref == ConstPtrType; }
     [[nodiscard]] Type const &decay() const;
     [[nodiscard]] bool        is_assignable_to(Type const &other) const;
 };
@@ -275,6 +276,7 @@ struct TypeRegistry {
     [[nodiscard]] Type const    &operator[](PseudoType t) const { return operator[](static_cast<BasicType>(t)); }
     [[nodiscard]] Type const    &operator[](TypeReference ref) const;
     [[nodiscard]] Type const    &operator[](std::string_view name) const;
+    [[nodiscard]] size_t         size() const { return types.size(); }
     std::optional<TypeReference> resolve_array(TypeReference element_type);
     std::optional<TypeReference> resolve_pointer(TypeReference element_type);
     std::optional<TypeReference> resolve_object(Object const &obj);
@@ -326,6 +328,23 @@ struct std::formatter<Arwen::PseudoType, char> : public Arwen::SimpleFormatParse
     {
         std::ostringstream out;
         out << std::format("{}", static_cast<Arwen::BasicType>(t));
+        return std::ranges::copy(std::move(out).str(), ctx.out()).out;
+    }
+};
+
+template<>
+struct std::formatter<Arwen::TypeKind, char> : public Arwen::SimpleFormatParser {
+    template<class FmtContext>
+    FmtContext::iterator format(Arwen::TypeKind const &t, FmtContext &ctx) const
+    {
+        std::ostringstream out;
+        switch (t) {
+            #undef S
+            #define S(K) case Arwen::TypeKind::K: out << #K; break;
+            TypeKinds(S)
+            #undef S
+            default: UNREACHABLE();
+        }
         return std::ranges::copy(std::move(out).str(), ctx.out()).out;
     }
 };

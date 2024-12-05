@@ -54,10 +54,11 @@ using Ref = size_t;
     S(PushBoolean)        \
     S(PushFloat)          \
     S(PushInt)            \
-    S(PushNull)           \
+    S(PushNullptr)        \
     S(PushString)         \
     S(PushVariableRef)    \
-    S(PushVariableValue)
+    S(PushVariableValue)  \
+    S(UnaryOperation)
 
 enum class OperationType {
 #undef S
@@ -137,7 +138,7 @@ struct PushInt {
     int64_t value;
 };
 
-struct PushNull {
+struct PushNullptr {
 };
 
 struct PushString {
@@ -150,6 +151,10 @@ struct PushVariableRef {
 
 struct PushVariableValue {
     std::string_view name;
+};
+
+struct UnaryOperation {
+    UnaryOperator op;
 };
 
 using Op = std::variant<
@@ -170,10 +175,11 @@ using Op = std::variant<
     PushBoolean,
     PushFloat,
     PushInt,
-    PushNull,
+    PushNullptr,
     PushString,
     PushVariableRef,
-    PushVariableValue>;
+    PushVariableValue,
+    UnaryOperation>;
 
 struct Operation {
     Ref ref;
@@ -286,7 +292,7 @@ inline void to_string(std::ostream &out, PushInt const &op)
 }
 
 template<>
-inline void to_string(std::ostream &, PushNull const &)
+inline void to_string(std::ostream &, PushNullptr const &)
 {
 }
 
@@ -324,6 +330,12 @@ inline void to_string(std::ostream &out, PushVariableValue const &op)
     out << op.name;
 }
 
+template<>
+inline void to_string(std::ostream &out, UnaryOperation const &op)
+{
+    out << to_string(op.op);
+}
+
 struct Function {
     Program               &program;
     Ref                    ref;
@@ -338,6 +350,7 @@ struct Module {
     Program                        &program;
     Ref                             ref;
     BoundNodeReference              bound_ref;
+    Function                        initializer;
     std::string_view                name;
     std::vector<Function>           functions;
     std::map<std::string_view, Ref> function_refs;

@@ -10,13 +10,13 @@ std::string_view arwen_grammar = R"(
   lexer:       "whitespace: ignoreall=true"
   lexer:       keyword
   lexer:       identifier
-  lexer:       "number: signed=false;float;hex;binary"
+  lexer:       "number: signed=false;float=true;hex=true;binary=true"
   lexer:       "qstring: quotes=\'\"`/"
   lexer:       "comment: ignore=true;marker=/* */;marker=//"
 %
 
-module                     := declarations
-                            ;
+module                      := declarations      [ finish_module             ]
+                             ;
 
 declarations                := declaration
                                declarations
@@ -347,7 +347,7 @@ atom                        := ( expr )
                              | '\''              [ make_char                 ]
                              | "true"            [ make_bool: "bool:true"    ]
                              | "false"           [ make_bool: "bool:false"   ]
-                             | "null"            [ make_null                 ]
+                             | "nullptr"         [ make_nullptr              ]
                              ;
 
 arglist_or_void             := arglist

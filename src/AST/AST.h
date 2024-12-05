@@ -49,6 +49,7 @@ namespace Arwen {
     S(Loop)                   \
     S(Member)                 \
     S(Module)                 \
+    S(Nullptr)                \
     S(Parameter)              \
     S(PointerType)            \
     S(Program)                \
@@ -189,6 +190,9 @@ struct Module {
     std::vector<NodeReference> names;
 };
 
+struct Nullptr {
+};
+
 struct Parameter {
     std::string_view name;
     NodeReference    type;
@@ -265,6 +269,7 @@ using ASTNodeImpl = std::variant<
     Loop,
     Member,
     Module,
+    Nullptr,
     Parameter,
     PointerType,
     Program,
@@ -493,10 +498,10 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
             auto &impl = std::get<Arwen::IntConstant>(node.impl);
             out << impl.value;
         } break;
-        // case Arwen::ASTNodeKind::Intrinsic: {
-        //     auto &impl = std::get<Arwen::ForeignFunction>(node.impl);
-        //     out << std::format(" -> {}\n", impl.foreign_name);
-        // } break;
+        case Arwen::ASTNodeKind::Intrinsic: {
+            auto &impl = std::get<Arwen::Intrinsic>(node.impl);
+            out << std::format(" -> {}\n", impl.name);
+        } break;
         case Arwen::ASTNodeKind::Label: {
             auto &impl = std::get<Arwen::Label>(node.impl);
             out << std::format("#{}", impl.label);
@@ -514,6 +519,10 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
             for (auto name : impl.names) {
                 out << std::format("{}\n", node.get_node(name));
             }
+        } break;
+        case Arwen::ASTNodeKind::Nullptr: {
+            auto &impl = std::get<Arwen::Nullptr>(node.impl);
+            out << "nullptr";
         } break;
         case Arwen::ASTNodeKind::Parameter: {
             auto &impl = std::get<Arwen::Parameter>(node.impl);

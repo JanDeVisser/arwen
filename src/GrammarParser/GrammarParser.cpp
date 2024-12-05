@@ -62,7 +62,7 @@ Error<GrammarParserError> GrammarParser::grammar_config(Grammar &grammar)
                     value = v->text;
                     break;
                 case KindTag::String:
-                    value = trim(v->text.substr(1, v->text.length() - 1));
+                    value = trim(v->text.substr(1, v->text.length() - 2));
                     break;
                 default:
                     return GrammarParserError::MalformedConfigSection;

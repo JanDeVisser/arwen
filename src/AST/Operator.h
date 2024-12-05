@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <format>
+#include <functional>
 #include <optional>
 #include <sstream>
 #include <string_view>
@@ -389,34 +390,40 @@ inline constexpr std::string_view to_string(UnaryOperator const &v)
     }
 }
 
+inline std::optional<Value> None(Value const &v)
+{
+    return {};
+}
 
-struct IdempotentOp {
-    std::optional<Value> operator()(Value const &v)
-    {
-        return v.idempotent();
-    }
-};
+inline std::optional<Value> AddressOf(Value const &v)
+{
+    return {};
+}
 
-struct NegateOp {
-    std::optional<Value> operator()(Value const &v)
-    {
-        return v.negate();
-    }
-};
+inline std::optional<Value> Deref(Value const &v)
+{
+    return {};
+}
 
-struct LogicalNegateOp {
-    std::optional<Value> operator()(Value const &v)
-    {
-        return v.logical_negate();
-    }
-};
+inline std::optional<Value> Idempotent(Value const &v)
+{
+    return v.idempotent();
+}
 
-struct InvertOp {
-    std::optional<Value> operator()(Value const &v)
-    {
-        return v.invert();
-    }
-};
+inline std::optional<Value> Negate(Value const &v)
+{
+    return v.negate();
+}
+
+inline std::optional<Value> LogicalNegate(Value const &v)
+{
+    return v.logical_negate();
+}
+
+inline std::optional<Value> Invert(Value const &v)
+{
+    return v.invert();
+}
 
 inline std::optional<PrimitiveType> compatible(UnaryOperator op, PrimitiveType const &operand)
 {
@@ -455,17 +462,19 @@ inline std::optional<PrimitiveType> compatible(UnaryOperator op, PrimitiveType c
 }
 
 struct UnaryOperatorMapping {
-    UnaryOperator op;
-    TokenKind     token;
+    UnaryOperator                                      op;
+    std::function<std::optional<Value>(Value const &)> handler;
+    TokenKind                                          token;
 
     explicit UnaryOperatorMapping(UnaryOperator op)
         : op(op)
     {
         switch (op) {
 #undef S
-#define S(Op, ...)           \
-    case UnaryOperator::Op:  \
-        token = __VA_ARGS__; \
+#define S(Operator, ...)          \
+    case UnaryOperator::Operator: \
+        handler = Operator;       \
+        token = __VA_ARGS__;      \
         break;
             UnaryOperators(S)
 #undef S
@@ -479,6 +488,7 @@ struct UnaryOperatorMapping {
 #undef S
 #define S(Op, ...)              \
     if (token == __VA_ARGS__) { \
+        handler = Op;           \
         op = UnaryOperator::Op; \
         return;                 \
     }
@@ -489,17 +499,9 @@ struct UnaryOperatorMapping {
 
     std::optional<Value> operator()(Value const &v) const
     {
-        switch (op) {
-#undef S
-#define S(O, ...)          \
-    case UnaryOperator::O: \
-        return O##Op {}(v);
-            UnaryOperators(S)
-#undef S
-        }
+        return handler(v);
     }
 };
-
 }
 
 template<>
