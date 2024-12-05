@@ -14,7 +14,6 @@
 #include <optional>
 #include <ostream>
 #include <print>
-#include <ranges>
 #include <set>
 #include <string>
 #include <string_view>
@@ -50,8 +49,8 @@ BoundNodeReference add_error(Binder &binder, BoundNodeReference ref, std::format
     BoundNodeReference err = add_node<BindError>(binder, binder.bound_nodes[ref].ast_ref, binder.bound_nodes[ref].location, ref);
     auto              &impl = std::get<BindError>(binder.bound_nodes[err].impl);
     impl.node = ref;
+    impl.pass = binder.pass;
     impl.message = std::format(message, std::forward<Args>(args)...);
-    std::println("{}:{}: {}", binder[ref].location, binder[ref].type_name(), impl.message);
     binder.errors.emplace_back(err);
     return err;
 }
@@ -147,6 +146,9 @@ void to_string(std::ostream &out, Binder &, T const &)
 template<>
 BoundNodeReference rebind<BindError>(Binder &binder, BoundNodeReference ref)
 {
+    if (binder.pass == IMPL.pass) {
+        return ref;
+    }
     auto ret = binder.rebind_node(IMPL.node);
     // std::println("rebind<BindError> {}. {}: \"{}\" -> {} {}",
     //     ref,
@@ -888,7 +890,7 @@ BoundNodeReference rebind<BoundFunctionCall>(Binder &binder, BoundNodeReference 
                 }
             }
         }
-        if (all_bound) {
+        if (all_bound && binder[*IMPL.function].type) {
             binder[ref].type = binder[*IMPL.function].type;
         }
     }
@@ -1772,10 +1774,12 @@ Result<BoundNodeReference, bool> Binder::bind(NodeReference ast_entrypoint)
     }
 
     if (!errors.empty()) {
-        std::println("Errors after pass 0:");
-        for (auto const &err : errors) {
-            auto const &node = bound_nodes[err];
-            std::println("{}: {}", node.location, std::get<BindError>(node.impl).message);
+        if (log) {
+            std::println("Errors after pass 0:");
+            for (auto const &err : errors) {
+                auto const &node = bound_nodes[err];
+                std::println("{}: {}", node.location, std::get<BindError>(node.impl).message);
+            }
         }
         return false;
     }
@@ -1795,18 +1799,20 @@ Result<BoundNodeReference, bool> Binder::bind(NodeReference ast_entrypoint)
             std::println("Pass {} - rebind", pass);
             dump(std::cout, entrypoint, "Program");
         }
-        if (unbound == 0) {
+        if (still_unbound.empty()) {
             break;
         }
         if (log) {
-            std::println("{} unbound nodes after pass {}", unbound, pass);
+            std::println("{} unbound nodes after pass {}", still_unbound.size(), pass);
         }
 
         if (!errors.empty()) {
-            std::println("Errors after pass {}:", pass);
-            for (auto const &err : errors) {
-                auto const &node = bound_nodes[err];
-                std::println("{}: {}", node.location, std::get<BindError>(node.impl).message);
+            if (log) {
+                std::println("Errors after pass {}:", pass);
+                for (auto const &err : errors) {
+                    auto const &node = bound_nodes[err];
+                    std::println("{}: {}", node.location, std::get<BindError>(node.impl).message);
+                }
             }
             return false;
         }

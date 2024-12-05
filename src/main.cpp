@@ -99,11 +99,16 @@ void arwen_main(int argc, char const **argv)
             auto const &node = binder.bound_nodes[err];
             std::println("{}: {}", node.location, std::get<BindError>(node.impl).message);
         }
+        exit(1);
         return binder.entrypoint;
     });
 
     Arwen::IR::Program ir { binder };
-    ir.generate().must();
+    ir.generate().must([](auto const &e) -> Error<bool> {
+        std::println("Error generating IR");
+        exit(1);
+        return Error<bool> {};
+    });
     if (log) {
         ir.list();
     }

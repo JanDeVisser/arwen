@@ -1,0 +1,8 @@
+func foo(x: i32) i32 {
+  return 2*x;
+}
+
+func main() {
+  foo("Hello");
+}
+

@@ -12,6 +12,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <unistd.h>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -260,13 +261,14 @@ Machine::Machine(Program &program)
 
 std::optional<Value> Machine::run(std::vector<Value> const &args)
 {
-    auto builtin_ix = 0;
+    auto builtin_ix = program.modules.size();
     for (auto &mod : program.modules) {
         if (mod.name == "#builtin") {
             builtin_ix = mod.ref;
             break;
         }
     }
+    assert(builtin_ix < program.modules.size());
     Function dummy { program };
     Scope    root { *this, program.modules[builtin_ix].initializer };
     root.execute();

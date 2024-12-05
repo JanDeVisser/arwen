@@ -6,7 +6,6 @@
 
 #pragma once
 
-#include <cstddef>
 #include <iostream>
 #include <map>
 #include <optional>
@@ -41,6 +40,7 @@ struct TypeAlternatives {
 
 struct BindError {
     BoundNodeReference node;
+    int                pass;
     std::string        message;
 };
 
@@ -249,7 +249,6 @@ struct Binder {
     BoundNodeReferences          namespaces;
     int                          pass { 0 };
     BoundNodeReferences          errors;
-    size_t                       unbound { 0 };
     BoundNodeReference           entrypoint;
     bool                         log { false };
     std::set<BoundNodeReference> visited;
