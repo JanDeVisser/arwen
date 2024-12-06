@@ -66,6 +66,12 @@ struct BoundBlock {
     BoundNodeReferences             statements;
 };
 
+struct BoundBreak {
+    BoundNodeReference                block;
+    bool                              block_is_loop { false };
+    std::optional<BoundNodeReference> expression {};
+};
+
 struct BoundCoercion {
     BoundNodeReference expression;
 };
@@ -74,6 +80,10 @@ struct BoundConstantDeclaration {
     std::string_view                  name;
     std::optional<BoundNodeReference> type;
     BoundNodeReference                initializer;
+};
+
+struct BoundContinue {
+    BoundNodeReference block;
 };
 
 struct BoundForeignFunction {
@@ -170,9 +180,11 @@ struct BoundWhile {
     S(BasicTypeNode)               \
     S(BoundBinaryExpression)       \
     S(BoundBlock)                  \
+    S(BoundBreak)                  \
     S(BoundCoercion)               \
     S(BoolConstant)                \
     S(BoundConstantDeclaration)    \
+    S(BoundContinue)               \
     S(FloatConstant)               \
     S(BoundForeignFunction)        \
     S(BoundFunction)               \

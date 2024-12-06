@@ -15,7 +15,7 @@
 #include <AST/Operator.h>
 #include <Binder/Binder.h>
 #include <IR/IR.h>
-#include "Type/Type.h"
+#include <Type/Type.h>
 
 #include <Lib.h>
 #include <Logging.h>
@@ -39,6 +39,14 @@ template<class NodeImpl, class Container>
 void generate(BoundNodeReference ref, NodeImpl const &, Binder &binder, Container &)
 {
     std::cerr << "No generator for " << typeid(NodeImpl).name() << " in " << typeid(Container).name() << "\n";
+}
+
+template<typename OpImpl>
+void link(Ref ref, OpImpl &impl, Function &function)
+{
+    if (function.ops[ref].target) {
+        std::cerr << "No linker for " << typeid(OpImpl).name() << " but there is a target\n";
+    }
 }
 
 template<>
@@ -107,6 +115,31 @@ void generate(BoundNodeReference ref, BoundBlock const &impl, Binder &binder, Fu
     for (auto stmt : impl.statements) {
         generate(stmt, binder, ir);
     }
+    ir.scopes[ref] = ir.ops.size();
+}
+
+template<>
+void generate(BoundNodeReference ref, BoundBreak const &impl, Binder &binder, Function &ir)
+{
+    if (impl.expression) {
+        generate(*impl.expression, binder, ir);
+    }
+    ir.ops.push_back({ ir.ops.size(), Break { 0, impl.block_is_loop } });
+    ir.ops.back().target = impl.block;
+}
+
+template<>
+void link(Ref ref, Break &impl, Function &function)
+{
+    auto &op = function.ops[ref];
+    if (op.target) {
+        assert(function.scopes.contains(*op.target));
+        impl.target = function.scopes[*op.target];
+        if (impl.block_is_loop) {
+            impl.target += 1; // Jump over jump back to loop start
+        }
+        op.target = {};
+    }
 }
 
 template<>
@@ -126,6 +159,46 @@ template<>
 void generate(BoundNodeReference, FloatConstant const &impl, Binder &, Function &ir)
 {
     ir.ops.push_back({ ir.ops.size(), PushFloat { impl.value } });
+}
+
+template<>
+void generate(BoundNodeReference ref, BoundContinue const &impl, Binder &binder, Function &ir)
+{
+    ir.ops.push_back({ ir.ops.size(), Jump {} });
+    ir.ops.back().target = impl.block;
+}
+
+template<>
+void link(Ref ref, Jump &impl, Function &function)
+{
+    auto &op = function.ops[ref];
+    if (op.target) {
+        assert(function.scopes.contains(*op.target));
+        impl.target = function.scopes[*op.target];
+        op.target = {};
+    }
+}
+
+template<>
+void link(Ref ref, JumpF &impl, Function &function)
+{
+    auto &op = function.ops[ref];
+    if (op.target) {
+        assert(function.scopes.contains(*op.target));
+        impl.target = function.scopes[*op.target];
+        op.target = {};
+    }
+}
+
+template<>
+void link(Ref ref, JumpT &impl, Function &function)
+{
+    auto &op = function.ops[ref];
+    if (op.target) {
+        assert(function.scopes.contains(*op.target));
+        impl.target = function.scopes[*op.target];
+        op.target = {};
+    }
 }
 
 template<>
@@ -270,8 +343,15 @@ void generate(BoundNodeReference, BoundForeignFunction const &, Binder &, Module
 template<>
 void generate(BoundNodeReference, BoundFunctionImplementation const &impl, Binder &binder, Module &mod)
 {
-    auto &ir_func = mod.functions.back();
-    generate(impl.implementation, binder, ir_func);
+    auto &function = mod.functions.back();
+    generate(impl.implementation, binder, function);
+    for (auto &op : function.ops) {
+        std::visit(
+            [&op, &function](auto &impl) {
+                link<std::decay_t<decltype(impl)>>(op.ref, impl, function);
+            },
+            op.op);
+    }
 }
 
 template<>

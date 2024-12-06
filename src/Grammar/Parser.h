@@ -127,9 +127,9 @@ struct Parser {
                             } else if (token->tag() != KindTag::Eof) {
                                 if (log) {
                                     std::println("Token: {} rule: {} firsts: {} follows: {}", token->kind, rule, rule.firsts, rule.follows);
+                                    rule.dump_parse_table();
                                 }
-                                std::println("Unexpected token '{}'", *token);
-                                rule.dump_parse_table();
+                                std::println("{} Unexpected token '{}'", last_token.location, last_token);
                                 return ParserError::SyntaxError;
                             }
                         } else {
@@ -144,7 +144,7 @@ struct Parser {
                             break;
                         }
                         if (t != token->kind) {
-                            std::println("Expected '{}', got '{}'", t, token->kind);
+                            std::println("{} Expected '{}', got '{}'", last_token.location, t, token->kind);
                             return ParserError::SyntaxError;
                         }
                         consumed = true;

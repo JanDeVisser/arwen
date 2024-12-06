@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <format>
 #include <ios>
+#include <map>
 #include <optional>
 #include <sstream>
 #include <string_view>
@@ -35,7 +36,9 @@ namespace Arwen {
     S(BinaryExpression)       \
     S(Block)                  \
     S(BoolConstant)           \
+    S(Break)                  \
     S(ConstantDeclaration)    \
+    S(Continue)               \
     S(FloatConstant)          \
     S(ForeignFunction)        \
     S(Function)               \
@@ -117,18 +120,27 @@ struct BinaryExpression {
 };
 
 struct Block {
-    std::optional<std::string_view> label;
-    std::vector<NodeReference>      statements;
+    std::optional<NodeReference> label;
+    std::vector<NodeReference>   statements;
 };
 
 struct BoolConstant {
     bool value;
 };
 
+struct Break {
+    std::optional<NodeReference> label;
+    std::optional<NodeReference> expression;
+};
+
 struct ConstantDeclaration {
     std::string_view             name;
     std::optional<NodeReference> type {};
     NodeReference                initializer;
+};
+
+struct Continue {
+    std::optional<NodeReference> label;
 };
 
 struct FloatConstant {
@@ -255,7 +267,9 @@ using ASTNodeImpl = std::variant<
     BinaryExpression,
     Block,
     BoolConstant,
+    Break,
     ConstantDeclaration,
+    Continue,
     FloatConstant,
     ForeignFunction,
     Function,
@@ -293,12 +307,13 @@ struct ASTNode {
 };
 
 struct ArwenParser {
-    bool                         log { false };
-    std::vector<Token>           token_stack {};
-    std::vector<NodeReference>   node_stack {};
-    std::vector<ASTNode>         node_cache {};
-    NodeReference                program { 0 };
-    std::optional<NodeReference> module { 0 };
+    bool                                      log { false };
+    std::vector<Token>                        token_stack {};
+    std::vector<NodeReference>                node_stack {};
+    std::vector<ASTNode>                      node_cache {};
+    std::map<std::string_view, NodeReference> labels {};
+    NodeReference                             program { 0 };
+    std::optional<NodeReference>              module { 0 };
 
     ArwenParser();
     static ArwenParser                  &get(Parser<ArwenParser> &parser);
@@ -420,8 +435,9 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
         case Arwen::ASTNodeKind::Block: {
             auto &impl = std::get<Arwen::Block>(node.impl);
             if (impl.label) {
-                out << std::format("{}: {{\n", *impl.label);
+                out << std::format("{} ", node.get_node(*impl.label));
             }
+            out << "{\n";
             for (auto ref : impl.statements) {
                 out << std::format("{}\n", node.get_node(ref));
             }
@@ -431,6 +447,16 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
             auto &impl = std::get<Arwen::BoolConstant>(node.impl);
             out << ios::boolalpha << impl.value;
         } break;
+        case Arwen::ASTNodeKind::Break: {
+            auto &impl = std::get<Arwen::Break>(node.impl);
+            out << "break ";
+            if (impl.label) {
+                out << std::format("{} ", node.get_node(*impl.label));
+            }
+            if (impl.expression) {
+                out << std::format("{}", node.get_node(*impl.expression));
+            }
+        } break;
         case Arwen::ASTNodeKind::ConstantDeclaration: {
             auto &impl = std::get<Arwen::ConstantDeclaration>(node.impl);
             out << std::format("const {}", impl.name);
@@ -438,6 +464,13 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
                 out << std::format(": {}", node.get_node(*impl.type));
             }
             out << std::format(" = {}", node.get_node(impl.initializer));
+        } break;
+        case Arwen::ASTNodeKind::Continue: {
+            auto &impl = std::get<Arwen::Continue>(node.impl);
+            out << "continue ";
+            if (impl.label) {
+                out << std::format("{} ", node.get_node(*impl.label));
+            }
         } break;
         case Arwen::ASTNodeKind::FloatConstant: {
             auto &impl = std::get<Arwen::FloatConstant>(node.impl);

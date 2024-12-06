@@ -13,21 +13,26 @@
 #include <string_view>
 #include <utility>
 
+#include <Grammar/Grammar.h>
+#include <Lexer/Lexer.h>
 #include <Lib.h>
 #include <Result.h>
 #include <Type/Value.h>
-#include <Lexer/Lexer.h>
-#include <Grammar/Grammar.h>
 
 namespace Arwen {
 
 #define GrammarParserErrors(S) \
+    S(ExpectedConfigSection)   \
+    S(ExpectedAction)          \
+    S(ExpectedNonTerminal)     \
     S(MalformedAction)         \
     S(MalformedActionData)     \
     S(MalformedConfigSection)  \
     S(MalformedGrammar)        \
     S(MalformedProduction)     \
-    S(SyntaxError)
+    S(SyntaxError) \
+    S(UnexpectedKeyword) \
+    S(UnexpectedSymbol)
 
 enum class GrammarParserError {
 #undef S

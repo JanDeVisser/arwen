@@ -4,8 +4,15 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <Grammar/Grammar.h>
+#include <cstddef>
+#include <iostream>
+#include <ostream>
+#include <print>
+
+#include <Logging.h>
+#include <Result.h>
 #include <ScopeGuard.h>
+#include <Grammar/Grammar.h>
 
 namespace Arwen {
 
@@ -43,7 +50,7 @@ Result<ssize_t, GrammarError> Rule::update_follows()
             case SymbolType::NonTerminal: {
                 auto nt = symbol.non_terminal();
                 if (!grammar.rules.contains(nt)) {
-                    log_error("build_follows(): rule for non-terminal '{}' not found\n", nt);
+                    std::println(std::cerr, "build_follows(): rule for non-terminal '{}' not found\n", nt);
                     return GrammarError::RuleNotFound;
                 }
                 auto     &non_terminal_rule = grammar.rules.at(nt);
@@ -74,14 +81,14 @@ Error<GrammarError> Rule::check_LL1()
         auto &seq = sequences[i];
         if (auto res = seq.check_LL1(seq.firsts, sequences.begin() + i + 1, sequences.end(), i + 1); res.has_value()) {
             auto j = res.value().value();
-            log_error("LL1 check: first sets {} ({}) and {} ({}) of non-terminal '{}' are not disjoint\n", i, sequences[i].firsts, j, sequences[j].firsts, non_terminal);
+            std::println(std::cerr, "LL1 check: first sets {} ({}) and {} ({}) of non-terminal '{}' are not disjoint\n", i, sequences[i].firsts, j, sequences[j].firsts, non_terminal);
             return GrammarError::GrammarNotLL1;
         }
         if (sequences.size() > 1) {
             auto is_empty = seq.firsts.has({});
             if (is_empty) {
                 if (has_empty) {
-                    log_error("LL1 check: non-terminal '{}' has more than one sequence deriving the Empty symbol\n", non_terminal);
+                    std::println(std::cerr, "LL1 check: non-terminal '{}' has more than one sequence deriving the Empty symbol\n", non_terminal);
                     return GrammarError::GrammarNotLL1;
                 }
                 has_empty = true;
@@ -89,7 +96,7 @@ Error<GrammarError> Rule::check_LL1()
                 f_i_intersect_followA.union_with(seq.firsts);
                 f_i_intersect_followA.intersect(follows);
                 if (!f_i_intersect_followA.empty()) {
-                    log_error("LL1 check: follow set and first set {} of non-terminal '{}' are not disjoint\n", i, non_terminal);
+                    std::println(std::cerr, "LL1 check: follow set and first set {} of non-terminal '{}' are not disjoint\n", i, non_terminal);
                     return GrammarError::GrammarNotLL1;
                 }
             }

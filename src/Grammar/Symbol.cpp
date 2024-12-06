@@ -44,6 +44,7 @@ Result<int64_t, GrammarError> Symbol::firsts(Symbols const& symbols, size_t ix, 
                 f.union_with(rule.firsts);
                 return count + static_cast<int64_t>(f.size()) - sz;
             } else {
+                std::println(std::cerr, "Rule '{}' not found", nt_name);
                 return GrammarError::RuleNotFound;
             }
         }

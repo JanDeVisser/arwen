@@ -31,7 +31,20 @@ statements                  := statement
                              | statement_block
                              ;
 
-statement_block             := {                 [ start_block               ]
+label                       := '#'
+                               #ident            [ make_label                ]
+                             ;
+
+label_maybe                 := label
+                             |
+                             ;
+
+statement_block             := label
+                               statement_block_
+                             | statement_block_
+                             ;
+
+statement_block_            := {                 [ start_block               ]
                                statement_list
                                }                 [ finish_block              ]
                              ;
@@ -42,7 +55,9 @@ statement_list              := statement
                              ;
 
 statement                   := declaration
+                             | break
                              | conditional
+                             | continue
                              | expression
                              | loop
                              | return
@@ -58,6 +73,7 @@ var_decl                    := "var"             [ start_block               ]
                                #ident            [ make_identifier           ]
                                var_type
                                var_assignment    [ make_var_decl             ]
+                               ';'
                              ;
 
 var_type                    := ':'
@@ -75,14 +91,34 @@ const_decl                  := "const"           [ start_block               ]
                                var_type
                                '='
                                expr              [ make_const_decl           ]
-                             ;
-
-expression                  := expr
                                ';'
                              ;
 
-label                       := '#'
-                               #ident            [ make_label                ]
+break                       := "break"           [ start_block               ]
+                               break_tail        [ make_break                ]
+                               ';'
+                             ;
+
+break_tail                 := label
+                              expr_maybe
+                            |
+                            ;
+
+expr_maybe                 := expr
+                            |
+                            ;
+
+continue                   := "continue"        [ start_block               ]
+                               continue_tail     [ make_continue             ]
+                               ';'
+                            ;
+
+continue_tail              := label
+                            |
+                            ;
+
+expression                  := expr
+                               ';'
                              ;
 
 conditional                 := "if"              [ start_block               ]
@@ -96,12 +132,7 @@ else                        := "else"
                              |
                              ;
 
-loop                        := label
-                               loop_
-                             | loop_
-                             ;
-
-loop_                       := "loop"
+loop                        := "loop"
                                statements        [ make_loop                 ]
                              ;
 
@@ -116,7 +147,7 @@ return                      := "return"
 
 return_value                := expr              [ make_return_with_value    ]
                                ';'
-                             |                   [ make_void_return          ]
+                             | ';'               [ make_void_return          ]
                              ;
 
 func_def                    := func_type
@@ -139,11 +170,17 @@ func_type                   := "func"
 
 func_block                  := statements        [ make_function             ]
                              | link_clause
-                             | "intrinsic"       [ make_intrinsic            ]
+                             | intrinsic
                              ;
 
-link_clause                 := "->" '"'          [ make_qstring              ]
+link_clause                 := "->"
+                               '"'               [ make_qstring              ]
                                                  [ make_foreign_function     ]
+                               ';'
+                             ;
+
+intrinsic                   := "intrinsic"       [ make_intrinsic            ]
+                               ';'
                              ;
 
 parlist_or_void             := parlist

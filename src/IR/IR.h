@@ -12,6 +12,7 @@
 #include <format>
 #include <ios>
 #include <map>
+#include <optional>
 #include <ostream>
 #include <sstream>
 #include <string_view>
@@ -38,6 +39,7 @@ using Ref = size_t;
 
 #define OperationTypes(S) \
     S(BinaryOperation)    \
+    S(Break)              \
     S(Call)               \
     S(Discard)            \
     S(ForeignCall)        \
@@ -75,6 +77,11 @@ struct BinaryOperation {
     BinaryOperator op;
 };
 
+struct Break {
+    Ref target {0};
+    bool block_is_loop;
+};
+
 struct Call {
     std::string_view   name;
     BoundNodeReference decl;
@@ -97,7 +104,7 @@ struct Intrinsic {
 };
 
 struct Jump {
-    Ref target;
+    Ref target {0};
 };
 
 struct JumpF {
@@ -159,6 +166,7 @@ struct UnaryOperation {
 
 using Op = std::variant<
     BinaryOperation,
+    Break,
     Call,
     Discard,
     ForeignCall,
@@ -182,8 +190,9 @@ using Op = std::variant<
     UnaryOperation>;
 
 struct Operation {
-    Ref ref;
-    Op  op;
+    Ref                ref;
+    Op                 op;
+    std::optional<Ref> target {};
 };
 
 template<typename Op>
@@ -337,11 +346,12 @@ inline void to_string(std::ostream &out, UnaryOperation const &op)
 }
 
 struct Function {
-    Program               &program;
-    Ref                    ref;
-    BoundNodeReference     bound_ref;
-    std::string_view       name;
-    std::vector<Operation> ops;
+    Program                          &program;
+    Ref                               ref;
+    BoundNodeReference                bound_ref;
+    std::string_view                  name;
+    std::map<BoundNodeReference, Ref> scopes;
+    std::vector<Operation>            ops;
 
     void list() const;
 };

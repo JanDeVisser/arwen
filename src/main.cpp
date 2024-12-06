@@ -55,7 +55,11 @@ void arwen_main(int argc, char const **argv)
 
     GrammarParser gp { arwen_grammar };
     Grammar       grammar {};
-    gp.parse(grammar).must();
+    gp.parse(grammar).must([&gp](auto const &e) -> Error<GrammarParserError> {
+        std::println("{} Error parsing grammar: {}", gp.lexer.location, e);
+        exit(1);
+        return Error<GrammarParserError> {};
+    });
     if (app.options.contains("grammar-dump")) {
         grammar.dump();
     }

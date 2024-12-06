@@ -45,14 +45,14 @@ GrammarParser::GrammarParser(std::string_view source)
 
 Error<GrammarParserError> GrammarParser::grammar_config(Grammar &grammar)
 {
-    TRY_FORWARD(GrammarParserError::SyntaxError, lexer.expect_symbol('%'));
+    TRY_FORWARD(GrammarParserError::ExpectedConfigSection, lexer.expect_symbol('%'));
     for (auto token_maybe = lexer.peek_next(); token_maybe; token_maybe = lexer.peek_next()) {
         auto t = *token_maybe;
         switch (t.tag()) {
         case KindTag::Identifier: {
             auto name = t.text;
             lexer.advance();
-            TRY_FORWARD(GrammarParserError::SyntaxError, lexer.expect_symbol(':'));
+            TRY_FORWARD(GrammarParserError::MalformedConfigSection, lexer.expect_symbol(':'));
             if (auto v = lexer.peek_next(); v) {
                 std::string_view value;
                 switch (v->tag()) {
@@ -116,7 +116,7 @@ Result<Value, GrammarParserError> GrammarParser::parse_value()
 
 Error<GrammarParserError> GrammarParser::parse_actions(Grammar &grammar, Sequence &seq)
 {
-    TRY_FORWARD(GrammarParserError::SyntaxError, lexer.expect_symbol('['));
+    TRY_FORWARD(GrammarParserError::ExpectedAction, lexer.expect_symbol('['));
     for (auto t = lexer.peek_next(); t; t = lexer.peek_next()) {
         switch (t->tag()) {
         case KindTag::Symbol: {
@@ -146,9 +146,9 @@ Error<GrammarParserError> GrammarParser::parse_actions(Grammar &grammar, Sequenc
 
 Error<GrammarParserError> GrammarParser::parse_non_terminal(Grammar &grammar)
 {
-    auto name = TRY_EVAL_FORWARD(GrammarParserError::SyntaxError, lexer.expect_identifier());
-    TRY_FORWARD(GrammarParserError::SyntaxError, lexer.expect_symbol(':'));
-    TRY_FORWARD(GrammarParserError::SyntaxError, lexer.expect_symbol('='));
+    auto name = TRY_EVAL_FORWARD(GrammarParserError::ExpectedNonTerminal, lexer.expect_identifier());
+    TRY_FORWARD(GrammarParserError::MalformedProduction, lexer.expect_symbol(':'));
+    TRY_FORWARD(GrammarParserError::MalformedProduction, lexer.expect_symbol('='));
     Rule     rule { grammar, name.text };
     Sequence seq { grammar };
     auto done {false};
@@ -245,16 +245,22 @@ Error<GrammarParserError> GrammarParser::parse(Grammar &grammar)
                 TRY(grammar_config(grammar));
                 break;
             default:
-                return GrammarParserError::SyntaxError;
+            return GrammarParserError::UnexpectedSymbol;
             }
             break;
         case KindTag::Identifier:
             TRY(parse_non_terminal(grammar));
             break;
         case KindTag::Eof:
-            TRY_FORWARD(GrammarParserError::MalformedGrammar, grammar.build_parse_table());
+            if (auto res = grammar.build_parse_table(); res.is_error()) {
+                std::println("{}", res.error());
+                return GrammarParserError::MalformedGrammar;
+            }
             return {};
+        case KindTag::Keyword:
+            return GrammarParserError::UnexpectedKeyword;
         default:
+            std::println("{}", t->kind);
             return GrammarParserError::SyntaxError;
         }
     }

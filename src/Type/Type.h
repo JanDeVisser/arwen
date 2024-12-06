@@ -84,6 +84,15 @@ using TypeReference = size_t;
     PrimitiveTypes(S) \
         PseudoTypes(S)
 
+#define SyntheticBuiltins(S)  \
+    S(String, string, string) \
+    S(Int, int, int)
+
+#define BuiltinTypes(S) \
+    BasicTypes(S)      \
+    S(String, string, string) \
+    S(Int, int, int)
+
 enum class PrimitiveType : TypeReference {
 #undef S
 #define S(T, L, ...) T = __COUNTER__,
@@ -105,22 +114,17 @@ enum class BasicType : TypeReference {
 #undef S
 };
 
-enum class BuiltinType {
+enum class BuiltinType : TypeReference {
 #undef S
 #define S(T, L, ...) T,
-    BasicTypes(S)
+    BuiltinTypes(S)
 #undef S
-        String,
-    Int,
 };
 
 #undef S
-#define S(T, L, ...) constexpr static TypeReference T##Type = static_cast<TypeReference>(PrimitiveType::T);
-PrimitiveTypes(S)
+#define S(T, L, ...) constexpr static TypeReference T##Type = static_cast<TypeReference>(BuiltinType::T);
+BuiltinTypes(S)
 #undef S
-    constexpr static TypeReference StringType
-    = static_cast<TypeReference>(BuiltinType::String);
-constexpr static TypeReference IntType = static_cast<TypeReference>(BuiltinType::Int);
 
 template<>
 inline std::string_view to_string(BasicType const &t)
@@ -339,11 +343,14 @@ struct std::formatter<Arwen::TypeKind, char> : public Arwen::SimpleFormatParser 
     {
         std::ostringstream out;
         switch (t) {
-            #undef S
-            #define S(K) case Arwen::TypeKind::K: out << #K; break;
+#undef S
+#define S(K)                 \
+    case Arwen::TypeKind::K: \
+        out << #K;           \
+        break;
             TypeKinds(S)
-            #undef S
-            default: UNREACHABLE();
+#undef S
+                default : UNREACHABLE();
         }
         return std::ranges::copy(std::move(out).str(), ctx.out()).out;
     }

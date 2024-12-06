@@ -585,10 +585,9 @@ void make_function_decl_(P *parser, std::optional<NodeReference> return_type)
     }
     std::reverse(stmts.begin(), stmts.end());
     auto                           &start = parser->impl.pop_typed_node(ASTNodeKind::StartBlock);
-    std::optional<std::string_view> label;
+    std::optional<NodeReference> label;
     if (parser->impl.peek_kind() == ASTNodeKind::Label) {
-        auto &label_node = parser->impl.pop_typed_node(ASTNodeKind::Label);
-        label = std::get<Label>(label_node.impl).label;
+        label = parser->impl.pop_typed_node(ASTNodeKind::Label).ref;
     }
     parser->impl.push_node(
         start.location,
@@ -651,16 +650,46 @@ void make_function_decl_(P *parser, std::optional<NodeReference> return_type)
 
 [[maybe_unused]] void arwen_make_loop(P *parser)
 {
-    auto &body = parser->impl.pop_node();
-
-    // #foo loop x = 42 does not make any sense. So the label should have
-    // been consumed by the block following 'loop'.
-    parser->impl.try_pop_typed_node(ASTNodeKind::Label);
     parser->impl.push_node(
         parser->last_token.location,
         ASTNodeKind::Loop,
         Loop {
-            .body = body.ref,
+            .body = parser->impl.pop_node().ref,
+        });
+}
+
+[[maybe_unused]] void arwen_make_break(P *parser)
+{
+    std::optional<NodeReference> label {};
+    std::optional<NodeReference> expr {};
+    for (auto &n = parser->impl.pop_node(); n.kind != ASTNodeKind::StartBlock; n = parser->impl.pop_node()) {
+        if (n.kind == ASTNodeKind::Label) {
+            label = n.ref;
+        } else {
+            expr = n.ref;
+        }
+    }
+    parser->impl.push_node(
+        parser->last_token.location,
+        ASTNodeKind::Break,
+        Break {
+            .label = label,
+            .expression = expr,
+        });
+}
+
+[[maybe_unused]] void arwen_make_continue(P *parser)
+{
+    std::optional<NodeReference> label {};
+    for (auto &n = parser->impl.pop_node(); n.kind != ASTNodeKind::StartBlock; n = parser->impl.pop_node()) {
+        assert(n.kind == ASTNodeKind::Label);
+        label = n.ref;
+    }
+    parser->impl.push_node(
+        parser->last_token.location,
+        ASTNodeKind::Continue,
+        Break {
+            .label = label,
         });
 }
 
