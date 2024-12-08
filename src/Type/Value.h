@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <charconv>
+#include <concepts>
 #include <cstdlib>
 #include <format>
 #include <limits>
@@ -340,20 +341,55 @@ public:
         UNREACHABLE();
     }
 
-    template<std::integral IntType>
+    template<std::signed_integral IntType>
     [[nodiscard]] constexpr IntType as() const
     {
         assert(m_payload.index() == 0);
         return std::visit(
             overload {
-                [](std::integral auto v) {
+                [](std::signed_integral auto v) {
                     if (v > std::numeric_limits<IntType>::max() || v < std::numeric_limits<IntType>::min()) {
+                        fatal("Integer value {} cannot be converted to {}", v, typeid(IntType).name());
+                    };
+                    return static_cast<IntType>(v);
+                },
+                [](std::unsigned_integral auto v) {
+                    if (v > std::numeric_limits<IntType>::max()) {
                         fatal("Integer value {} cannot be converted to {}", v, typeid(IntType).name());
                     };
                     return static_cast<IntType>(v);
                 },
                 [](std::floating_point auto fp) {
                     if (fp > std::numeric_limits<IntType>::max() || fp < std::numeric_limits<IntType>::min()) {
+                        fatal("Floating point value {} cannot be converted to {}", fp, typeid(IntType).name());
+                    }
+                    return static_cast<IntType>(fp);
+                },
+                [](auto v) -> IntType { fatal("Cannot convert Value of type {} to type {}", typeid(decltype(v)).name(), typeid(IntType).name()); return 0; },
+            },
+            std::get<Val>(m_payload));
+    }
+
+    template<std::unsigned_integral IntType>
+    [[nodiscard]] constexpr IntType as() const
+    {
+        assert(m_payload.index() == 0);
+        return std::visit(
+            overload {
+                [](std::signed_integral auto v) {
+                    if (v > std::numeric_limits<IntType>::max()) {
+                        fatal("Integer value {} cannot be converted to {}", v, typeid(IntType).name());
+                    };
+                    return static_cast<IntType>(v);
+                },
+                [](std::unsigned_integral auto v) {
+                    if (v < 0 || v > std::numeric_limits<IntType>::max()) {
+                        fatal("Integer value {} cannot be converted to {}", v, typeid(IntType).name());
+                    };
+                    return static_cast<IntType>(v);
+                },
+                [](std::floating_point auto fp) {
+                    if (fp > std::numeric_limits<IntType>::max() || fp < 0.0) {
                         fatal("Floating point value {} cannot be converted to {}", fp, typeid(IntType).name());
                     }
                     return static_cast<IntType>(fp);

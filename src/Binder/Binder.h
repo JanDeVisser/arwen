@@ -6,13 +6,17 @@
 
 #pragma once
 
+#include <algorithm>
+#include <format>
 #include <iostream>
 #include <map>
 #include <optional>
 #include <set>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <typeindex>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -20,11 +24,13 @@
 #include <AST/Operator.h>
 #include <Lexer/Lexer.h>
 #include <Type/Type.h>
+#include <Type/Value.h>
 
 #include <Lib.h>
 #include <Logging.h>
 #include <Result.h>
 #include <ScopeGuard.h>
+#include <SimpleFormat.h>
 #include <TaggedUnion.h>
 #include <Unescape.h>
 
@@ -74,6 +80,10 @@ struct BoundBreak {
 
 struct BoundCoercion {
     BoundNodeReference expression;
+};
+
+struct BoundConstant {
+    Value value;
 };
 
 struct BoundConstantDeclaration {
@@ -183,6 +193,7 @@ struct BoundWhile {
     S(BoundBreak)                  \
     S(BoundCoercion)               \
     S(BoolConstant)                \
+    S(BoundConstant)               \
     S(BoundConstantDeclaration)    \
     S(BoundContinue)               \
     S(FloatConstant)               \
@@ -304,3 +315,17 @@ struct Binder {
 #define IMPL I(STRUCT, ref) //(binder.impl<STRUCT>(ref))
 
 }
+
+template<>
+struct std::formatter<Arwen::TypeAlternatives, char> : public Arwen::SimpleFormatParser {
+    template<class FmtContext>
+    FmtContext::iterator format(Arwen::TypeAlternatives const &v, FmtContext &ctx) const
+    {
+        std::ostringstream out;
+        out << "preferred: " << Arwen::TypeRegistry::the()[v.preferred].name << " alternatives: ";
+        for (auto alternative : v.alternatives) {
+            out << ", " << Arwen::TypeRegistry::the()[alternative].name;
+        }
+        return std::ranges::copy(std::move(out).str(), ctx.out()).out;
+    }
+};

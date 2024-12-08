@@ -65,7 +65,7 @@ void generate(BoundNodeReference ref, BoundAssignmentExpression const &impl, Bin
                 generate(binex.right, ir.program.binder, ir);
                 assert(binder.type_of(binex.left) == BoundNodeType::BoundIdentifier);
                 auto const &lhs = I(BoundIdentifier, binex.left);
-                ir.ops.push_back({ ir.ops.size(), PushString { lhs.name } });
+                ir.ops.push_back({ ir.ops.size(), PushConstant { lhs.name } });
                 ir.ops.push_back({ ir.ops.size(), PopArrayElement {} });
             },
             [](auto const &) {
@@ -89,7 +89,7 @@ void generate(BoundNodeReference ref, BoundBinaryExpression const &impl, Binder 
         assert(binder.type_of(impl.right) == BoundNodeType::BoundSubscript);
         assert(binder.type_of(impl.left) == BoundNodeType::BoundIdentifier);
         auto const &lhs = I(BoundIdentifier, impl.left);
-        ir.ops.push_back({ ir.ops.size(), PushString { lhs.name } });
+        ir.ops.push_back({ ir.ops.size(), PushConstant { lhs.name } });
         ir.ops.push_back({ ir.ops.size(), PushArrayElement {} });
         return;
     } break;
@@ -101,9 +101,9 @@ void generate(BoundNodeReference ref, BoundBinaryExpression const &impl, Binder 
 }
 
 template<>
-void generate(BoundNodeReference, BoolConstant const &impl, Binder &, Function &ir)
+void generate(BoundNodeReference, BoundConstant const &impl, Binder &, Function &ir)
 {
-    ir.ops.push_back({ ir.ops.size(), PushBoolean { impl.value } });
+    ir.ops.push_back({ ir.ops.size(), PushConstant { impl.value } });
 }
 
 template<>
@@ -153,12 +153,6 @@ template<>
 void generate(BoundNodeReference, BoundCoercion const &impl, Binder &, Function &ir)
 {
     generate(impl.expression, ir.program.binder, ir);
-}
-
-template<>
-void generate(BoundNodeReference, FloatConstant const &impl, Binder &, Function &ir)
-{
-    ir.ops.push_back({ ir.ops.size(), PushFloat { impl.value } });
 }
 
 template<>
@@ -234,12 +228,6 @@ void generate(BoundNodeReference, BoundIdentifier const &impl, Binder &, Functio
 }
 
 template<>
-void generate(BoundNodeReference, IntConstant const &impl, Binder &, Function &ir)
-{
-    ir.ops.push_back({ ir.ops.size(), PushInt { static_cast<int64_t>(impl.value) } });
-}
-
-template<>
 void generate(BoundNodeReference, BoundIf const &impl, Binder &, Function &ir)
 {
     generate(impl.condition, ir.program.binder, ir);
@@ -265,7 +253,7 @@ void generate(BoundNodeReference, BoundIntrinsic const &impl, Binder &binder, Fu
 template<>
 void generate(BoundNodeReference, BoundMember const &impl, Binder &, Function &ir)
 {
-    ir.ops.push_back({ ir.ops.size(), PushString { impl.name } });
+    ir.ops.push_back({ ir.ops.size(), PushConstant { impl.name } });
 }
 
 template<>
@@ -284,18 +272,12 @@ void generate(BoundNodeReference, BoundReturn const &impl, Binder &, Function &i
 }
 
 template<>
-void generate(BoundNodeReference, StringConstant const &impl, Binder &, Function &ir)
-{
-    ir.ops.push_back({ ir.ops.size(), PushString { impl.value } });
-}
-
-template<>
 void generate(BoundNodeReference, BoundSubscript const &impl, Binder &, Function &ir)
 {
     for (auto it = impl.subscripts.crbegin(); it != impl.subscripts.crend(); ++it) {
         generate(*it, ir.program.binder, ir);
     }
-    ir.ops.push_back({ ir.ops.size(), PushInt { static_cast<int64_t>(impl.subscripts.size()) } });
+    ir.ops.push_back({ ir.ops.size(), PushConstant { static_cast<int64_t>(impl.subscripts.size()) } });
 }
 
 template<>

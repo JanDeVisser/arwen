@@ -27,6 +27,7 @@
 #include <Binder/Binder.h>
 #include <Lexer/Lexer.h>
 #include <Type/Type.h>
+#include <Type/Value.h>
 
 #include <Lib.h>
 #include <Logging.h>
@@ -403,6 +404,27 @@ BoundNodeReference rebind<BoundBinaryExpression>(Binder &binder, BoundNodeRefere
             return false;
         };
 
+        auto flat = std::visit(
+            overload {
+                [&](BoundConstant &l, BoundConstant &r) -> BoundNodeReference {
+                    if (auto result = m(l.value, r.value); result) {
+                        l.value = *result;
+                        binder[IMPL.left].type = l.value.type();
+                        binder[IMPL.left].parent = binder[ref].parent;
+                        return IMPL.left;
+                    }
+                    return add_error(binder, ref, "Cannot use operator '{}' with constant LHS '{}' and constant RHS '{}'", m.op, left_type.name, right_type.name);
+                },
+                [ref](auto &, auto &) -> BoundNodeReference {
+                    return ref;
+                },
+            },
+            binder[IMPL.left].impl, binder[IMPL.right].impl);
+
+        if (flat != ref) {
+            return flat;
+        }
+
         if (test_types(left_type.ref, right_type.ref)) {
             return ref;
         }
@@ -604,23 +626,132 @@ void dump(std::ostream &out, Binder &binder, BoundCoercion const &impl, int inde
 }
 
 #undef STRUCT
-#define STRUCT BoolConstant
+#define STRUCT BoundConstant
 
 template<>
 BoundNodeReference bind<BoolConstant>(Binder &binder, NodeReference ast_ref, BoundNodeReference parent)
 {
     auto const &ast_node = binder.ast[ast_ref];
     auto const &ast_impl = std::get<BoolConstant>(ast_node.impl);
-    auto        ref = add_node<BoolConstant>(binder, ast_node.ref, ast_node.location, parent);
+    auto        ref = add_node<BoundConstant>(binder, ast_node.ref, ast_node.location, parent);
     IMPL.value = ast_impl.value;
-    binder[ref].type = binder.registry[PrimitiveType::Bool].ref;
     return ref;
 }
 
 template<>
-void to_string(std::ostream &out, Binder &, BoolConstant const &impl)
+BoundNodeReference bind<FloatConstant>(Binder &binder, NodeReference ast_ref, BoundNodeReference parent)
 {
-    std::cout << std::boolalpha << impl.value;
+    auto const &ast_node = binder.ast[ast_ref];
+    auto const &ast_impl = std::get<FloatConstant>(ast_node.impl);
+    auto        ref = add_node<BoundConstant>(binder, ast_node.ref, ast_node.location, parent);
+    IMPL.value = ast_impl.value;
+    return ref;
+}
+
+template<>
+BoundNodeReference bind<IntConstant>(Binder &binder, NodeReference ast_ref, BoundNodeReference parent)
+{
+    auto const &ast_node = binder.ast[ast_ref];
+    auto const &ast_impl = std::get<IntConstant>(ast_node.impl);
+    auto        ref = add_node<BoundConstant>(binder, ast_node.ref, ast_node.location, parent);
+    IMPL.value = ast_impl.value;
+    return ref;
+}
+
+template<>
+BoundNodeReference bind<StringConstant>(Binder &binder, NodeReference ast_ref, BoundNodeReference parent)
+{
+    auto const &ast_node = binder.ast[ast_ref];
+    auto const &ast_impl = std::get<StringConstant>(ast_node.impl);
+    auto        ref = add_node<BoundConstant>(binder, ast_node.ref, ast_node.location, parent);
+    IMPL.value = ast_impl.value;
+    return ref;
+}
+
+template<>
+BoundNodeReference rebind<BoundConstant>(Binder &binder, BoundNodeReference ref)
+{
+    binder[ref].type = IMPL.value.type();
+    return ref;
+}
+
+template<>
+TypeAlternatives alternatives<BoundConstant>(Binder &binder, BoundNodeReference ref, TypeReference)
+{
+    TypeAlternatives result;
+    result.preferred = *binder[ref].type;
+    if (binder.registry[IMPL.value.type()].is_float()) {
+        result.alternatives.push_back(FloatType);
+        result.alternatives.push_back(DoubleType);
+        double v = IMPL.value.as<double>();
+#undef S
+#define S(T, CType, Size, Signed)                 \
+    if (v <= std::numeric_limits<CType>::max()) { \
+        result.alternatives.push_back(T##Type);   \
+    }
+        IntegerTypes(S)
+#undef S
+    }
+    if (binder.registry[IMPL.value.type()].is_integer()) {
+        result.alternatives.push_back(FloatType);
+        result.alternatives.push_back(DoubleType);
+        if (IMPL.value.type() % 2) {
+            i64 v = IMPL.value.as<i64>();
+#undef S
+#define S(T, CType, Size, Signed)                                                               \
+    if (Signed) {                                                                               \
+        if (v >= std::numeric_limits<CType>::min() && v <= std::numeric_limits<CType>::max()) { \
+            result.alternatives.push_back(T##Type);                                             \
+        }                                                                                       \
+    } else {                                                                                    \
+        if (v >= 0 && v <= std::numeric_limits<CType>::max()) {                                 \
+            result.alternatives.push_back(T##Type);                                             \
+        }                                                                                       \
+    }
+            IntegerTypes(S)
+#undef S
+        } else {
+            u64 v = IMPL.value.as<u64>();
+#undef S
+#define S(T, CType, Size, Signed)                 \
+    if (v <= std::numeric_limits<CType>::max()) { \
+        result.alternatives.push_back(T##Type);   \
+    }
+            IntegerTypes(S)
+#undef S
+        }
+    }
+    return result;
+}
+
+template<>
+BoundNodeReference accept<BoundConstant>(Binder &binder, BoundNodeReference ref, TypeReference type)
+{
+    binder[ref].type = type;
+    switch (type) {
+#undef S
+#define S(T, CType, Size, Signed)            \
+    case T##Type:                            \
+        IMPL.value = IMPL.value.as<CType>(); \
+        break;
+    IntegerTypes(S)
+#undef S
+        case FloatType:
+        IMPL.value = IMPL.value.as<float>();
+        break;
+    case DoubleType:
+        IMPL.value = IMPL.value.as<double>();
+        break;
+    default:
+        UNREACHABLE();
+    }
+    return ref;
+}
+
+template<>
+void to_string(std::ostream &out, Binder &, BoundConstant const &impl)
+{
+    std::cout << std::format("{}", impl.value);
 }
 
 #undef STRUCT
@@ -731,72 +862,6 @@ template<>
 void to_string(std::ostream &out, Binder &binder, BoundContinue const &impl)
 {
     out << '#' << impl.block;
-}
-
-#undef STRUCT
-#define STRUCT FloatConstant
-
-template<>
-BoundNodeReference bind<FloatConstant>(Binder &binder, NodeReference ast_ref, BoundNodeReference parent)
-{
-    auto const &ast_node = binder.ast[ast_ref];
-    auto const &ast_impl = std::get<FloatConstant>(ast_node.impl);
-    auto        ref = add_node<FloatConstant>(binder, ast_node.ref, ast_node.location, parent);
-    IMPL.value = ast_impl.value;
-    binder[ref].type = binder.registry[PrimitiveType::Double].ref;
-    return ref;
-}
-
-template<>
-void to_string(std::ostream &out, Binder &, FloatConstant const &impl)
-{
-    out << impl.value;
-}
-
-template<>
-TypeAlternatives alternatives<FloatConstant>(Binder &binder, BoundNodeReference ref, TypeReference)
-{
-    TypeAlternatives result;
-    result.preferred = *binder[ref].type;
-    if (binder[ref].type == static_cast<TypeReference>(PrimitiveType::Double)) {
-        result.alternatives.push_back(static_cast<TypeReference>(PrimitiveType::Float));
-    }
-    result.alternatives.push_back(static_cast<TypeReference>(PrimitiveType::Bool));
-#undef S
-#define S(T, CType, Size, Signed)                                                    \
-    if (IMPL.value <= std::numeric_limits<CType>::max()) {                           \
-        result.alternatives.push_back(static_cast<TypeReference>(PrimitiveType::T)); \
-    }
-    IntegerTypes(S)
-#undef S
-        return result;
-}
-
-template<>
-BoundNodeReference accept<FloatConstant>(Binder &binder, BoundNodeReference ref, TypeReference type)
-{
-    if (type == static_cast<TypeReference>(PrimitiveType::Float) || type == static_cast<TypeReference>(PrimitiveType::Double)) {
-        binder[ref].type = type;
-        return ref;
-    }
-    if (type == static_cast<TypeReference>(PrimitiveType::Bool)) {
-        auto ret = add_node<BoolConstant>(binder, binder[ref].ast_ref, binder[ref].location, binder[ref].parent);
-        I(BoolConstant, ret).value = IMPL.value < std::numeric_limits<double>::epsilon();
-        binder[ret].type = type;
-        return ret;
-    }
-#undef S
-#define S(T, CType, Size, Signed)                                                                                \
-    if (type == static_cast<TypeReference>(PrimitiveType::T)) {                                                  \
-        assert(IMPL.value <= std::numeric_limits<CType>::max());                                                 \
-        auto ret = add_node<IntConstant>(binder, binder[ref].ast_ref, binder[ref].location, binder[ref].parent); \
-        I(IntConstant, ret).value = IMPL.value;                                                                  \
-        binder[ret].type = type;                                                                                 \
-        return ret;                                                                                              \
-    }
-    IntegerTypes(S)
-#undef S
-        UNREACHABLE();
 }
 
 #undef STRUCT
@@ -1106,9 +1171,28 @@ BoundNodeReference rebind<BoundIdentifier>(Binder &binder, BoundNodeReference re
 
     auto variable = binder.resolve(IMPL.name);
     if (variable) {
-        auto &var_node = binder[*variable];
         IMPL.declaration = *variable;
-        binder[ref].type = var_node.type;
+        auto &var_node = binder[*IMPL.declaration];
+        return std::visit(
+            overload {
+                [&](BoundConstantDeclaration const &c) -> BoundNodeReference {
+                    if (std::holds_alternative<BoundConstant>(binder[c.initializer].impl)) {
+                        auto const &constant_node = binder[c.initializer];
+                        auto        constant = std::get<BoundConstant>(constant_node.impl);
+                        auto        copy = add_node<BoundConstant>(binder, constant_node.ast_ref, constant_node.location, binder[ref].parent);
+                        binder[copy].type = constant.value.type();
+                        std::get<BoundConstant>(binder[copy].impl).value = constant.value;
+                        return copy;
+                    } else {
+                        binder[ref].type = var_node.type;
+                    }
+                    return ref;
+                },
+                [&](auto const &) -> BoundNodeReference {
+                    binder[ref].type = var_node.type;
+                    return ref;
+                } },
+            var_node.impl);
     } else if (binder.pass > 0) {
         return add_error(binder, ref, "Undefined variable '{}'", IMPL.name);
     }
@@ -1167,71 +1251,6 @@ BoundNodeReference bind<If>(Binder &binder, NodeReference ast_ref, BoundNodeRefe
         IMPL.false_branch = binder.bind_node(*ast_impl.false_branch, ref);
     }
     return ref;
-}
-
-#undef STRUCT
-#define STRUCT IntConstant
-
-template<>
-BoundNodeReference bind<IntConstant>(Binder &binder, NodeReference ast_ref, BoundNodeReference parent)
-{
-    auto const &ast_node = binder.ast[ast_ref];
-    auto const &ast_impl = std::get<IntConstant>(ast_node.impl);
-    auto        ref = add_node<IntConstant>(binder, ast_node.ref, ast_node.location, parent);
-    IMPL.value = ast_impl.value;
-    binder[ref].type = binder.registry[PrimitiveType::I32].ref;
-    return ref;
-}
-
-template<>
-TypeAlternatives alternatives<IntConstant>(Binder &binder, BoundNodeReference ref, TypeReference)
-{
-    TypeAlternatives result;
-    result.preferred = *binder[ref].type;
-    result.alternatives.push_back(static_cast<TypeReference>(PrimitiveType::Float));
-    result.alternatives.push_back(static_cast<TypeReference>(PrimitiveType::Double));
-    result.alternatives.push_back(static_cast<TypeReference>(PrimitiveType::Bool));
-#undef S
-#define S(T, CType, Size, Signed)                                                    \
-    if (IMPL.value <= std::numeric_limits<CType>::max()) {                           \
-        result.alternatives.push_back(static_cast<TypeReference>(PrimitiveType::T)); \
-    }
-    IntegerTypes(S)
-#undef S
-        return result;
-}
-
-template<>
-BoundNodeReference accept<IntConstant>(Binder &binder, BoundNodeReference ref, TypeReference type)
-{
-    if (type == static_cast<TypeReference>(PrimitiveType::Float) || type == static_cast<TypeReference>(PrimitiveType::Double)) {
-        auto ret = add_node<FloatConstant>(binder, binder[ref].ast_ref, binder[ref].location, binder[ref].parent);
-        I(FloatConstant, ret).value = IMPL.value;
-        binder[ret].type = type;
-        return ret;
-    }
-    if (type == static_cast<TypeReference>(PrimitiveType::Bool)) {
-        auto ret = add_node<BoolConstant>(binder, binder[ref].ast_ref, binder[ref].location, binder[ref].parent);
-        I(BoolConstant, ret).value = IMPL.value != 0;
-        binder[ret].type = type;
-        return ret;
-    }
-#undef S
-#define S(T, CType, Size, Signed)                                \
-    if (type == static_cast<TypeReference>(PrimitiveType::T)) {  \
-        assert(IMPL.value <= std::numeric_limits<CType>::max()); \
-        binder[ref].type = type;                                 \
-        return ref;                                              \
-    }
-    IntegerTypes(S)
-#undef S
-        UNREACHABLE();
-}
-
-template<>
-void to_string(std::ostream &out, Binder &, IntConstant const &impl)
-{
-    out << impl.value;
 }
 
 #undef STRUCT
@@ -1545,26 +1564,6 @@ void dump(std::ostream &out, Binder &binder, BoundReturn const &impl, int indent
 }
 
 #undef STRUCT
-#define STRUCT StringConstant
-
-template<>
-BoundNodeReference bind<StringConstant>(Binder &binder, NodeReference ast_ref, BoundNodeReference parent)
-{
-    auto const &ast_node = binder.ast[ast_ref];
-    auto const &ast_impl = std::get<StringConstant>(ast_node.impl);
-    auto        ref = add_node<StringConstant>(binder, ast_node.ref, ast_node.location, parent);
-    IMPL = ast_impl;
-    binder[ref].type = binder.registry["string"].ref;
-    return ref;
-}
-
-template<>
-void dump(std::ostream &out, Binder &, StringConstant const &impl, int indent)
-{
-    out << std::string(indent + 2, ' ') << impl.value << "\n";
-}
-
-#undef STRUCT
 #define STRUCT BoundSubscript
 
 template<>
@@ -1646,8 +1645,31 @@ BoundNodeReference rebind<BoundUnaryExpression>(Binder &binder, BoundNodeReferen
     if (!binder[IMPL.operand].type) {
         return ref;
     }
-    auto operand_types = binder.alternatives(IMPL.operand, *binder[IMPL.operand].type);
 
+    UnaryOperatorMapping m { IMPL.op };
+    auto                 flat = std::visit(
+        overload {
+            [&](BoundConstant &o) -> BoundNodeReference {
+                if (auto result = m(o.value); result) {
+                    o.value = *result;
+                    binder[IMPL.operand].type = o.value.type();
+                    binder[IMPL.operand].parent = binder[ref].parent;
+                    return IMPL.operand;
+                }
+                return add_error(binder, ref, "Cannot use operator '{}' with constant operand '{}' of type '{}'",
+                                    m.op, o.value, binder.registry[*binder[IMPL.operand].type].name);
+            },
+            [ref](auto &) -> BoundNodeReference {
+                return ref;
+            },
+        },
+        binder[IMPL.operand].impl);
+
+    if (flat != ref) {
+        return flat;
+    }
+
+    auto operand_types = binder.alternatives(IMPL.operand, *binder[IMPL.operand].type);
     auto test_type = [&](TypeReference t) {
         if (auto c = compatible(IMPL.op, static_cast<PrimitiveType>(t)); c) {
             binder[ref].type = static_cast<TypeReference>(*c);

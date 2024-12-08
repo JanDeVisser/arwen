@@ -6,7 +6,9 @@
 
 #include <concepts>
 #include <cstdint>
+#include <limits>
 #include <optional>
+#include <type_traits>
 #include <variant>
 
 #include <Logging.h>
@@ -301,7 +303,38 @@ std::optional<Value> Value::negate() const
 {
     return std::visit(
         overload {
-            [](Numeric auto v) -> std::optional<Value> {
+            [](bool v) -> std::optional<Value> {
+                return {};
+            },
+            [](u8 v) -> std::optional<Value> {
+                if (v > std::numeric_limits<i8>::max()) {
+                    return Value {-static_cast<i16>(v) };
+                } else {
+                    return Value {-static_cast<i8>(v) };
+                }
+            },
+            [](u16 v) -> std::optional<Value> {
+                if (v > std::numeric_limits<i16>::max()) {
+                    return Value {-static_cast<i32>(v) };
+                } else {
+                    return Value {-static_cast<i16>(v) };
+                }
+            },
+            [](u32 v) -> std::optional<Value> {
+                if (v > std::numeric_limits<i32>::max()) {
+                    return Value {-static_cast<i64>(v) };
+                } else {
+                    return Value {-static_cast<i32>(v) };
+                }
+            },
+            [](u64 v) -> std::optional<Value> {
+                if (v > std::numeric_limits<i64>::max()) {
+                    fatal("Value too large to negate");
+                } else {
+                    return Value {-static_cast<i64>(v) };
+                }
+            },
+            [](std::signed_integral auto v) -> std::optional<Value> {
                 return Value { -v };
             },
             [](auto) -> std::optional<Value> {

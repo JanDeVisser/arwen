@@ -8,7 +8,6 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <cstdint>
 #include <format>
 #include <ios>
 #include <map>
@@ -53,11 +52,8 @@ using Ref = size_t;
     S(PopArrayElement)    \
     S(PopVariable)        \
     S(PushArrayElement)   \
-    S(PushBoolean)        \
-    S(PushFloat)          \
-    S(PushInt)            \
+    S(PushConstant)       \
     S(PushNullptr)        \
-    S(PushString)         \
     S(PushVariableRef)    \
     S(PushVariableValue)  \
     S(UnaryOperation)
@@ -78,7 +74,7 @@ struct BinaryOperation {
 };
 
 struct Break {
-    Ref target {0};
+    Ref  target { 0 };
     bool block_is_loop;
 };
 
@@ -104,7 +100,7 @@ struct Intrinsic {
 };
 
 struct Jump {
-    Ref target {0};
+    Ref target { 0 };
 };
 
 struct JumpF {
@@ -133,23 +129,11 @@ struct PopVariable {
 struct PushArrayElement {
 };
 
-struct PushBoolean {
-    bool value;
-};
-
-struct PushFloat {
-    double value;
-};
-
-struct PushInt {
-    int64_t value;
+struct PushConstant {
+    Value value;
 };
 
 struct PushNullptr {
-};
-
-struct PushString {
-    std::string_view value;
 };
 
 struct PushVariableRef {
@@ -180,11 +164,8 @@ using Op = std::variant<
     PopArrayElement,
     PopVariable,
     PushArrayElement,
-    PushBoolean,
-    PushFloat,
-    PushInt,
+    PushConstant,
     PushNullptr,
-    PushString,
     PushVariableRef,
     PushVariableValue,
     UnaryOperation>;
@@ -283,48 +264,34 @@ inline void to_string(std::ostream &, PushArrayElement const &)
 }
 
 template<>
-inline void to_string(std::ostream &out, PushBoolean const &op)
+inline void to_string(std::ostream &out, PushConstant const &op)
 {
-    out << std::boolalpha << op.value;
-}
-
-template<>
-inline void to_string(std::ostream &out, PushFloat const &op)
-{
-    out << op.value;
-}
-
-template<>
-inline void to_string(std::ostream &out, PushInt const &op)
-{
-    out << op.value;
+    if (op.value.type() != StringType) {
+        out << std::format("{}", op.value);
+    } else {
+        out << '"';
+        for (auto const &ch : op.value.value<std::string_view>()) {
+            switch (ch) {
+            case '\n':
+                out << "\\n";
+                break;
+            case '\r':
+                out << "\\r";
+                break;
+            case '\t':
+                out << "\\t";
+                break;
+            default:
+                out << ch;
+            }
+        }
+        out << '"';
+    }
 }
 
 template<>
 inline void to_string(std::ostream &, PushNullptr const &)
 {
-}
-
-template<>
-inline void to_string(std::ostream &out, PushString const &op)
-{
-    out << '"';
-    for (auto const &ch : op.value) {
-        switch (ch) {
-        case '\n':
-            out << "\\n";
-            break;
-        case '\r':
-            out << "\\r";
-            break;
-        case '\t':
-            out << "\\t";
-            break;
-        default:
-            out << ch;
-        }
-    }
-    out << '"';
 }
 
 template<>

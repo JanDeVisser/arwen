@@ -198,19 +198,7 @@ void execute(Operation const &op, PushArrayElement const &impl, Scope &scope)
 }
 
 template<>
-void execute(Operation const &op, PushBoolean const &impl, Scope &scope)
-{
-    scope.push(Value { impl.value });
-}
-
-template<>
-void execute(Operation const &op, PushFloat const &impl, Scope &scope)
-{
-    scope.push(Value { impl.value });
-}
-
-template<>
-void execute(Operation const &op, PushInt const &impl, Scope &scope)
+void execute(Operation const &op, PushConstant const &impl, Scope &scope)
 {
     scope.push(Value { impl.value });
 }
@@ -219,12 +207,6 @@ template<>
 void execute(Operation const &op, PushNullptr const &impl, Scope &scope)
 {
     scope.push(Value { ConstPtrType });
-}
-
-template<>
-void execute(Operation const &op, PushString const &impl, Scope &scope)
-{
-    scope.push(Value { impl.value });
 }
 
 template<>
