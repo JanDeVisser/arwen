@@ -50,9 +50,11 @@ using Ref = size_t;
     S(Label)              \
     S(MakeArray)          \
     S(PopArrayElement)    \
+    S(PopFrame)           \
     S(PopVariable)        \
     S(PushArrayElement)   \
     S(PushConstant)       \
+    S(PushFrame)          \
     S(PushNullptr)        \
     S(PushVariableRef)    \
     S(PushVariableValue)  \
@@ -69,8 +71,22 @@ struct Function;
 struct Module;
 struct Program;
 
+enum class AddressType {
+    Raw,
+    Register,
+    Stack,
+    Data,
+};
+
+struct Address {
+    AddressType address_type;
+    u64         address;
+};
+
 struct BinaryOperation {
+    TypeReference  lhs_type;
     BinaryOperator op;
+    TypeReference  rhs_type;
 };
 
 struct Break {
@@ -84,6 +100,7 @@ struct Call {
 };
 
 struct Discard {
+    TypeReference type;
 };
 
 struct ForeignCall {
@@ -120,17 +137,30 @@ struct MakeArray {
 };
 
 struct PopArrayElement {
+    Address       address;
+    TypeReference type;
+};
+
+struct PopFrame {
+    TypeReference type;
+    bool          discard { false };
 };
 
 struct PopVariable {
-    std::string_view name;
+    Address       address;
+    TypeReference type;
 };
 
 struct PushArrayElement {
+    Address       address;
+    TypeReference type;
 };
 
 struct PushConstant {
     Value value;
+};
+
+struct PushFrame {
 };
 
 struct PushNullptr {
@@ -141,10 +171,12 @@ struct PushVariableRef {
 };
 
 struct PushVariableValue {
-    std::string_view name;
+    Address       address;
+    TypeReference type;
 };
 
 struct UnaryOperation {
+    TypeReference operand_type;
     UnaryOperator op;
 };
 
@@ -162,9 +194,11 @@ using Op = std::variant<
     Label,
     MakeArray,
     PopArrayElement,
+    PopFrame,
     PopVariable,
     PushArrayElement,
     PushConstant,
+    PushFrame,
     PushNullptr,
     PushVariableRef,
     PushVariableValue,
@@ -255,7 +289,7 @@ inline void to_string(std::ostream &, PopArrayElement const &)
 template<>
 inline void to_string(std::ostream &out, PopVariable const &op)
 {
-    out << op.name;
+    out << op.address.address;
 }
 
 template<>
@@ -303,7 +337,7 @@ inline void to_string(std::ostream &out, PushVariableRef const &op)
 template<>
 inline void to_string(std::ostream &out, PushVariableValue const &op)
 {
-    out << op.name;
+    out << op.address.address;
 }
 
 template<>
@@ -314,31 +348,50 @@ inline void to_string(std::ostream &out, UnaryOperation const &op)
 
 struct Function {
     Program                          &program;
+    Ref                               module_ref;
     Ref                               ref;
     BoundNodeReference                bound_ref;
     std::string_view                  name;
     std::map<BoundNodeReference, Ref> scopes;
     std::vector<Operation>            ops;
+    AddressType                       address_type { AddressType::Stack };
+    u64                               depth { 0 };
+    u64                               bp;
+    std::map<BoundNodeReference, u64> variables;
+
+    template <typename Impl, typename... Args>
+    void add_op(Args&&... args)
+    {
+        ops.push_back({
+            ops.size(),
+            Impl { args... },
+        });
+    }
+
 
     void list() const;
 };
 
 struct Module {
-    Program                        &program;
-    Ref                             ref;
-    BoundNodeReference              bound_ref;
-    Function                        initializer;
-    std::string_view                name;
-    std::vector<Function>           functions;
-    std::map<std::string_view, Ref> function_refs;
+    Program                          &program;
+    Ref                               ref;
+    BoundNodeReference                bound_ref;
+    Function                          initializer;
+    std::string_view                  name;
+    std::vector<Function>             functions;
+    std::map<std::string_view, Ref>   function_refs;
+    u64                               depth { 0 };
+    std::map<BoundNodeReference, u64> variables;
 
     void list(Binder &binder) const;
 };
 
 struct Program {
-    Binder                         &binder;
-    std::vector<Module>             modules;
-    std::map<std::string_view, Ref> module_refs;
+    Binder                           &binder;
+    std::vector<Module>               modules;
+    std::map<std::string_view, Ref>   module_refs;
+    u64                               depth { 0 };
+    std::map<BoundNodeReference, u64> variables;
 
     Error<bool> generate();
     void        list() const;

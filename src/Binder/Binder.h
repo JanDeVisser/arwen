@@ -314,6 +314,109 @@ struct Binder {
 #define I(Cls, Ref) (binder.impl<Cls>(Ref))
 #define IMPL I(STRUCT, ref) //(binder.impl<STRUCT>(ref))
 
+template<class Impl>
+BoundNodeReference add_node(Binder &binder, NodeReference ref, Location location, BoundNodeReference parent)
+{
+    binder.bound_nodes.push_back(BoundNode::make<Impl>(parent, ref, location));
+    binder.bound_nodes.back().ref = binder.bound_nodes.size() - 1;
+    return binder.bound_nodes.back().ref;
+}
+
+template<typename... Args>
+BoundNodeReference add_error(Binder &binder, BoundNodeReference ref, std::format_string<Args...> message, Args &&...args)
+{
+    BoundNodeReference err = add_node<BindError>(binder, binder.bound_nodes[ref].ast_ref, binder.bound_nodes[ref].location, ref);
+    auto              &impl = std::get<BindError>(binder.bound_nodes[err].impl);
+    impl.node = ref;
+    impl.pass = binder.pass;
+    impl.message = std::format(message, std::forward<Args>(args)...);
+    binder.errors.emplace_back(err);
+    return err;
+}
+
+template<typename AstImpl>
+BoundNodeReference bind([[maybe_unused]] Binder &, [[maybe_unused]] NodeReference, BoundNodeReference)
+{
+    std::cerr << "No binder for " << typeid(AstImpl).name() << "\n";
+    UNREACHABLE();
+}
+
+template<typename T>
+BoundNodeReference rebind([[maybe_unused]] Binder &, BoundNodeReference ref)
+{
+    return ref;
+}
+
+template<typename BoundImpl>
+TypeAlternatives alternatives(Binder &binder, BoundNodeReference ref, TypeReference hint)
+{
+    assert(binder[ref].type.has_value());
+    TypeAlternatives ret = { *binder[ref].type, {} };
+    auto const      &type = TypeRegistry::the()[*binder[ref].type].decay();
+    auto const      &hinted = TypeRegistry::the()[hint].decay();
+    if (type.is_numeric()) {
+        ret.alternatives.push_back(DoubleType);
+        ret.alternatives.push_back(FloatType);
+        if (type.is_integer()) {
+            if (type.is_unsigned()) {
+                for (TypeReference t = type.ref + 1; binder.registry[t].is_integer(); ++t) {
+                    ret.alternatives.push_back(t);
+                }
+            } else {
+                for (TypeReference t = type.ref + 2; binder.registry[t].is_integer(); t = t + 2) {
+                    ret.alternatives.push_back(t);
+                }
+            }
+        }
+    }
+    if (type.is_raw_pointer()) {
+        ret.alternatives.push_back(PtrType);
+        if (hinted.typespec.tag() == TypeKind::Pointer) {
+            ret.alternatives.push_back(hint);
+        }
+    }
+    if (type.typespec.tag() == TypeKind::Pointer) {
+        ret.alternatives.push_back(PtrType);
+    }
+    return ret;
+}
+
+template<typename Impl>
+BoundNodeReference accept(Binder &binder, BoundNodeReference ref, TypeReference type)
+{
+    auto &node = binder[ref];
+    assert(node.type.has_value());
+    if (node.type == type) {
+        return ref;
+    }
+    auto        current = *node.type;
+    auto const &current_type = binder.registry[current];
+    auto const &desired = binder.registry[type];
+    if (current_type.is_raw_pointer() && desired.is_raw_pointer()) {
+        node.type = type;
+        return ref;
+    }
+    if (desired.typespec.tag() == TypeKind::Pointer && current == PtrType) {
+        node.type = type;
+        return ref;
+    }
+    ref = add_node<BoundCoercion>(binder, node.ast_ref, node.location, node.parent);
+    binder[ref].type = type;
+    binder.impl<BoundCoercion>(ref).expression = node.ref;
+    node.parent = ref;
+    return ref;
+}
+
+template<typename T>
+void dump(std::ostream &out, Binder &, T const &, int)
+{
+}
+
+template<typename T>
+void to_string(std::ostream &out, Binder &, T const &)
+{
+}
+
 }
 
 template<>

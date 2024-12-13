@@ -16,6 +16,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -53,8 +54,7 @@ using TypeReference = size_t;
     S(Bool, bool, bool)           \
     S(Float, f32, f32)            \
     S(Double, f64, f64)           \
-    S(Ptr, ptr, void *)           \
-    S(ConstPtr, const_ptr, void const *)
+    S(Ptr, ptr, void *)
 
 #define IntegerTypes(S)   \
     S(I8, i8, 1, true)    \
@@ -65,6 +65,18 @@ using TypeReference = size_t;
     S(U32, u32, 4, false) \
     S(I64, i64, 8, true)  \
     S(U64, u64, 8, false)
+
+#define NumericTypes(S) \
+    S(I8, i8)           \
+    S(U8, u8)           \
+    S(I16, i16)         \
+    S(U16, u16)         \
+    S(I32, i32)         \
+    S(U32, u32)         \
+    S(I64, i64)         \
+    S(U64, u64)         \
+    S(Float, f32)       \
+    S(Double, f64)
 
 #define PseudoTypes(S)                             \
     S(Aggregate, aggregate, aggregate)             \
@@ -80,18 +92,14 @@ using TypeReference = size_t;
     S(Rhs, lhs, rhs)                               \
     S(Void, void, void *)
 
-#define BasicTypes(S) \
-    PrimitiveTypes(S) \
-        PseudoTypes(S)
-
-#define SyntheticBuiltins(S)  \
-    S(String, string, string) \
-    S(Int, int, int)
+#define BasicTypes(S)             \
+    PrimitiveTypes(S)             \
+        S(String, string, string) \
+            PseudoTypes(S)
 
 #define BuiltinTypes(S) \
-    BasicTypes(S)      \
-    S(String, string, string) \
-    S(Int, int, int)
+    BasicTypes(S)       \
+        S(Int, int, int)
 
 enum class PrimitiveType : TypeReference {
 #undef S
@@ -126,8 +134,22 @@ enum class BuiltinType : TypeReference {
 BuiltinTypes(S)
 #undef S
 
-template<>
-inline std::string_view to_string(BasicType const &t)
+    template<typename T>
+    constexpr inline TypeReference type_of()
+{
+    UNREACHABLE();
+    return NullType;
+}
+
+#undef S
+#define S(T, L, ...) \
+    template<>       \
+    inline TypeReference type_of<__VA_ARGS__>() { return T##Type; }
+PrimitiveTypes(S)
+#undef S
+
+    template<>
+    inline std::string_view to_string(BasicType const &t)
 {
     switch (t) {
 #undef S
@@ -167,7 +189,7 @@ template<>
 inline std::optional<PrimitiveType> decode(std::string_view s, ...)
 {
     if (auto decoded = decode<BasicType>(s); decoded) {
-        if (*decoded <= BasicType::ConstPtr) {
+        if (*decoded <= BasicType::Ptr) {
             return static_cast<PrimitiveType>(*decoded);
         }
     }
@@ -266,9 +288,11 @@ struct Type {
     [[nodiscard]] bool        is_signed() const;
     [[nodiscard]] bool        is_unsigned() const;
     [[nodiscard]] bool        is_float() const;
-    [[nodiscard]] bool        is_raw_pointer() const { return ref == PtrType || ref == ConstPtrType; }
+    [[nodiscard]] bool        is_raw_pointer() const { return ref == PtrType; }
     [[nodiscard]] Type const &decay() const;
     [[nodiscard]] bool        is_assignable_to(Type const &other) const;
+    [[nodiscard]] u64         size() const;
+    [[nodiscard]] u64         alignment() const;
 };
 
 struct TypeRegistry {
@@ -280,7 +304,7 @@ struct TypeRegistry {
     [[nodiscard]] Type const    &operator[](PseudoType t) const { return operator[](static_cast<BasicType>(t)); }
     [[nodiscard]] Type const    &operator[](TypeReference ref) const;
     [[nodiscard]] Type const    &operator[](std::string_view name) const;
-    [[nodiscard]] size_t         size() const { return types.size(); }
+    [[nodiscard]] size_t         count() const { return types.size(); }
     std::optional<TypeReference> resolve_array(TypeReference element_type);
     std::optional<TypeReference> resolve_pointer(TypeReference element_type);
     std::optional<TypeReference> resolve_object(Object const &obj);
@@ -299,6 +323,22 @@ inline bool is_a(TypeReference concrete, BasicType abstract)
     auto const &registry = TypeRegistry::the();
     assert(registry.has(concrete));
     return registry[concrete].is_assignable_to(registry[abstract]);
+}
+
+inline u64 align_at(u64 value, u64 alignment)
+{
+    if (value % alignment) {
+        return value + (alignment - (value % alignment));
+    }
+    return value;
+}
+
+inline u64 align_down(u64 value, u64 alignment)
+{
+    if (value % alignment) {
+        return value - (alignment - (value % alignment));
+    }
+    return value;
 }
 
 }

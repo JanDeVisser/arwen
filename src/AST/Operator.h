@@ -6,7 +6,6 @@
 
 #pragma once
 
-#include "Type/Value.h"
 #include <algorithm>
 #include <cstdint>
 #include <format>
@@ -14,12 +13,13 @@
 #include <optional>
 #include <sstream>
 #include <string_view>
+#include <utility>
 
 #include <Lexer/Lexer.h>
 #include <Lib.h>
 #include <Logging.h>
 #include <Type/Type.h>
-#include <utility>
+#include <Type/Value.h>
 
 namespace Arwen {
 

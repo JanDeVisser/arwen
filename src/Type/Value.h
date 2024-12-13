@@ -9,8 +9,8 @@
 #include <algorithm>
 #include <cerrno>
 #include <charconv>
-#include <concepts>
 #include <cstdlib>
+#include <cstring>
 #include <format>
 #include <limits>
 #include <optional>
@@ -27,7 +27,6 @@
 #include <Lib.h>
 #include <Logging.h>
 #include <SimpleFormat.h>
-#include <vector>
 
 namespace Arwen {
 
@@ -35,13 +34,13 @@ template<typename T>
 concept Numeric = std::is_arithmetic_v<T> && !std::is_same_v<T, bool> && !std::is_same_v<T, std::monostate>;
 
 struct SliceValue {
-    size_t      len;
-    char const *ptr;
+    size_t len;
+    u8    *ptr;
 
     constexpr SliceValue() = default;
     constexpr SliceValue(SliceValue const &) = default;
 
-    constexpr SliceValue(size_t len, char const *ptr)
+    constexpr SliceValue(u64 len, u8 *ptr, u64 element_size = 1)
         : len(len)
         , ptr(ptr)
     {
@@ -49,24 +48,19 @@ struct SliceValue {
 
     constexpr SliceValue(std::string_view const &sv)
         : len(sv.length())
-        , ptr(sv.data())
+        , ptr(static_cast<u8 *>(static_cast<void *>(const_cast<char *>(sv.data()))))
     {
     }
 
-    [[nodiscard]] constexpr bool operator<(SliceValue const &rhs) const
+    std::string_view as_sv() const
     {
-        std::string_view lhs_sv { ptr, len };
-        std::string_view rhs_sv { rhs.ptr, rhs.len };
-        return lhs_sv < rhs_sv;
+        return { const_cast<char const *>(static_cast<char *>(static_cast<void *>(ptr))), len };
     }
 
-    [[nodiscard]] constexpr bool operator==(SliceValue const &rhs) const
-    {
-        std::string_view lhs_sv { ptr, len };
-        std::string_view rhs_sv { rhs.ptr, rhs.len };
-        return lhs_sv == rhs_sv;
-    }
 };
+
+template<>
+inline TypeReference type_of<SliceValue>() { return StringType; }
 
 #define ValueConstructors(S)     \
     S(Bool, bool)                \
@@ -81,180 +75,66 @@ struct SliceValue {
     S(U64, u64)                  \
     S(I64, i64)                  \
     S(Ptr, void *)               \
-    S(ConstPtr, void const *)    \
     S(Ptr, std::integral auto *) \
-    S(ConstPtr, std::integral auto const *)
+    S(String, SliceValue)        \
+    S(String, std::string_view)
 
-using ValPayload = std::variant<
+using ValuePayload = std::variant<
 #undef S
 #define S(T, L, ...) __VA_ARGS__,
     PrimitiveTypes(S)
 #undef S
         SliceValue>;
 
-struct Val : public ValPayload {
-    Val() = default;
-    Val(Val const &) = default;
-#undef S
-#define S(T, ...)                \
-    constexpr Val(__VA_ARGS__ v) \
-        : ValPayload(v)          \
-    {                            \
-    }
-    ValueConstructors(S)
-#undef S
-
-        constexpr Val(SliceValue const &slice)
-        : ValPayload(slice)
-    {
-    }
-
-    constexpr Val(std::string_view v)
-        : ValPayload(SliceValue { v })
-    {
-    }
-
-    constexpr Val &operator=(Val const &other) = default;
-    Val           &operator=(struct Value const &other);
-
-    [[nodiscard]] constexpr bool operator==(Val const &other) const
-    {
-        return std::visit(
-            overload {
-                [](std::integral auto lhs, std::integral auto rhs) {
-                    return lhs == rhs;
-                },
-                [](std::floating_point auto lhs, std::floating_point auto rhs) {
-                    return lhs == rhs;
-                },
-                [](auto *lhs, auto *rhs) {
-                    return lhs == rhs;
-                },
-                [](auto lhs, auto rhs) -> bool {
-                    UNREACHABLE();
-                } },
-            *this, other);
-    }
-
-    [[nodiscard]] constexpr bool operator<(Val const &other) const
-    {
-        return std::visit(
-            overload {
-                [](std::integral auto lhs, std::integral auto rhs) {
-                    return lhs < rhs;
-                },
-                [](std::floating_point auto lhs, std::floating_point auto rhs) {
-                    return lhs < rhs;
-                },
-                [](auto *lhs, auto *rhs) {
-                    return lhs < rhs;
-                },
-                [](auto lhs, auto rhs) -> bool {
-                    UNREACHABLE();
-                } },
-            *this, other);
-    }
-
-    Val(struct Value const &value);
-};
-
-using Vals = std::vector<Val>;
-using ValuePayload = std::variant<Val, Vals>;
-
 class Value {
 public:
-    constexpr static TypeReference SliceKind = static_cast<TypeReference>(PrimitiveType::ConstPtr) + 1;
-
     constexpr Value() = default;
-
-    struct MakeArray { };
-    constexpr static MakeArray make_array {};
 
 #undef S
 #define S(T, ...)                  \
     constexpr Value(__VA_ARGS__ v) \
         : m_type(T##Type)          \
+        , m_payload(v)             \
     {                              \
-        m_payload = Val { v };     \
     }
     ValueConstructors(S)
 #undef S
 
-        Value(TypeReference type)
+#undef S
+#define S(T, CType)       \
+    Value(CType *ptr)     \
+        : m_type(T##Type) \
+        , m_payload(*ptr) \
+    {                     \
+    }
+        NumericTypes(S)
+#undef S
+
+            Value(TypeReference type, void *ptr = nullptr)
         : m_type(type)
     {
         switch (type) {
         case NullType:
-            m_payload = Val {};
+            m_payload = std::monostate {};
             break;
-        case I8Type:
-            m_payload = Val { i8 {} };
-            break;
-        case U8Type:
-            m_payload = Val { u8 {} };
-            break;
-        case I16Type:
-            m_payload = Val { i16 {} };
-            break;
-        case U16Type:
-            m_payload = Val { u16 {} };
-            break;
-        case I32Type:
-            m_payload = Val { i32 {} };
-            break;
-        case U32Type:
-            m_payload = Val { u32 {} };
-            break;
-        case I64Type:
-            m_payload = Val { i64 {} };
-            break;
-        case U64Type:
-            m_payload = Val { u64 {} };
-            break;
+#undef S
+#define S(T, C)   \
+    case T##Type: \
+        m_payload = C { (ptr) ? *(reinterpret_cast<C *>(ptr)) : static_cast<C>(0) };
+            NumericTypes(S);
+#undef S
         case BoolType:
-            m_payload = Val { bool {} };
-            break;
-        case FloatType:
-            m_payload = Val { f32 {} };
-            break;
-        case DoubleType:
-            m_payload = Val { f64 {} };
+            m_payload = bool {};
             break;
         case PtrType:
-            m_payload = Val { static_cast<void *>(nullptr) };
+            m_payload = static_cast<void *>(nullptr);
             break;
-        case ConstPtrType:
-            m_payload = Val { static_cast<void const *>(nullptr) };
+        case StringType:
+            m_payload = SliceValue {};
             break;
         default:
             UNREACHABLE();
         }
-    }
-
-    Value(TypeReference type, Val const &v)
-        : m_type(type)
-        , m_payload(Val { v })
-    {
-    }
-
-    Value(std::string_view v)
-        : m_type(StringType)
-    {
-        m_payload = Val { v };
-    }
-
-    Value(SliceValue const &slice)
-        : m_type(StringType)
-    {
-        m_payload = Val { slice };
-    }
-
-    Value(MakeArray const &, TypeReference type, size_t initial_size = 0)
-        : m_type(type)
-    {
-        Vals vals {};
-        vals.resize(initial_size, Value { type });
-        m_payload = vals;
     }
 
     [[nodiscard]] constexpr TypeReference type() const
@@ -267,42 +147,44 @@ public:
         return m_payload.index();
     }
 
-    [[nodiscard]] constexpr bool is_array() const
-    {
-        return m_payload.index() == 1;
-    }
+    constexpr Value &operator=(Value const &other) = default;
 
-    [[nodiscard]] constexpr bool operator<(Value const &rhs) const
+    [[nodiscard]] constexpr bool operator==(Value const &other) const
     {
         return std::visit(
             overload {
-                [](Val const &lhs, Val const &rhs) {
-                    return lhs < rhs;
+                [](std::integral auto lhs, std::integral auto rhs) {
+                    return lhs == rhs;
                 },
-                [](Vals const &lhs, Vals const &rhs) {
-                    return lhs < rhs;
+                [](std::floating_point auto lhs, std::floating_point auto rhs) {
+                    return lhs == rhs;
                 },
-                [](auto const &, auto const &) {
-                    return false;
+                [](auto *lhs, auto *rhs) {
+                    return lhs == rhs;
+                },
+                [](auto lhs, auto rhs) -> bool {
+                    UNREACHABLE();
                 } },
-            m_payload, rhs.m_payload);
+            this->m_payload, other.m_payload);
     }
 
-    [[nodiscard]] constexpr bool operator==(Value const &rhs) const
+    [[nodiscard]] constexpr bool operator<(Value const &other) const
     {
         return std::visit(
             overload {
-                [](Val const &lhs, Val const &rhs) {
-                    return lhs == rhs;
+                [](std::integral auto lhs, std::integral auto rhs) {
+                    return lhs < rhs;
                 },
-                [](Vals const &lhs, Vals const &rhs) {
-                    return lhs == rhs;
+                [](std::floating_point auto lhs, std::floating_point auto rhs) {
+                    return lhs < rhs;
                 },
-                [](auto const &, auto const &) {
-                    return false;
+                [](auto *lhs, auto *rhs) {
+                    return lhs < rhs;
                 },
-            },
-            m_payload, rhs.m_payload);
+                [](auto lhs, auto rhs) -> bool {
+                    UNREACHABLE();
+                } },
+            this->m_payload, other.m_payload);
     }
 
     [[nodiscard]] constexpr bool is_string() const
@@ -332,7 +214,7 @@ public:
 
     [[nodiscard]] constexpr bool as_bool() const
     {
-        return std::get<bool>(std::get<Val>(m_payload));
+        return std::get<bool>(m_payload);
     }
 
     template<typename T>
@@ -344,7 +226,6 @@ public:
     template<std::signed_integral IntType>
     [[nodiscard]] constexpr IntType as() const
     {
-        assert(m_payload.index() == 0);
         return std::visit(
             overload {
                 [](std::signed_integral auto v) {
@@ -367,13 +248,12 @@ public:
                 },
                 [](auto v) -> IntType { fatal("Cannot convert Value of type {} to type {}", typeid(decltype(v)).name(), typeid(IntType).name()); return 0; },
             },
-            std::get<Val>(m_payload));
+            m_payload);
     }
 
     template<std::unsigned_integral IntType>
     [[nodiscard]] constexpr IntType as() const
     {
-        assert(m_payload.index() == 0);
         return std::visit(
             overload {
                 [](std::signed_integral auto v) {
@@ -396,7 +276,7 @@ public:
                 },
                 [](auto v) -> IntType { fatal("Cannot convert Value of type {} to type {}", typeid(decltype(v)).name(), typeid(IntType).name()); return 0; },
             },
-            std::get<Val>(m_payload));
+            m_payload);
     }
 
     [[nodiscard]] constexpr u64 as_signed() const
@@ -419,71 +299,84 @@ public:
                 [](std::integral auto v) { return static_cast<FltType>(v); },
                 [](auto v) -> FltType { fatal("Cannot convert Value of type {} to type {}", typeid(decltype(v)).name(), typeid(FltType).name()); return 0.0; },
             },
-            std::get<Val>(m_payload));
+            m_payload);
     }
 
     template<TypeReference Tag>
-    constexpr std::variant_alternative_t<static_cast<std::size_t>(Tag), Val> get() const
+    constexpr std::variant_alternative_t<static_cast<std::size_t>(Tag), ValuePayload> get() const
     {
-        return std::get<static_cast<std::size_t>(Tag)>(std::get<Val>(m_payload));
-    }
-
-    [[nodiscard]] std::vector<Val> const &values() const
-    {
-        assert(is_array());
-        return std::get<Vals>(m_payload);
+        return std::get<static_cast<std::size_t>(Tag)>(m_payload);
     }
 
     template<typename T>
     [[nodiscard]] constexpr T value() const
     {
         if constexpr (std::is_same_v<T, std::monostate>) {
-            return std::get<static_cast<std::size_t>(NullType)>(std::get<Val>(m_payload));
+            return std::get<static_cast<std::size_t>(NullType)>(m_payload);
         }
         if constexpr (std::is_same_v<T, bool>) {
-            return std::get<static_cast<std::size_t>(BoolType)>(std::get<Val>(m_payload));
+            return std::get<static_cast<std::size_t>(BoolType)>(m_payload);
         }
         if constexpr (std::is_same_v<T, u8>) {
-            return std::get<static_cast<std::size_t>(U8Type)>(std::get<Val>(m_payload));
+            return std::get<static_cast<std::size_t>(U8Type)>(m_payload);
         }
         if constexpr (std::is_same_v<T, i8>) {
-            return std::get<static_cast<std::size_t>(I8Type)>(std::get<Val>(m_payload));
+            return std::get<static_cast<std::size_t>(I8Type)>(m_payload);
         }
         if constexpr (std::is_same_v<T, u16>) {
-            return std::get<static_cast<std::size_t>(U16Type)>(std::get<Val>(m_payload));
+            return std::get<static_cast<std::size_t>(U16Type)>(m_payload);
         }
         if constexpr (std::is_same_v<T, i16>) {
-            return std::get<static_cast<std::size_t>(I16Type)>(std::get<Val>(m_payload));
+            return std::get<static_cast<std::size_t>(I16Type)>(m_payload);
         }
         if constexpr (std::is_same_v<T, u32>) {
-            return std::get<static_cast<std::size_t>(U32Type)>(std::get<Val>(m_payload));
+            return std::get<static_cast<std::size_t>(U32Type)>(m_payload);
         }
         if constexpr (std::is_same_v<T, i32>) {
-            return std::get<static_cast<std::size_t>(I32Type)>(std::get<Val>(m_payload));
+            return std::get<static_cast<std::size_t>(I32Type)>(m_payload);
         }
         if constexpr (std::is_same_v<T, u64>) {
-            return std::get<static_cast<std::size_t>(U64Type)>(std::get<Val>(m_payload));
+            return std::get<static_cast<std::size_t>(U64Type)>(m_payload);
         }
         if constexpr (std::is_same_v<T, i64>) {
-            return std::get<static_cast<std::size_t>(I64Type)>(std::get<Val>(m_payload));
+            return std::get<static_cast<std::size_t>(I64Type)>(m_payload);
         }
         if constexpr (std::is_same_v<T, double>) {
-            return std::get<static_cast<std::size_t>(DoubleType)>(std::get<Val>(m_payload));
+            return std::get<static_cast<std::size_t>(DoubleType)>(m_payload);
         }
         if constexpr (std::is_same_v<T, float>) {
-            return std::get<static_cast<std::size_t>(FloatType)>(std::get<Val>(m_payload));
+            return std::get<static_cast<std::size_t>(FloatType)>(m_payload);
         }
         if constexpr (std::is_same_v<T, void *>) {
-            return std::get<static_cast<std::size_t>(PtrType)>(std::get<Val>(m_payload));
-        }
-        if constexpr (std::is_same_v<T, void const *>) {
-            return std::get<static_cast<std::size_t>(ConstPtrType)>(std::get<Val>(m_payload));
+            return std::get<static_cast<std::size_t>(PtrType)>(m_payload);
         }
         if constexpr (std::is_same_v<T, std::string_view>) {
-            auto const &slice = std::get<static_cast<std::size_t>(SliceKind)>(std::get<Val>(m_payload));
-            return { slice.ptr, slice.len };
+            auto const &slice = std::get<static_cast<std::size_t>(StringType)>(m_payload);
+            return slice.as_sv();
         }
         UNREACHABLE();
+    }
+
+    void copy_value(u8 *dest) const
+    {
+        void *ptr = dest;
+        *dest = 0;
+        switch (type()) {
+        case NullType:
+            break;
+#undef S
+#define S(T, C)                                                  \
+    case T##Type: {                                              \
+        *(reinterpret_cast<C *>(dest)) = std::get<C>(m_payload); \
+    } break;
+            NumericTypes(S);
+#undef S
+        case BoolType: {
+            *(reinterpret_cast<bool *>(dest)) = std::get<bool>(m_payload); \
+        } break;
+        default:
+            UNREACHABLE();
+        }
     }
 
     [[nodiscard]] constexpr bool is_numeric() const
@@ -491,13 +384,6 @@ public:
         return is_int() || is_float();
     }
 
-    [[nodiscard]] Val const           &operator[](size_t ix) const;
-    [[nodiscard]] Val                 &operator[](size_t ix);
-    [[nodiscard]] Value                at(size_t ix) const;
-    void                               set(size_t ix, Value const &v);
-    void                               push_back(Value const &value);
-    [[nodiscard]] Val const           &back() const;
-    [[nodiscard]] Val                 &back();
     [[nodiscard]] std::optional<Value> add(Value const &other) const;
     [[nodiscard]] std::optional<Value> subtract(Value const &other) const;
     [[nodiscard]] std::optional<Value> multiply(Value const &other) const;
@@ -593,6 +479,63 @@ inline std::optional<Value> decode(std::string_view s, ...)
     }
     return {};
 }
+
+struct TypedSlice {
+    TypeReference type;
+    SliceValue    value;
+
+    u64 length() const { return value.len; }
+    u8 const *ptr() const { return value.ptr; }
+
+    Value at(size_t ix) const
+    {
+        auto t = TypeRegistry::the()[type];
+        return Value { type, value.ptr + ix * t.size() };
+    }
+
+    void set(size_t ix, Value const& v)
+    {
+        auto t = TypeRegistry::the()[type];
+        v.copy_value(value.ptr + ix * t.size());
+    }
+
+    [[nodiscard]] constexpr bool operator<(TypedSlice const &rhs) const
+    {
+        if (type != rhs.type) {
+            return type < rhs.type;
+        }
+        if (ptr() == rhs.ptr()) {
+            return length() < rhs.length();
+        }
+        auto t = TypeRegistry::the()[type];
+        u64 element_size = t.size();
+        for (size_t ix = 0; ix < std::min(length(), rhs.length()); ix++) {
+            if (auto cmp = memcmp(ptr() + element_size * ix, rhs.ptr() + element_size * ix, element_size); cmp) {
+                return cmp < 0;
+            }
+        }
+        return false;
+    }
+
+    [[nodiscard]] constexpr bool operator==(TypedSlice const &rhs) const
+    {
+        if (type != rhs.type) {
+            return false;
+        }
+        if (ptr() == rhs.ptr()) {
+            return length() == rhs.length();
+        }
+        auto t = TypeRegistry::the()[type];
+        u64 element_size = t.size();
+        for (size_t ix = 0; ix < std::min(length(), rhs.length()); ix++) {
+            if (auto cmp = memcmp(ptr() + ix, rhs.ptr() + ix, element_size); cmp) {
+                return false;
+            }
+        }
+        return true;
+    }
+};
+
 }
 
 inline std::ostream &operator<<(std::ostream &os, std::monostate const &)
@@ -618,17 +561,6 @@ struct std::formatter<Arwen::Value, char> : public Arwen::SimpleFormatParser {
     FmtContext::iterator format(Arwen::Value const &v, FmtContext &ctx) const
     {
         std::ostringstream out;
-        if (v.is_array()) {
-            out << "[";
-            for (size_t ix = 0; ix < v.values().size(); ++ix) {
-                if (ix > 0) {
-                    out << ", ";
-                }
-                out << std::format("{}", Arwen::Value { v.type(), v.values()[ix] });
-            }
-            out << "]";
-            return std::ranges::copy(std::move(out).str(), ctx.out()).out;
-        }
         if (v.type() != Arwen::StringType) {
             out << std::format("[{}] ", static_cast<Arwen::PrimitiveType>(v.type()));
         } else {

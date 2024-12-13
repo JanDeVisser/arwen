@@ -4,12 +4,14 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdio>
 #include <format>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -94,6 +96,172 @@ bool Type::is_assignable_to(Type const &other) const
     return t.ref == o.ref;
 }
 
+template<class TypeImpl>
+u64 size(TypeReference, TypeImpl const &)
+{
+    fatal("Can't determine size of {}", typeid(TypeImpl).name());
+}
+
+template<class TypeImpl>
+u64 alignment(TypeReference, TypeImpl const &)
+{
+    fatal("Can't determine alignment of {}", typeid(TypeImpl).name());
+}
+
+template<>
+u64 size(TypeReference, Primitive const &primitive)
+{
+    return primitive.size;
+}
+
+template<>
+u64 alignment(TypeReference, Primitive const &primitive)
+{
+    return primitive.alignment;
+}
+
+template<>
+u64 size(TypeReference, Pseudo const &primitive)
+{
+    return 0;
+}
+
+template<>
+u64 alignment(TypeReference, Pseudo const &primitive)
+{
+    return 0;
+}
+
+template<>
+u64 size(TypeReference, Array const &)
+{
+    auto const &u64type = TypeRegistry::the()[U64Type];
+    auto        ret = TypeRegistry::the()[PtrType].size();
+    return align_at(ret, u64type.alignment()) + u64type.size();
+}
+
+template<>
+u64 alignment(TypeReference, Array const &)
+{
+    return TypeRegistry::the()[PtrType].alignment();
+}
+
+template<>
+u64 size(TypeReference, Enum const &enumeration)
+{
+    auto const &type = TypeRegistry::the()[(enumeration.base_type) ? *enumeration.base_type : U64Type].decay();
+    return type.size();
+}
+
+template<>
+u64 alignment(TypeReference, Enum const &enumeration)
+{
+    auto const &type = TypeRegistry::the()[(enumeration.base_type) ? *enumeration.base_type : U64Type].decay();
+    return type.alignment();
+}
+
+template<>
+u64 size(TypeReference, Object const &object)
+{
+    u64 sz = 0;
+    for (auto const &[_, type_ref] : object.fields) {
+        auto const &type = TypeRegistry::the()[type_ref].decay();
+        sz = align_at(sz, type.alignment());
+        sz += type.size();
+    }
+    return sz;
+}
+
+template<>
+u64 alignment(TypeReference, Object const &object)
+{
+    u64 sz = 0;
+    if (object.fields.empty()) {
+        return 0;
+    }
+    auto const &type = TypeRegistry::the()[object.fields[0].second].decay();
+    return type.alignment();
+}
+
+template<>
+u64 size(TypeReference, Pointer const &)
+{
+    return TypeRegistry::the()[PtrType].size();
+}
+
+template<>
+u64 alignment(TypeReference, Pointer const &)
+{
+    return TypeRegistry::the()[PtrType].alignment();
+}
+
+template<>
+u64 size(TypeReference, PointerToArray const &)
+{
+    return TypeRegistry::the()[PtrType].size();
+}
+
+template<>
+u64 alignment(TypeReference, PointerToArray const &)
+{
+    return TypeRegistry::the()[PtrType].alignment();
+}
+
+template<>
+u64 size(TypeReference, Slice const &)
+{
+    auto const &u64type = TypeRegistry::the()[U64Type];
+    auto        ret = TypeRegistry::the()[PtrType].size();
+    return align_at(ret, u64type.alignment()) + u64type.size();
+}
+
+template<>
+u64 alignment(TypeReference, Slice const &)
+{
+    return TypeRegistry::the()[PtrType].alignment();
+}
+
+template<>
+u64 size(TypeReference, Union const &u)
+{
+    auto const &base_type = TypeRegistry::the()[(u.base_type) ? *u.base_type : U64Type].decay();
+    auto        base_size = base_type.size();
+
+    u64 max_sz = 0;
+    for (auto const &[_, type_ref] : u.fields) {
+        auto const &type = TypeRegistry::the()[type_ref].decay();
+        max_sz = std::max(max_sz, align_at(base_size, type.alignment()) + type.size());
+    }
+    return (base_type.size() + max_sz) * u.fields.size();
+}
+
+template<>
+u64 alignment(TypeReference, Union const &u)
+{
+    auto const &base_type = TypeRegistry::the()[(u.base_type) ? *u.base_type : U64Type].decay();
+    return base_type.alignment();
+}
+
+u64 Type::size() const
+{
+    return std::visit(
+        [&](auto &impl) -> u64 {
+            using T = std::decay_t<decltype(impl)>;
+            return Arwen::size(ref, impl);
+        },
+        typespec.payload());
+}
+
+u64 Type::alignment() const
+{
+    return std::visit(
+        [&](auto &impl) -> u64 {
+            using T = std::decay_t<decltype(impl)>;
+            return Arwen::alignment(ref, impl);
+        },
+        typespec.payload());
+}
+
 TypeRegistry::TypeRegistry()
 {
 #undef S
@@ -110,6 +278,13 @@ TypeRegistry::TypeRegistry()
         } });
     PrimitiveTypes(S)
 #undef S
+        register_type(Type {
+            .name = "string",
+            .typespec = TypeSpec {
+                TypeKind::Slice,
+                Slice { static_cast<TypeReference>(PrimitiveType::U8) },
+            },
+        });
 #undef S
 #define S(T, L, ...) register_type( \
     Type {                          \
@@ -120,22 +295,15 @@ TypeRegistry::TypeRegistry()
                 PseudoType::T,      \
             },                      \
         } });
-        PseudoTypes(S)
+    PseudoTypes(S)
 #undef S
-            register_type(Type {
-                .name = "string",
-                .typespec = TypeSpec {
-                    TypeKind::Slice,
-                    Slice { static_cast<TypeReference>(PrimitiveType::U8) },
-                },
-            });
-    register_type(Type {
-        .name = "int",
-        .typespec = TypeSpec {
-            TypeKind::Alias,
-            Alias { static_cast<TypeReference>(PrimitiveType::I32) },
-        },
-    });
+        register_type(Type {
+            .name = "int",
+            .typespec = TypeSpec {
+                TypeKind::Alias,
+                Alias { static_cast<TypeReference>(PrimitiveType::I32) },
+            },
+        });
 }
 
 TypeReference TypeRegistry::register_type(Type t)

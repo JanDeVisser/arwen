@@ -212,9 +212,6 @@ Result<Value, ResolveError> foreign_call(std::string_view name, std::vector<Valu
             case PrimitiveType::Ptr:
                 tramp.x[ngrn++].ptr = value.value<void *>();
                 break;
-            case PrimitiveType::ConstPtr:
-                tramp.x[ngrn++].ptr = value.value<void const *>();
-                break;
             default:
                 fatal("foreign_call({}): Argument {} has invalid type '{}'", name, ngrn+1, type);
             }
@@ -292,8 +289,6 @@ Result<Value, ResolveError> foreign_call(std::string_view name, std::vector<Valu
         return Value { static_cast<i64>(tramp.ret.i) };
     case PrimitiveType::Ptr:
         return Value { tramp.ret.p };
-    case PrimitiveType::ConstPtr:
-        return Value { const_cast<void const *>(tramp.ret.p) };
     default:
         fatal("???");
     }

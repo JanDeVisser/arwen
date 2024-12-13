@@ -196,5 +196,6 @@ public:
 #define assert_with_msg(condition, fmt, args...) Arwen::Logger::get_logger().assert_msg(__FILE__, __LINE__, __func__, condition, "Assertion error: " #condition ": " fmt, ##args)
 
 #define UNREACHABLE() fatal("Unreachable")
+#define NYI() fatal("Not yet implemented")
 
 }
