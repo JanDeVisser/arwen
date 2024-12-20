@@ -1,18 +1,9 @@
+char const *arwen_builtin = R"(
 //
 // Copyright (c) 2024, Jan de Visser <jan@finiandarcy.com>
 //
 // SPDX-License-Identifier: MIT
 //
-
-extern "C" {
-
-void unused_make_sure_rt_is_linked()
-{
-}
-
-}
-
-char const *arwen_builtin = R"(
 
 func len(s: string) u64 intrinsic;
 func ptr(s: string) *u8 intrinsic;
@@ -58,7 +49,7 @@ const PROT_WRITE: i32 = 0x00000002;
 const PROT_EXEC: i32 = 0x00000004;
 
 func memcpy(dst: *u8, src: *u8, len: u64) *u8 -> "memcpy";
-func open(path: string, flags: i32, mode: i32) i32 -> "open";
+func open(path: *u8, flags: i32, mode: i32) i32 -> "open";
 func close(fd: i32) i32 -> "close";
 func read(fd: i32, bytes: *u8, num: u64) i64 -> "read";
 func write(fd: i32, bytes: *u8, num: u64) i64 -> "write";
@@ -82,13 +73,12 @@ func file_size(fd: i32) u64 {
     return size;
 }
 
-
 func allocate(sz: u64) *u8 {
     return mmap(nullptr, sz, PROT_READ | PROT_WRITE, MAP_ANON | MAP_NOCACHE | MAP_PRIVATE, -1, 0);
 }
 
-func deallocate(ptr: *u8, size: u64) {
-    munmap(ptr, size);
+func deallocate(p: *u8, size: u64) {
+    munmap(p, size);
 }
 
 func read_file(path: string) string {

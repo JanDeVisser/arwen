@@ -67,9 +67,6 @@ Result<Value, ResolveError> foreign_call(std::string_view name, std::vector<Valu
 
     for (auto const &value : values) {
         auto t = TypeRegistry::the()[value.type()].decay();
-        if (t.typespec.tag() != TypeKind::Primitive) {
-            fatal("Foreign call to '{}' has non-primitive argument value of type '{}'", name, t.name);
-        }
 
         // Stage B – Pre-padding and extension of arguments
         // For each argument in the list the first matching rule from the
@@ -180,41 +177,57 @@ Result<Value, ResolveError> foreign_call(std::string_view name, std::vector<Valu
         // 8, the argument is copied to the least significant bits in x[NGRN].
         // The NGRN is incremented by one. The argument has now been allocated.
         if (ngrn < 8) {
-            auto type = static_cast<PrimitiveType>(value.type());
-            switch (type) {
-            case PrimitiveType::Bool:
-                tramp.x[ngrn++].i = value.value<bool>();
-                break;
-            case PrimitiveType::U8:
-                tramp.x[ngrn++].i = value.value<u8>();
-                break;
-            case PrimitiveType::I8:
-                tramp.x[ngrn++].i = value.value<i8>();
-                break;
-            case PrimitiveType::U16:
-                tramp.x[ngrn++].i = value.value<u16>();
-                break;
-            case PrimitiveType::I16:
-                tramp.x[ngrn++].i = value.value<i16>();
-                break;
-            case PrimitiveType::U32:
-                tramp.x[ngrn++].i = value.value<u32>();
-                break;
-            case PrimitiveType::I32:
-                tramp.x[ngrn++].i = value.value<i32>();
-                break;
-            case PrimitiveType::U64:
-                tramp.x[ngrn++].i = value.value<u64>();
-                break;
-            case PrimitiveType::I64:
-                tramp.x[ngrn++].i = value.value<i64>();
-                break;
-            case PrimitiveType::Ptr:
-                tramp.x[ngrn++].ptr = value.value<void *>();
-                break;
-            default:
-                fatal("foreign_call({}): Argument {} has invalid type '{}'", name, ngrn+1, type);
+            auto type = value.type();
+            auto t = TypeRegistry::the()[type].decay();
+            if (t.typespec.tag() == TypeKind::Primitive) {
+                switch (type) {
+                case BoolType:
+                    tramp.x[ngrn++].i = value.value<bool>();
+                    break;
+                case U8Type:
+                    tramp.x[ngrn++].i = value.value<u8>();
+                    break;
+                case I8Type:
+                    tramp.x[ngrn++].i = value.value<i8>();
+                    break;
+                case U16Type:
+                    tramp.x[ngrn++].i = value.value<u16>();
+                    break;
+                case I16Type:
+                    tramp.x[ngrn++].i = value.value<i16>();
+                    break;
+                case U32Type:
+                    tramp.x[ngrn++].i = value.value<u32>();
+                    break;
+                case I32Type:
+                    tramp.x[ngrn++].i = value.value<i32>();
+                    break;
+                case U64Type:
+                    tramp.x[ngrn++].i = value.value<u64>();
+                    break;
+                case I64Type:
+                    tramp.x[ngrn++].i = value.value<i64>();
+                    break;
+                case PtrType:
+                    tramp.x[ngrn++].ptr = value.value<void *>();
+                    break;
+                default:
+                    UNREACHABLE();
+                }
+                continue;
             }
+            if (t.typespec.tag() == TypeKind::Pointer) {
+                tramp.x[ngrn++].ptr = value.value<void *>();
+                continue;
+            }
+            if (t.typespec.tag() == TypeKind::Slice) {
+                assert(ngrn < 7);
+                SliceValue slice = value.value<SliceValue>();
+                tramp.x[ngrn++].i = slice.len;
+                tramp.x[ngrn++].ptr = slice.ptr;
+                continue;
+            }
+            UNREACHABLE();
         }
 
         // C.10 If the argument has an alignment of 16 then the NGRN is rounded
@@ -290,7 +303,7 @@ Result<Value, ResolveError> foreign_call(std::string_view name, std::vector<Valu
     case PrimitiveType::Ptr:
         return Value { tramp.ret.p };
     default:
-        fatal("???");
+        UNREACHABLE();
     }
 }
 

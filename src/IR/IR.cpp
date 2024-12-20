@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <iostream>
+#include <optional>
 #include <print>
 #include <string>
 #include <type_traits>
@@ -36,7 +37,7 @@ void map(BoundNodeReference ref, Binder &binder, Container &container)
 }
 
 template<typename NodeImpl, typename Container>
-void map(BoundNodeReference, NodeImpl const &, Binder &, Container &)
+void map(BoundNodeReference decl, NodeImpl const &impl, Binder &, Container &ir)
 {
 }
 
@@ -71,12 +72,7 @@ void generate(BoundNodeReference ref, BoundAssignmentExpression const &impl, Bin
     std::visit(
         overload {
             [&](BoundIdentifier const &id) {
-                ir.ops.push_back(
-                    { ir.ops.size(),
-                        PopVariable {
-                            Address { ir.address_type, ir.variables[*id.declaration] },
-                            TypeRegistry::the()[*binder[ref].type].size(),
-                        } });
+                ir.add_op<PopVariable>(ir.get_variable_address(*id.declaration), *binder[ref].type);
             },
             [&](BoundBinaryExpression const &binex) {
                 if (binex.op != BinaryOperator::Subscript) {
@@ -93,21 +89,17 @@ void generate(BoundNodeReference ref, BoundAssignmentExpression const &impl, Bin
                         [&](Slice const &slice) {
                             return TypeRegistry::the()[slice.element_type].size();
                         },
+                        [&](Pointer const &ptr) {
+                            return TypeRegistry::the()[ptr.element_type].size();
+                        },
                         [&](auto const &) {
                             UNREACHABLE();
                             return u64 {};
                         },
                     },
                     type.typespec.payload());
-
-                auto const &lhs = I(BoundIdentifier, binex.left);
-                ir.ops.push_back(
-                    { ir.ops.size(),
-                        PopArrayElement {
-                            AddressType::Stack,
-                            ir.variables[binex.left],
-                            elem_sz,
-                        } });
+                auto lhs = ir.get_variable_address(*I(BoundIdentifier, binex.left).declaration);
+                ir.add_op<PopArrayElement>(lhs, elem_sz);
             },
             [](auto const &) {
                 UNREACHABLE();
@@ -131,13 +123,9 @@ void generate(BoundNodeReference ref, BoundBinaryExpression const &impl, Binder 
         assert(binder.type_of(impl.right) == BoundNodeType::BoundSubscript);
         assert(binder.type_of(impl.left) == BoundNodeType::BoundIdentifier);
         auto const &lhs = I(BoundIdentifier, impl.left);
-        ir.ops.push_back({ ir.ops.size(), PushArrayElement {
-                                              Address {
-                                                  ir.address_type,
-                                                  ir.variables[*lhs.declaration],
-                                              },
-                                              TypeRegistry::the()[*binder[impl.left].type].size(),
-                                          } });
+        ir.add_op<PushArrayElement>(
+            ir.get_variable_address(*lhs.declaration),
+            TypeRegistry::the()[*binder[impl.left].type].size());
         return;
     } break;
     default:
@@ -159,14 +147,18 @@ void generate(BoundNodeReference ref, BoundBlock const &impl, Binder &binder, Fu
     if (impl.label) {
         ir.add_op<Label>(*impl.label);
     }
-    ir.bp = ir.depth;
+    ir.depth_stack.push_back(ir.current_depth);
     for (auto stmt : impl.statements) {
         map(stmt, binder, ir);
     }
     for (auto stmt : impl.statements) {
         generate(stmt, binder, ir);
     }
-    ir.depth = ir.bp;
+    if (ir.current_depth > ir.variable_depth) {
+        ir.variable_depth = ir.current_depth;
+    }
+    ir.current_depth = ir.depth_stack.back();
+    ir.depth_stack.pop_back();
     ir.scopes[ref] = ir.ops.size();
 }
 
@@ -194,24 +186,38 @@ void link(Ref ref, Break &impl, Function &function)
     }
 }
 
-template<typename Container>
-void map(BoundNodeReference ref, BoundConstantDeclaration const &impl, Binder &binder, Container &ir)
+template<>
+void map(BoundNodeReference ref, BoundConstantDeclaration const &impl, Binder &binder, Module &ir)
 {
+    if (std::holds_alternative<BoundConstant>(binder[impl.initializer].impl)) {
+        return;
+    }
     auto type = binder.registry[*binder[ref].type];
-    ir.depth += align_at(type.size(), type.alignment());
-    ir.globals[ref] = ir.depth;
+    ir.program.depth += align_at(type.size(), 8);
+    ir.program.variables[ref] = ir.program.depth;
+    std::println("map {} -> {}", ref, ir.program.variables[ref]);
+}
+
+template<>
+void map(BoundNodeReference ref, BoundConstantDeclaration const &impl, Binder &binder, Function &ir)
+{
+    if (std::holds_alternative<BoundConstant>(binder[impl.initializer].impl)) {
+        return;
+    }
+    auto type = binder.registry[*binder[ref].type];
+    ir.current_depth += align_at(type.size(), 8);
+    ir.variables[ref] = ir.parameter_depth + ir.current_depth;
 }
 
 template<>
 void generate(BoundNodeReference ref, BoundConstantDeclaration const &impl, Binder &binder, Function &ir)
 {
+    if (std::holds_alternative<BoundConstant>(binder[impl.initializer].impl)) {
+        return;
+    }
     auto const &type = binder.registry[*binder[ref].type];
     generate(impl.initializer, ir.program.binder, ir);
-    ir.ops.push_back({ ir.ops.size(),
-        PopVariable {
-            Address { ir.address_type, ir.variables[ref] },
-            type.size(),
-        } });
+    ir.add_op<PopVariable>(ir.get_variable_address(ref), type.ref);
 }
 
 template<>
@@ -261,42 +267,43 @@ void link(Ref ref, JumpT &impl, Function &function)
 }
 
 template<>
-void generate(BoundNodeReference ref, BoundForeignFunction const &impl, Binder &binder, Function &ir)
-{
-    auto func = binder[ref].parent;
-    ir.add_op<ForeignCall>(impl.foreign_name, func);
-}
-
-template<>
 void generate(BoundNodeReference ref, BoundFunctionCall const &impl, Binder &binder, Function &ir)
 {
-    ir.add_op<PushFrame>();
     for (auto it = impl.arguments.crbegin(); it != impl.arguments.crend(); ++it) {
         generate(*it, binder, ir);
     }
     assert(impl.function.has_value());
-    generate(I(BoundFunction, *impl.function).implementation, binder, ir);
-    ir.add_op<PopFrame>(*binder[ref].type, impl.discard_result && *binder[*impl.function].type != static_cast<TypeReference>(PseudoType::Void));
-}
-
-template<>
-void generate(BoundNodeReference ref, BoundFunctionImplementation const &impl, Binder &binder, Function &ir)
-{
-    ir.add_op<Call>(I(BoundFunction, binder[ref].parent).name, binder[ref].parent);
+    std::optional<TypeReference> result_type = {};
+    if (!impl.discard_result && *binder[ref].type != VoidType) {
+        result_type = *binder[ref].type;
+    }
+    auto func = binder[*impl.function];
+    auto implementation = binder[I(BoundFunction, func.ref).implementation];
+    std::visit(
+        overload {
+            [&](BoundFunctionImplementation const &func_impl) {
+                ir.add_op<Call>(func_impl.name, func.ref, result_type);
+            },
+            [&](BoundForeignFunction const &foreign_func) {
+                ir.add_op<ForeignCall>(foreign_func.foreign_name, func.ref, result_type);
+            },
+            [&](BoundIntrinsic const &intrinsic) {
+                ir.add_op<Intrinsic>(intrinsic.name, result_type);
+            },
+            [&](auto const &) {
+                std::println("{}", implementation.type_name());
+                UNREACHABLE();
+            } },
+        implementation.impl);
 }
 
 template<>
 void generate(BoundNodeReference ref, BoundIdentifier const &impl, Binder &binder, Function &ir)
 {
     assert(impl.declaration.has_value());
-    u64 address = ir.variables[*impl.declaration];
     ir.add_op<PushVariableValue>(
-            Address {
-                ir.address_type,
-                address,
-            },
-            TypeRegistry::the()[*binder[ref].type].size()
-        );
+        ir.get_variable_address(*impl.declaration),
+        *binder[ref].type);
 }
 
 template<>
@@ -317,12 +324,6 @@ void generate(BoundNodeReference, BoundIf const &impl, Binder &, Function &ir)
 }
 
 template<>
-void generate(BoundNodeReference, BoundIntrinsic const &impl, Binder &binder, Function &ir)
-{
-    ir.add_op<Intrinsic>(impl.name);
-}
-
-template<>
 void generate(BoundNodeReference, BoundMember const &impl, Binder &, Function &ir)
 {
     ir.add_op<PushConstant>(impl.name);
@@ -338,17 +339,19 @@ template<>
 void map(BoundNodeReference ref, BoundParameter const &, Binder &binder, Function &ir)
 {
     auto type = binder.registry[*binder[ref].type];
-    ir.depth += align_at(type.size(), type.alignment());
-    ir.variables[ref] = ir.depth;
+    ir.parameter_depth += align_at(type.size(), 8);
+    ir.variables[ref] = ir.parameter_depth;
 }
 
 template<>
-void generate(BoundNodeReference, BoundReturn const &impl, Binder &, Function &ir)
+void generate(BoundNodeReference, BoundReturn const &impl, Binder &binder, Function &ir)
 {
+    std::optional<TypeReference> return_type = {};
     if (impl.expression) {
         generate(*impl.expression, ir.program.binder, ir);
+        return_type = binder[*impl.expression].type;
     }
-    ir.add_op<FunctionReturn>(impl.expression.has_value());
+    ir.add_op<FunctionReturn>(return_type);
 }
 
 template<>
@@ -375,33 +378,30 @@ void generate(BoundNodeReference ref, BoundVariableDeclaration const &impl, Bind
         auto &array_def = I(BoundArrayType, *impl.type);
         auto  element_type = binder.registry[type.typespec.get<TypeKind::Array>().element_type];
         generate(array_def.size, ir.program.binder, ir);
-        ir.ops.push_back({ ir.ops.size(),
-            MakeArray {
-                element_type.size(),
-            } });
-        ir.ops.push_back({ ir.ops.size(),
-            PopVariable {
-                Address { ir.address_type, ir.variables[ref] },
-                type.size(),
-            } });
+        ir.add_op<MakeArray>(element_type.size());
+        ir.add_op<PopVariable>(ir.get_variable_address(ref), type.size());
     } else {
         if (impl.initializer) {
             generate(*impl.initializer, ir.program.binder, ir);
-            ir.ops.push_back({ ir.ops.size(),
-                PopVariable {
-                    Address { ir.address_type, ir.variables[ref] },
-                    type.size(),
-                } });
+            ir.add_op<PopVariable>(ir.get_variable_address(ref), type.size());
         }
     }
 }
 
 template<typename Container>
-void map(BoundNodeReference ref, BoundVariableDeclaration const &, Binder &binder, Container &ir)
+void map(BoundNodeReference ref, BoundVariableDeclaration const &, Binder &binder, Module &ir)
 {
     auto type = binder.registry[*binder[ref].type];
-    ir.depth += align_at(type.size(), type.alignment());
-    ir.variables[ref] = ir.depth;
+    ir.program.depth += align_at(type.size(), 8);
+    ir.program.variables[ref] = ir.program.depth;
+}
+
+template<typename Container>
+void map(BoundNodeReference ref, BoundVariableDeclaration const &, Binder &binder, Function &ir)
+{
+    auto type = binder.registry[*binder[ref].type];
+    ir.variable_depth += align_at(type.size(), 8);
+    ir.variables[ref] = ir.parameter_depth + ir.variable_depth;
 }
 
 template<>
@@ -457,10 +457,10 @@ void generate(BoundNodeReference ref, BoundModule const &impl, Binder &binder, P
 {
     ir.modules.emplace_back(ir, ir.modules.size(), ref, Function { ir }, impl.name);
     auto &mod = ir.modules.back();
+    mod.initializer.name = "#init";
     mod.initializer.address_type = AddressType::Data;
-    mod.depth = ir.depth;
     for (auto decl : impl.names) {
-        map(decl, binder, ir);
+        map(decl, binder, mod);
     }
     for (auto name_ref : impl.names) {
         std::visit(overload {
@@ -473,7 +473,6 @@ void generate(BoundNodeReference ref, BoundModule const &impl, Binder &binder, P
                    },
             binder[name_ref].impl);
     }
-    ir.depth = mod.depth;
 }
 
 template<>
@@ -483,15 +482,6 @@ void generate(BoundNodeReference ref, BoundProgram const &impl, Binder &binder, 
         auto const &mod = I(BoundModule, mod_ref);
         generate<BoundModule, Program>(mod_ref, mod, binder, ir);
     }
-}
-
-void map(BoundNodeReference ref, Binder &binder, Function &function)
-{
-    std::visit(
-        [&](auto const &impl) {
-            map<std::decay_t<decltype(impl)>>(ref, impl, binder, function);
-        },
-        binder[ref].impl);
 }
 
 Error<bool> Program::generate()
@@ -529,6 +519,9 @@ void Module::list(Binder &binder) const
     if (foreign) {
         std::println("");
     }
+    if (!initializer.ops.empty()) {
+        initializer.list();
+    }
     for (auto const &f : functions) {
         auto const &func = I(BoundFunction, f.bound_ref);
         if (binder.type_of(func.implementation) == BoundNodeType::BoundFunctionImplementation) {
@@ -545,6 +538,17 @@ void Function::list() const
         std::println("{}", o);
     }
     std::println("");
+}
+
+Address Function::get_variable_address(BoundNodeReference ref)
+{
+    if (variables.contains(ref)) {
+        return Address { AddressType::Stack, variables[ref] };
+    }
+    if (program.variables.contains(ref)) {
+        return Address { AddressType::Data, program.variables[ref] };
+    }
+    fatal("Variable reference {} not found", ref);
 }
 
 }

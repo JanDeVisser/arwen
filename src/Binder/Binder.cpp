@@ -9,7 +9,6 @@
 #include <cstdint>
 #include <format>
 #include <iostream>
-#include <limits>
 #include <map>
 #include <optional>
 #include <ostream>
@@ -486,7 +485,7 @@ BoundNodeReference rebind<BoundBreak>(Binder &binder, BoundNodeReference ref)
         IMPL.expression = binder.rebind_node(*IMPL.expression);
         binder[ref].type = binder[*IMPL.expression].type;
     } else {
-        binder[ref].type = binder.registry[PseudoType::Void].ref;
+        binder[ref].type = VoidType;
     }
     if (binder[IMPL.block].type && binder[ref].type) {
         if (binder[IMPL.block].type != binder[ref].type) {
@@ -520,199 +519,12 @@ void dump(std::ostream &out, Binder &binder, BoundCoercion const &impl, int inde
     binder.dump(out, impl.expression, "Expression", indent);
 }
 
-#undef STRUCT
-#define STRUCT BoundConstant
-
-template<>
-BoundNodeReference bind<BoolConstant>(Binder &binder, NodeReference ast_ref, BoundNodeReference parent)
-{
-    auto const &ast_node = binder.ast[ast_ref];
-    auto const &ast_impl = std::get<BoolConstant>(ast_node.impl);
-    auto        ref = add_node<BoundConstant>(binder, ast_node.ref, ast_node.location, parent);
-    IMPL.value = ast_impl.value;
-    return ref;
 }
 
-template<>
-BoundNodeReference bind<FloatConstant>(Binder &binder, NodeReference ast_ref, BoundNodeReference parent)
-{
-    auto const &ast_node = binder.ast[ast_ref];
-    auto const &ast_impl = std::get<FloatConstant>(ast_node.impl);
-    auto        ref = add_node<BoundConstant>(binder, ast_node.ref, ast_node.location, parent);
-    IMPL.value = ast_impl.value;
-    return ref;
-}
+#include "Constant.h"
+#include "ConstantDeclaration.h"
 
-template<>
-BoundNodeReference bind<IntConstant>(Binder &binder, NodeReference ast_ref, BoundNodeReference parent)
-{
-    auto const &ast_node = binder.ast[ast_ref];
-    auto const &ast_impl = std::get<IntConstant>(ast_node.impl);
-    auto        ref = add_node<BoundConstant>(binder, ast_node.ref, ast_node.location, parent);
-    IMPL.value = ast_impl.value;
-    return ref;
-}
-
-template<>
-BoundNodeReference bind<StringConstant>(Binder &binder, NodeReference ast_ref, BoundNodeReference parent)
-{
-    auto const &ast_node = binder.ast[ast_ref];
-    auto const &ast_impl = std::get<StringConstant>(ast_node.impl);
-    auto        ref = add_node<BoundConstant>(binder, ast_node.ref, ast_node.location, parent);
-    IMPL.value = ast_impl.value;
-    return ref;
-}
-
-template<>
-BoundNodeReference rebind<BoundConstant>(Binder &binder, BoundNodeReference ref)
-{
-    binder[ref].type = IMPL.value.type();
-    return ref;
-}
-
-template<>
-TypeAlternatives alternatives<BoundConstant>(Binder &binder, BoundNodeReference ref, TypeReference)
-{
-    TypeAlternatives result;
-    auto type = binder.registry[IMPL.value.type()];
-    result.preferred = *binder[ref].type;
-    if (binder.registry[IMPL.value.type()].is_float()) {
-        result.alternatives.push_back(FloatType);
-        result.alternatives.push_back(DoubleType);
-        double v = IMPL.value.as<double>();
-#undef S
-#define S(T, CType, Size, Signed)                 \
-    if (v <= std::numeric_limits<CType>::max()) { \
-        result.alternatives.push_back(T##Type);   \
-    }
-        IntegerTypes(S)
-#undef S
-    }
-    if (type.is_integer()) {
-        result.alternatives.push_back(FloatType);
-        result.alternatives.push_back(DoubleType);
-        if (type.is_signed()) {
-            i64 v = IMPL.value.as<i64>();
-#undef S
-#define S(T, CType, Size, Signed)                                                               \
-    if (Signed) {                                                                               \
-        if (v >= std::numeric_limits<CType>::min() && v <= std::numeric_limits<CType>::max()) { \
-            result.alternatives.push_back(T##Type);                                             \
-        }                                                                                       \
-    } else {                                                                                    \
-        if (v >= 0 && v <= std::numeric_limits<CType>::max()) {                                 \
-            result.alternatives.push_back(T##Type);                                             \
-        }                                                                                       \
-    }
-            IntegerTypes(S)
-#undef S
-        } else {
-            u64 v = IMPL.value.as<u64>();
-#undef S
-#define S(T, CType, Size, Signed)                 \
-    if (v <= std::numeric_limits<CType>::max()) { \
-        result.alternatives.push_back(T##Type);   \
-    }
-            IntegerTypes(S)
-#undef S
-        }
-    }
-    return result;
-}
-
-template<>
-BoundNodeReference accept<BoundConstant>(Binder &binder, BoundNodeReference ref, TypeReference type)
-{
-    binder[ref].type = type;
-    switch (type) {
-#undef S
-#define S(T, CType, Size, Signed)            \
-    case T##Type:                            \
-        IMPL.value = IMPL.value.as<CType>(); \
-        break;
-    IntegerTypes(S)
-#undef S
-        case FloatType:
-        IMPL.value = IMPL.value.as<float>();
-        break;
-    case DoubleType:
-        IMPL.value = IMPL.value.as<double>();
-        break;
-    default:
-        UNREACHABLE();
-    }
-    return ref;
-}
-
-template<>
-void to_string(std::ostream &out, Binder &, BoundConstant const &impl)
-{
-    std::cout << std::format("{}", impl.value);
-}
-
-#undef STRUCT
-#define STRUCT BoundConstantDeclaration
-
-template<>
-BoundNodeReference bind<ConstantDeclaration>(Binder &binder, NodeReference ast_ref, BoundNodeReference parent)
-{
-    auto const &ast_node = binder.ast[ast_ref];
-    auto const &ast_impl = std::get<ConstantDeclaration>(ast_node.impl);
-    auto        ref = add_node<BoundConstantDeclaration>(binder, ast_node.ref, ast_node.location, parent);
-
-    IMPL.name = ast_impl.name;
-    if (ast_impl.type) {
-        IMPL.type = binder.bind_node(*ast_impl.type, ref);
-    }
-    IMPL.initializer = binder.bind_node(ast_impl.initializer, ref);
-    return ref;
-}
-
-template<>
-BoundNodeReference rebind<BoundConstantDeclaration>(Binder &binder, BoundNodeReference ref)
-{
-    IMPL.initializer = binder.rebind_node(IMPL.initializer);
-    binder.set_name(IMPL.name, ref);
-    if (!IMPL.type) {
-        binder[ref].type = binder[IMPL.initializer].type;
-    } else if (binder[IMPL.initializer].type) {
-        auto left_type = binder.registry[*binder[*IMPL.type].type];
-        auto right_types = binder.alternatives(IMPL.initializer, left_type.ref);
-        if (right_types.preferred == left_type.ref) {
-            binder[ref].type = binder[*IMPL.type].type;
-            return ref;
-        } else {
-            for (auto type : right_types.alternatives) {
-                if (type == left_type.ref) {
-                    IMPL.initializer = binder.accept(IMPL.initializer, type);
-                    binder[ref].type = binder[*IMPL.type].type;
-                    return ref;
-                }
-            }
-            return add_error(binder, ref, "Cannot initialize constant of type '{}' with expression of type '{}'", left_type.name, binder.registry[*binder[IMPL.initializer].type].name);
-        }
-    } else {
-        binder[ref].type = binder[*IMPL.type].type;
-    }
-    return ref;
-}
-
-template<>
-void to_string(std::ostream &out, Binder &binder, BoundConstantDeclaration const &impl)
-{
-    out << impl.name;
-    if (impl.type) {
-        out << ": ";
-        binder.to_string(out, *impl.type);
-    }
-}
-
-template<>
-void dump(std::ostream &out, Binder &binder, BoundConstantDeclaration const &impl, int indent)
-{
-    binder.dump(out, impl.type, "Type", indent);
-    binder.dump(out, impl.initializer, "Initializer", indent);
-}
+namespace Arwen {
 
 #undef STRUCT
 #define STRUCT BoundContinue
@@ -750,7 +562,7 @@ BoundNodeReference bind<Continue>(Binder &binder, NodeReference ast_ref, BoundNo
             return add_error(binder, ref, "'continue' statement outside block");
         }
     }
-    binder[ref].type = binder.registry[PseudoType::Void].ref;
+    binder[ref].type = VoidType;
     return ref;
 }
 
@@ -770,7 +582,7 @@ BoundNodeReference bind<ForeignFunction>(Binder &binder, NodeReference ast_ref, 
     auto const &ast_impl = std::get<ForeignFunction>(ast_node.impl);
     auto        ref = add_node<BoundForeignFunction>(binder, ast_node.ref, ast_node.location, parent);
 
-    binder[ref].type = binder.registry[BasicType::Void].ref;
+    binder[ref].type = VoidType;
     IMPL.foreign_name = ast_impl.foreign_name;
     return ref;
 }
@@ -828,7 +640,7 @@ BoundNodeReference rebind<BoundFunction>(Binder &binder, BoundNodeReference ref)
     }
     all_bound &= binder[IMPL.implementation].type.has_value();
 
-    TypeReference type_ref = binder.registry[BasicType::Void].ref;
+    TypeReference type_ref = VoidType;
     if (IMPL.return_type) {
         IMPL.return_type = binder.rebind_node(*IMPL.return_type);
         all_bound &= binder[*IMPL.return_type].type.has_value();
@@ -934,7 +746,7 @@ BoundNodeReference rebind<BoundFunctionCall>(Binder &binder, BoundNodeReference 
         if (func_decl.parameters.size() != IMPL.arguments.size()) {
             return add_error(binder, ref, "In call to '{}': Expected {} arguments, got {}", func_decl.name, func_decl.parameters.size(), IMPL.arguments.size());
         }
-        if (*binder[*IMPL.function].type == static_cast<TypeReference>(PseudoType::Void) || binder.type_of(binder[ref].parent) == BoundNodeType::BoundBlock) { // Hack. FIXME later
+        if (*binder[*IMPL.function].type == VoidType || binder.type_of(binder[ref].parent) == BoundNodeType::BoundBlock) { // Hack. FIXME later
             IMPL.discard_result = true;
         }
         size_t ix { 0 };
@@ -1028,7 +840,7 @@ BoundNodeReference rebind<BoundFunctionImplementation>(Binder &binder, BoundNode
 {
     IMPL.implementation = binder.rebind_node(IMPL.implementation);
     if (binder[IMPL.implementation].type.has_value()) {
-        binder[ref].type = binder.registry[BasicType::Void].ref;
+        binder[ref].type = VoidType;
     }
     return ref;
 }
@@ -1103,7 +915,7 @@ BoundNodeReference bind<Intrinsic>(Binder &binder, NodeReference ast_ref, BoundN
     auto const &ast_impl = std::get<Intrinsic>(ast_node.impl);
     auto        ref = add_node<BoundIntrinsic>(binder, ast_node.ref, ast_node.location, parent);
 
-    binder[ref].type = binder.registry[BasicType::Void].ref;
+    binder[ref].type = VoidType;
     IMPL.name = ast_impl.name;
     return ref;
 }
@@ -1146,7 +958,7 @@ BoundNodeReference bind<Member>(Binder &binder, NodeReference ast_ref, BoundNode
     auto const &ast_impl = std::get<Member>(ast_node.impl);
     auto        ref = add_node<BoundMember>(binder, ast_node.ref, ast_node.location, parent);
     IMPL.name = ast_impl.name;
-    binder[ref].type = binder.registry[BasicType::Void].ref;
+    binder[ref].type = VoidType;
     return ref;
 }
 
@@ -1174,7 +986,7 @@ BoundNodeReference rebind<BoundModule>(Binder &binder, BoundNodeReference ref)
         all_bound &= binder[IMPL.names[ix]].type.has_value();
     }
     if (all_bound) {
-        binder[ref].type = binder.registry[PseudoType::Void].ref;
+        binder[ref].type = VoidType;
     }
     return ref;
 }
@@ -1211,7 +1023,7 @@ void to_string(std::ostream &out, Binder &binder, BoundModule const &impl)
 template<>
 void dump(std::ostream &out, Binder &binder, BoundModule const &impl, int indent)
 {
-    binder.dump(out, impl.names, "Name", indent);
+    // binder.dump(out, impl.names, "Name", indent);
 }
 
 #undef STRUCT
@@ -1311,7 +1123,7 @@ BoundNodeReference rebind<BoundProgram>(Binder &binder, BoundNodeReference ref)
         all_bound &= binder[IMPL.modules[ix]].type.has_value();
     }
     if (all_bound) {
-        binder[ref].type = binder.registry[PseudoType::Void].ref;
+        binder[ref].type = VoidType;
     }
     return ref;
 }
@@ -1360,7 +1172,7 @@ BoundNodeReference bind<Program>(Binder &binder, NodeReference ast_ref, BoundNod
 template<>
 void dump(std::ostream &out, Binder &binder, BoundProgram const &impl, int indent)
 {
-    binder.dump(out, impl.modules, "Module", indent);
+    // binder.dump(out, impl.modules, "Module", indent);
 }
 
 template<>
@@ -1379,7 +1191,7 @@ BoundNodeReference rebind<BoundReturn>(Binder &binder, BoundNodeReference ref)
         IMPL.expression = binder.rebind_node(*IMPL.expression);
         binder[ref].type = binder[*IMPL.expression].type;
     } else {
-        binder[ref].type = binder.registry[PseudoType::Void].ref;
+        binder[ref].type = VoidType;
     }
     return ref;
 }
@@ -1441,7 +1253,7 @@ BoundNodeReference rebind<BoundSubscript>(Binder &binder, BoundNodeReference ref
         all_bound &= binder[arg].type.has_value();
     }
     if (all_bound) {
-        binder[ref].type = binder.registry[PseudoType::Void].ref;
+        binder[ref].type = VoidType;
     }
     return ref;
 }
@@ -1754,6 +1566,8 @@ Result<BoundNodeReference, bool> Binder::bind(NodeReference ast_entrypoint)
         std::println("");
         dump(std::cout, entrypoint, "Program");
         std::println("");
+        std::println("Visited: {}", visited);
+        std::println("Unbound: {}", still_unbound);
     }
 
     if (!errors.empty()) {
@@ -1781,8 +1595,13 @@ Result<BoundNodeReference, bool> Binder::bind(NodeReference ast_entrypoint)
         if (log) {
             std::println("Pass {} - rebind", pass);
             dump(std::cout, entrypoint, "Program");
+            std::println("Visited: {}", visited);
+            std::println("Unbound: {}", still_unbound);
         }
-        if (still_unbound.empty()) {
+        if (still_unbound.empty() && errors.empty()) {
+            if (log) {
+                std::println("No unbound nodes and no errors after pass {}", pass);
+            }
             break;
         }
         if (log) {

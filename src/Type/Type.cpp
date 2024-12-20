@@ -282,7 +282,7 @@ TypeRegistry::TypeRegistry()
             .name = "string",
             .typespec = TypeSpec {
                 TypeKind::Slice,
-                Slice { static_cast<TypeReference>(PrimitiveType::U8) },
+                Slice { U8Type },
             },
         });
 #undef S
@@ -447,6 +447,13 @@ TypeRegistry &TypeRegistry::the()
 {
     static TypeRegistry the_;
     return the_;
+}
+
+TypeReference pointer_type(TypeReference type)
+{
+    auto ret = TypeRegistry::the().resolve_pointer(type);
+    assert(ret.has_value());
+    return *ret;
 }
 
 }

@@ -50,11 +50,9 @@ using Ref = size_t;
     S(Label)              \
     S(MakeArray)          \
     S(PopArrayElement)    \
-    S(PopFrame)           \
     S(PopVariable)        \
     S(PushArrayElement)   \
     S(PushConstant)       \
-    S(PushFrame)          \
     S(PushNullptr)        \
     S(PushVariableRef)    \
     S(PushVariableValue)  \
@@ -71,17 +69,47 @@ struct Function;
 struct Module;
 struct Program;
 
+#define AddressTypes(S) \
+    S(Raw)              \
+    S(Register)         \
+    S(Stack)            \
+    S(Data)
+
 enum class AddressType {
-    Raw,
-    Register,
-    Stack,
-    Data,
+#undef S
+#define S(T) T,
+    AddressTypes(S)
+#undef S
 };
 
 struct Address {
     AddressType address_type;
     u64         address;
 };
+
+}
+
+inline std::ostream &operator<<(std::ostream &out, Arwen::IR::AddressType const &v)
+{
+    switch (v) {
+#undef S
+#define S(T)                        \
+    case Arwen::IR::AddressType::T: \
+        out << #T;                  \
+        break;
+        AddressTypes(S)
+#undef S
+    }
+    return out;
+}
+
+inline std::ostream &operator<<(std::ostream &out, Arwen::IR::Address const &v)
+{
+    out << v.address_type << ':' << v.address;
+    return out;
+}
+
+namespace Arwen::IR {
 
 struct BinaryOperation {
     TypeReference  lhs_type;
@@ -95,8 +123,9 @@ struct Break {
 };
 
 struct Call {
-    std::string_view   name;
-    BoundNodeReference decl;
+    std::string_view             name;
+    BoundNodeReference           decl;
+    std::optional<TypeReference> result_type;
 };
 
 struct Discard {
@@ -106,14 +135,16 @@ struct Discard {
 struct ForeignCall {
     std::string_view   name;
     BoundNodeReference decl;
+    std::optional<TypeReference> result_type;
 };
 
 struct FunctionReturn {
-    bool has_result;
+    std::optional<TypeReference> return_type;
 };
 
 struct Intrinsic {
     std::string_view name;
+    std::optional<TypeReference> result_type;
 };
 
 struct Jump {
@@ -141,11 +172,6 @@ struct PopArrayElement {
     TypeReference type;
 };
 
-struct PopFrame {
-    TypeReference type;
-    bool          discard { false };
-};
-
 struct PopVariable {
     Address       address;
     TypeReference type;
@@ -158,9 +184,6 @@ struct PushArrayElement {
 
 struct PushConstant {
     Value value;
-};
-
-struct PushFrame {
 };
 
 struct PushNullptr {
@@ -194,11 +217,9 @@ using Op = std::variant<
     Label,
     MakeArray,
     PopArrayElement,
-    PopFrame,
     PopVariable,
     PushArrayElement,
     PushConstant,
-    PushFrame,
     PushNullptr,
     PushVariableRef,
     PushVariableValue,
@@ -242,7 +263,9 @@ inline void to_string(std::ostream &out, ForeignCall const &op)
 template<>
 inline void to_string(std::ostream &out, FunctionReturn const &op)
 {
-    out << std::boolalpha << op.has_result;
+    if (op.return_type) {
+        out << TypeRegistry::the()[*op.return_type].name;
+    }
 }
 
 template<>
@@ -289,7 +312,7 @@ inline void to_string(std::ostream &, PopArrayElement const &)
 template<>
 inline void to_string(std::ostream &out, PopVariable const &op)
 {
-    out << op.address.address;
+    out << '[' << TypeRegistry::the()[op.type].name << "] " << op.address;
 }
 
 template<>
@@ -337,7 +360,7 @@ inline void to_string(std::ostream &out, PushVariableRef const &op)
 template<>
 inline void to_string(std::ostream &out, PushVariableValue const &op)
 {
-    out << op.address.address;
+    out << '[' << TypeRegistry::the()[op.type].name << "] " << op.address.address_type << ':' << op.address.address;
 }
 
 template<>
@@ -355,12 +378,14 @@ struct Function {
     std::map<BoundNodeReference, Ref> scopes;
     std::vector<Operation>            ops;
     AddressType                       address_type { AddressType::Stack };
-    u64                               depth { 0 };
-    u64                               bp;
+    u64                               parameter_depth { 0 };
+    u64                               variable_depth { 0 };
+    u64                               current_depth { 0 };
+    std::vector<u64>                  depth_stack;
     std::map<BoundNodeReference, u64> variables;
 
-    template <typename Impl, typename... Args>
-    void add_op(Args&&... args)
+    template<typename Impl, typename... Args>
+    void add_op(Args &&...args)
     {
         ops.push_back({
             ops.size(),
@@ -368,20 +393,18 @@ struct Function {
         });
     }
 
-
-    void list() const;
+    Address get_variable_address(BoundNodeReference ref);
+    void    list() const;
 };
 
 struct Module {
-    Program                          &program;
-    Ref                               ref;
-    BoundNodeReference                bound_ref;
-    Function                          initializer;
-    std::string_view                  name;
-    std::vector<Function>             functions;
-    std::map<std::string_view, Ref>   function_refs;
-    u64                               depth { 0 };
-    std::map<BoundNodeReference, u64> variables;
+    Program                        &program;
+    Ref                             ref;
+    BoundNodeReference              bound_ref;
+    Function                        initializer;
+    std::string_view                name;
+    std::vector<Function>           functions;
+    std::map<std::string_view, Ref> function_refs;
 
     void list(Binder &binder) const;
 };

@@ -16,7 +16,6 @@
 #include <sstream>
 #include <string>
 #include <string_view>
-#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -42,7 +41,7 @@ namespace Arwen {
 using TypeReference = size_t;
 
 #define PrimitiveTypes(S)         \
-    S(Null, null, std::monostate) \
+    S(Void, void, std::monostate) \
     S(I8, i8, i8)                 \
     S(U8, u8, u8)                 \
     S(I16, i16, i16)              \
@@ -89,8 +88,7 @@ using TypeReference = size_t;
     S(FloatingPoint, floatingpoint, floatingpoint) \
     S(Self, self, self)                            \
     S(Lhs, lhs, rhs)                               \
-    S(Rhs, lhs, rhs)                               \
-    S(Void, void, void *)
+    S(Rhs, lhs, rhs)
 
 #define BasicTypes(S)             \
     PrimitiveTypes(S)             \
@@ -107,6 +105,8 @@ enum class PrimitiveType : TypeReference {
     PrimitiveTypes(S)
 #undef S
 };
+
+#define STRING __COUNTER__
 
 enum class PseudoType : TypeReference {
 #undef S
@@ -138,13 +138,25 @@ BuiltinTypes(S)
     constexpr inline TypeReference type_of()
 {
     UNREACHABLE();
-    return NullType;
+    return VoidType;
 }
 
 #undef S
 #define S(T, L, ...) \
     template<>       \
     inline TypeReference type_of<__VA_ARGS__>() { return T##Type; }
+PrimitiveTypes(S)
+#undef S
+
+    TypeReference pointer_type(TypeReference type);
+
+#undef S
+#define S(T, L, ...)                              \
+    template<>                                    \
+    inline TypeReference type_of<__VA_ARGS__ *>() \
+    {                                             \
+        return pointer_type(T##Type);             \
+    }
 PrimitiveTypes(S)
 #undef S
 

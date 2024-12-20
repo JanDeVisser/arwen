@@ -48,9 +48,10 @@ add_executable(
 
         src/Binder/Binder.cpp
 
-        src/IR/Execute.cpp
         src/IR/Intrinsics.cpp
         src/IR/IR.cpp
+        src/IR/Machine.cpp
+        src/IR/Scope.cpp
 
         src/main.cpp
 )

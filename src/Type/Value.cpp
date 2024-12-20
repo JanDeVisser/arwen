@@ -4,11 +4,9 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <concepts>
 #include <cstdint>
 #include <limits>
 #include <optional>
-#include <type_traits>
 #include <variant>
 
 #include <Logging.h>
@@ -16,6 +14,44 @@
 #include <Type/Value.h>
 
 namespace Arwen {
+
+Value::Value(TypeReference type, void *ptr)
+    : m_type(type)
+{
+    auto t = TypeRegistry::the()[type];
+    if (t.typespec.tag() == TypeKind::Primitive) {
+        switch (type) {
+        case VoidType:
+            m_payload = std::monostate {};
+            break;
+#undef S
+#define S(T, C)                                                                      \
+    case T##Type:                                                                    \
+        m_payload = C { (ptr) ? *(reinterpret_cast<C *>(ptr)) : static_cast<C>(0) }; \
+        break;
+            NumericTypes(S);
+#undef S
+        case BoolType:
+            m_payload = bool {};
+            break;
+        case PtrType:
+            m_payload = ptr;
+            break;
+        default:
+            UNREACHABLE();
+        }
+    }
+    if (t.typespec.tag() == TypeKind::Pointer) {
+        m_payload = *(reinterpret_cast<void **>(ptr));
+    }
+    if (t.typespec.tag() == TypeKind::Slice) {
+        if (ptr) {
+            m_payload = *(reinterpret_cast<SliceValue *>(ptr));
+        } else {
+            m_payload = SliceValue {};
+        }
+    }
+}
 
 std::optional<Value> Value::add(Value const &other) const
 {
@@ -209,30 +245,30 @@ std::optional<Value> Value::negate() const
             },
             [](u8 v) -> std::optional<Value> {
                 if (v > std::numeric_limits<i8>::max()) {
-                    return Value {-static_cast<i16>(v) };
+                    return Value { -static_cast<i16>(v) };
                 } else {
-                    return Value {-static_cast<i8>(v) };
+                    return Value { -static_cast<i8>(v) };
                 }
             },
             [](u16 v) -> std::optional<Value> {
                 if (v > std::numeric_limits<i16>::max()) {
-                    return Value {-static_cast<i32>(v) };
+                    return Value { -static_cast<i32>(v) };
                 } else {
-                    return Value {-static_cast<i16>(v) };
+                    return Value { -static_cast<i16>(v) };
                 }
             },
             [](u32 v) -> std::optional<Value> {
                 if (v > std::numeric_limits<i32>::max()) {
-                    return Value {-static_cast<i64>(v) };
+                    return Value { -static_cast<i64>(v) };
                 } else {
-                    return Value {-static_cast<i32>(v) };
+                    return Value { -static_cast<i32>(v) };
                 }
             },
             [](u64 v) -> std::optional<Value> {
                 if (v > std::numeric_limits<i64>::max()) {
                     fatal("Value too large to negate");
                 } else {
-                    return Value {-static_cast<i64>(v) };
+                    return Value { -static_cast<i64>(v) };
                 }
             },
             [](std::signed_integral auto v) -> std::optional<Value> {

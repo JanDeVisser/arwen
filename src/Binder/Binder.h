@@ -315,7 +315,7 @@ struct Binder {
 #define IMPL I(STRUCT, ref) //(binder.impl<STRUCT>(ref))
 
 template<class Impl>
-BoundNodeReference add_node(Binder &binder, NodeReference ref, Location location, BoundNodeReference parent)
+inline BoundNodeReference add_node(Binder &binder, NodeReference ref, Location location, BoundNodeReference parent)
 {
     binder.bound_nodes.push_back(BoundNode::make<Impl>(parent, ref, location));
     binder.bound_nodes.back().ref = binder.bound_nodes.size() - 1;
@@ -323,7 +323,7 @@ BoundNodeReference add_node(Binder &binder, NodeReference ref, Location location
 }
 
 template<typename... Args>
-BoundNodeReference add_error(Binder &binder, BoundNodeReference ref, std::format_string<Args...> message, Args &&...args)
+inline BoundNodeReference add_error(Binder &binder, BoundNodeReference ref, std::format_string<Args...> message, Args &&...args)
 {
     BoundNodeReference err = add_node<BindError>(binder, binder.bound_nodes[ref].ast_ref, binder.bound_nodes[ref].location, ref);
     auto              &impl = std::get<BindError>(binder.bound_nodes[err].impl);
@@ -335,20 +335,20 @@ BoundNodeReference add_error(Binder &binder, BoundNodeReference ref, std::format
 }
 
 template<typename AstImpl>
-BoundNodeReference bind([[maybe_unused]] Binder &, [[maybe_unused]] NodeReference, BoundNodeReference)
+inline BoundNodeReference bind([[maybe_unused]] Binder &, [[maybe_unused]] NodeReference, BoundNodeReference)
 {
     std::cerr << "No binder for " << typeid(AstImpl).name() << "\n";
     UNREACHABLE();
 }
 
 template<typename T>
-BoundNodeReference rebind([[maybe_unused]] Binder &, BoundNodeReference ref)
+inline BoundNodeReference rebind([[maybe_unused]] Binder &, BoundNodeReference ref)
 {
     return ref;
 }
 
 template<typename BoundImpl>
-TypeAlternatives alternatives(Binder &binder, BoundNodeReference ref, TypeReference hint)
+inline TypeAlternatives alternatives(Binder &binder, BoundNodeReference ref, TypeReference hint)
 {
     assert(binder[ref].type.has_value());
     TypeAlternatives ret = { *binder[ref].type, {} };
@@ -358,14 +358,20 @@ TypeAlternatives alternatives(Binder &binder, BoundNodeReference ref, TypeRefere
         ret.alternatives.push_back(DoubleType);
         ret.alternatives.push_back(FloatType);
         if (type.is_integer()) {
-            if (type.is_unsigned()) {
-                for (TypeReference t = type.ref + 1; binder.registry[t].is_integer(); ++t) {
-                    ret.alternatives.push_back(t);
+            if (type.size() < 8) {
+                if (type.is_unsigned()) {
+                    for (TypeReference t = type.ref + 1; binder.registry[t].is_integer(); ++t) {
+                        ret.alternatives.push_back(t);
+                    }
+                } else {
+                    for (TypeReference t = type.ref + 2; binder.registry[t].is_integer(); t = t + 2) {
+                        ret.alternatives.push_back(t);
+                    }
                 }
-            } else {
-                for (TypeReference t = type.ref + 2; binder.registry[t].is_integer(); t = t + 2) {
-                    ret.alternatives.push_back(t);
-                }
+            } else if (type.ref == I64Type) {
+                ret.alternatives.push_back(U64Type);
+            } else if (type.ref == U64Type) {
+                ret.alternatives.push_back(I64Type);
             }
         }
     }
@@ -382,7 +388,7 @@ TypeAlternatives alternatives(Binder &binder, BoundNodeReference ref, TypeRefere
 }
 
 template<typename Impl>
-BoundNodeReference accept(Binder &binder, BoundNodeReference ref, TypeReference type)
+inline BoundNodeReference accept(Binder &binder, BoundNodeReference ref, TypeReference type)
 {
     auto &node = binder[ref];
     assert(node.type.has_value());

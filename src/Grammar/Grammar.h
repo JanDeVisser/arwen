@@ -132,7 +132,7 @@ struct GrammarAction {
     Error<GrammarError> call(Parser &parser) const
     {
         auto         fnc = TRY_EVAL(action<Parser>(parser.grammar.resolver));
-        Value const *d = (data.type() != NullType) ? &data : nullptr;
+        Value const *d = (data.type() != VoidType) ? &data : nullptr;
         fnc(&parser, d);
         return {};
     }
@@ -142,9 +142,9 @@ struct GrammarAction {
         if (full_name != rhs.full_name) {
             return full_name < rhs.full_name;
         }
-        if (rhs.data.is_null()) {
+        if (rhs.data.is_void()) {
             return false;
-        } else if (data.is_null()) {
+        } else if (data.is_void()) {
             return true;
         } else {
             return data < rhs.data;
