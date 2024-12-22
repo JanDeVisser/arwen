@@ -1,0 +1,19 @@
+func main() {
+    const ARR_CAP: u32 = 5;
+    var arr: [ARR_CAP]u8;
+    arr[ARR_CAP - 2] = 4;
+
+    var ix = 0;
+    while (ix < ARR_CAP) {
+        arr[ix] = ix;
+        var i = 0;
+        print("=> ");
+        while (i < arr[ix]) {
+            print("*");
+            i = i + 1;
+        }
+        println("");
+        ix = ix + 1;
+    }
+    return 0;
+}

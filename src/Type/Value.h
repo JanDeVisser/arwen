@@ -552,6 +552,17 @@ struct std::formatter<std::monostate, char> : public Arwen::SimpleFormatParser {
 };
 
 template<>
+struct std::formatter<Arwen::SliceValue, char> : public Arwen::SimpleFormatParser {
+    template<class FmtContext>
+    FmtContext::iterator format(Arwen::SliceValue const &v, FmtContext &ctx) const
+    {
+        std::ostringstream out;
+        out << std::format("({},{})", reinterpret_cast<void *>(v.ptr), v.len);
+        return std::ranges::copy(std::move(out).str(), ctx.out()).out;
+    }
+};
+
+template<>
 struct std::formatter<Arwen::Value, char> : public Arwen::SimpleFormatParser {
     template<class FmtContext>
     FmtContext::iterator format(Arwen::Value const &v, FmtContext &ctx) const

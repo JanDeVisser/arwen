@@ -305,8 +305,9 @@ inline void to_string(std::ostream &out, MakeArray const &op)
 }
 
 template<>
-inline void to_string(std::ostream &, PopArrayElement const &)
+inline void to_string(std::ostream &out, PopArrayElement const &op)
 {
+    out << '[' << TypeRegistry::the()[op.type].name << "] " << op.address;
 }
 
 template<>
@@ -316,8 +317,9 @@ inline void to_string(std::ostream &out, PopVariable const &op)
 }
 
 template<>
-inline void to_string(std::ostream &, PushArrayElement const &)
+inline void to_string(std::ostream &out, PushArrayElement const &op)
 {
+    out << '[' << TypeRegistry::the()[op.type].name << "] " << op.address;
 }
 
 template<>

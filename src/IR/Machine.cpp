@@ -12,6 +12,7 @@
 #include <ios>
 #include <iostream>
 #include <optional>
+#include <print>
 #include <sys/mman.h>
 #include <vector>
 
@@ -100,11 +101,17 @@ void Machine::pop(Address dest, TypeReference type)
 void Machine::pop(Address dest, u64 size)
 {
     move(dest, Address { AddressType::Stack, sp - bp }, size);
+    // if (log) {
+    //     std::println("  <- {} bytes", size);
+    // }
     discard(size);
 }
 
 void Machine::push(Address src, TypeReference type)
 {
+    // if (log) {
+    //     std::println("  -> {} bytes", TypeRegistry::the()[type].size());
+    // }
     move({ AddressType::Stack, reserve(TypeRegistry::the()[type].size()) }, src, type);
 }
 
@@ -112,11 +119,17 @@ Value Machine::pop(TypeReference type)
 {
     Value ret { type, stack - sp };
     discard(align_at(TypeRegistry::the()[type].size(), 8));
+    // if (log) {
+    //     std::println("  <- {}", ret);
+    // }
     return ret;
 }
 
 void Machine::push(Value const &value)
 {
+    // if (log) {
+    //     std::println("  -> {}", value);
+    // }
     reserve(TypeRegistry::the()[value.type()].size());
     value.copy_value(stack - sp);
 }
@@ -233,21 +246,36 @@ void Machine::display() const
 
 void Machine::trc() const
 {
-    static auto run = false;
+    enum class TraceMode {
+        SingleStep,
+        Run,
+        SilentRun,
+        VerboseRun,
+    };
+    static auto run = TraceMode::SingleStep;
 
-    if (run) {
+    if (run != TraceMode::SingleStep && run != TraceMode::VerboseRun) {
         return;
     }
     display();
+    if (run != TraceMode::SingleStep) {
+        return;
+    }
     auto cmd = 'Q';
     do {
-        std::cout << "(R)un/(S)tep/(Q)uit: ";
+        std::cout << "(R)un/(S)tep/Silen(T)/(V)erbose/(Q)uit: ";
         std::cin >> cmd;
         cmd = std::toupper(cmd);
-    } while (cmd != 'R' && cmd != 'S' && cmd != 'Q');
+    } while (strchr("RSTVQ", cmd) == nullptr);
     switch (cmd) {
     case 'R':
-        run = true;
+        run = TraceMode::Run;
+        break;
+    case 'T':
+        run = TraceMode::SilentRun;
+        break;
+    case 'V':
+        run = TraceMode::VerboseRun;
         break;
     case 'S':
         break;

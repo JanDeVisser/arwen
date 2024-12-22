@@ -5,6 +5,7 @@
  */
 
 #include <cstddef>
+#include <format>
 #include <optional>
 #include <print>
 #include <type_traits>
@@ -50,11 +51,12 @@ std::optional<i32> Scope::execute()
     auto new_bp = machine.sp - function.parameter_depth;
     machine.sp += function.variable_depth;
     push<u64>(machine.bp);
+    auto old_bp_addr = machine.sp;
     machine.bp = new_bp;
     while (ip < function.ops.size()) {
         auto const &op = function.ops[ip];
         if (log) {
-            std::println("{:20s}{}", function.name, op);
+            std::print("{:16s}{:50s}", function.name, std::format("{}", op));
         }
         ++ip;
         std::visit(
@@ -73,7 +75,11 @@ std::optional<i32> Scope::execute()
             machine.trc();
         }
     }
-    machine.bp = pop<u64>();
+    machine.move(
+        Address { AddressType::Raw, reinterpret_cast<u64>(&machine.bp) },
+        Address { AddressType::Raw, reinterpret_cast<u64>(machine.stack - old_bp_addr) },
+        PtrType);
+    machine.sp = new_bp;
     return {};
 }
 

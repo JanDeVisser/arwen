@@ -81,25 +81,25 @@ void generate(BoundNodeReference ref, BoundAssignmentExpression const &impl, Bin
                 generate(binex.right, ir.program.binder, ir);
                 assert(binder.type_of(binex.left) == BoundNodeType::BoundIdentifier);
                 auto type = binder.registry[*binder[binex.left].type];
-                u64  elem_sz = std::visit(
+                auto elem_type = std::visit(
                     overload {
                         [&](Array const &arr) {
-                            return TypeRegistry::the()[arr.element_type].size();
+                            return arr.element_type;
                         },
                         [&](Slice const &slice) {
-                            return TypeRegistry::the()[slice.element_type].size();
+                            return slice.element_type;
                         },
                         [&](Pointer const &ptr) {
-                            return TypeRegistry::the()[ptr.element_type].size();
+                            return ptr.element_type;
                         },
                         [&](auto const &) {
                             UNREACHABLE();
-                            return u64 {};
+                            return VoidType;
                         },
                     },
                     type.typespec.payload());
                 auto lhs = ir.get_variable_address(*I(BoundIdentifier, binex.left).declaration);
-                ir.add_op<PopArrayElement>(lhs, elem_sz);
+                ir.add_op<PopArrayElement>(lhs, elem_type);
             },
             [](auto const &) {
                 UNREACHABLE();
@@ -123,9 +123,8 @@ void generate(BoundNodeReference ref, BoundBinaryExpression const &impl, Binder 
         assert(binder.type_of(impl.right) == BoundNodeType::BoundSubscript);
         assert(binder.type_of(impl.left) == BoundNodeType::BoundIdentifier);
         auto const &lhs = I(BoundIdentifier, impl.left);
-        ir.add_op<PushArrayElement>(
-            ir.get_variable_address(*lhs.declaration),
-            TypeRegistry::the()[*binder[impl.left].type].size());
+        auto array_type = binder.registry[*binder[impl.left].type];
+        ir.add_op<PushArrayElement>(ir.get_variable_address(*lhs.declaration), *binder[impl.left].type);
         return;
     } break;
     default:
@@ -195,7 +194,6 @@ void map(BoundNodeReference ref, BoundConstantDeclaration const &impl, Binder &b
     auto type = binder.registry[*binder[ref].type];
     ir.program.depth += align_at(type.size(), 8);
     ir.program.variables[ref] = ir.program.depth;
-    std::println("map {} -> {}", ref, ir.program.variables[ref]);
 }
 
 template<>
@@ -376,14 +374,14 @@ void generate(BoundNodeReference ref, BoundVariableDeclaration const &impl, Bind
     auto const &type = binder.registry[*binder[ref].type];
     if (type.typespec.tag() == TypeKind::Array) {
         auto &array_def = I(BoundArrayType, *impl.type);
-        auto  element_type = binder.registry[type.typespec.get<TypeKind::Array>().element_type];
+        auto  element_type = type.typespec.get<TypeKind::Array>().element_type;
         generate(array_def.size, ir.program.binder, ir);
-        ir.add_op<MakeArray>(element_type.size());
-        ir.add_op<PopVariable>(ir.get_variable_address(ref), type.size());
+        ir.add_op<MakeArray>(element_type);
+        ir.add_op<PopVariable>(ir.get_variable_address(ref), type.ref);
     } else {
         if (impl.initializer) {
             generate(*impl.initializer, ir.program.binder, ir);
-            ir.add_op<PopVariable>(ir.get_variable_address(ref), type.size());
+            ir.add_op<PopVariable>(ir.get_variable_address(ref), type.ref);
         }
     }
 }
@@ -397,7 +395,7 @@ void map(BoundNodeReference ref, BoundVariableDeclaration const &, Binder &binde
 }
 
 template<typename Container>
-void map(BoundNodeReference ref, BoundVariableDeclaration const &, Binder &binder, Function &ir)
+void map(BoundNodeReference ref, BoundVariableDeclaration const &decl, Binder &binder, Function &ir)
 {
     auto type = binder.registry[*binder[ref].type];
     ir.variable_depth += align_at(type.size(), 8);
