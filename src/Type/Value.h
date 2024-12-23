@@ -300,6 +300,30 @@ public:
         return std::get<static_cast<std::size_t>(Tag)>(m_payload);
     }
 
+    [[nodiscard]] constexpr Value coerce(TypeReference type) const
+    {
+        if (type == m_type) {
+            return *this;
+        }
+        switch (type) {
+        case BoolType:
+            return Value { static_cast<bool>(as<u64>()) };
+#undef S
+#define S(T, C, ...) \
+    case T##Type:    \
+        return Value { as<C>() };
+        IntegerTypes(S)
+#undef S
+            case FloatType:
+            return Value { as<f32>() };
+        case DoubleType:
+            return Value { as<f64>() };
+        case PtrType:
+            return Value { as<void *>() };
+            default : UNREACHABLE();
+        }
+    }
+
     template<typename T>
     [[nodiscard]] constexpr T value() const
     {

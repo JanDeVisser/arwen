@@ -229,6 +229,7 @@ inline std::optional<PseudoType> decode(std::string_view s, ...)
     S(Pointer)        \
     S(PointerToArray) \
     S(Slice)          \
+    S(Range)          \
     S(Union)
 
 enum class TypeKind {
@@ -278,6 +279,10 @@ struct Slice {
     TypeReference element_type;
 };
 
+struct Range {
+    TypeReference range_type;
+};
+
 struct Union {
     std::optional<TypeReference>                       base_type;
     std::vector<std::pair<std::string, TypeReference>> fields;
@@ -301,6 +306,7 @@ struct Type {
     [[nodiscard]] bool        is_unsigned() const;
     [[nodiscard]] bool        is_float() const;
     [[nodiscard]] bool        is_raw_pointer() const { return ref == PtrType; }
+    [[nodiscard]] bool        is_iterable() const { return is_integer(); }
     [[nodiscard]] Type const &decay() const;
     [[nodiscard]] bool        is_assignable_to(Type const &other) const;
     [[nodiscard]] u64         size() const;
@@ -320,6 +326,8 @@ struct TypeRegistry {
     std::optional<TypeReference> resolve_array(TypeReference element_type);
     std::optional<TypeReference> resolve_pointer(TypeReference element_type);
     std::optional<TypeReference> resolve_object(Object const &obj);
+    std::optional<TypeReference> resolve_range(TypeReference range_type);
+    std::optional<TypeReference> resolve_slice(TypeReference element_type);
     static TypeRegistry         &the();
 
 private:

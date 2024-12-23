@@ -334,6 +334,19 @@ extern "C" {
     parser->impl.push_node(parser->last_token.location, ASTNodeKind::Nullptr, Nullptr {});
 }
 
+[[maybe_unused]] void arwen_make_range(P *parser)
+{
+    auto  end { parser->impl.pop_node().ref };
+    auto &begin { parser->impl.pop_node() };
+    parser->impl.push_node(
+        begin.location,
+        ASTNodeKind::RangeNode,
+        RangeNode {
+            .begin = begin.ref,
+            .end = end,
+        });
+}
+
 [[maybe_unused]] void arwen_make_binary_expression(P *parser)
 {
     auto  op_token { parser->impl.pop_token() };
@@ -621,6 +634,21 @@ void make_function_decl_(P *parser, std::optional<NodeReference> return_type)
             .condition = nodes[0],
             .true_branch = nodes[1],
             .false_branch = false_branch,
+        });
+}
+
+[[maybe_unused]] void arwen_finish_for(P *parser)
+{
+    auto &body = parser->impl.pop_typed_node(ASTNodeKind::Block);
+    auto &range = parser->impl.pop_node();
+    auto &identifier = parser->impl.pop_node();
+    parser->impl.push_node(
+        identifier.location,
+        ASTNodeKind::For,
+        For {
+            .identifier = identifier.ref,
+            .range = range.ref,
+            .body = body.ref,
         });
 }
 

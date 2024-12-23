@@ -96,6 +96,12 @@ struct BoundContinue {
     BoundNodeReference block;
 };
 
+struct BoundFor {
+    BoundNodeReference variable_decl;
+    BoundNodeReference range;
+    BoundNodeReference body;
+};
+
 struct BoundForeignFunction {
     std::string_view foreign_name;
 };
@@ -160,6 +166,11 @@ struct BoundProgram {
     BoundNodeReferences modules;
 };
 
+struct BoundRange {
+    BoundNodeReference begin;
+    BoundNodeReference end;
+};
+
 struct BoundReturn {
     std::optional<BoundNodeReference> expression;
 };
@@ -197,6 +208,7 @@ struct BoundWhile {
     S(BoundConstantDeclaration)    \
     S(BoundContinue)               \
     S(FloatConstant)               \
+    S(BoundFor)                    \
     S(BoundForeignFunction)        \
     S(BoundFunction)               \
     S(BoundFunctionCall)           \
@@ -212,6 +224,7 @@ struct BoundWhile {
     S(BoundParameter)              \
     S(BoundPointerType)            \
     S(BoundProgram)                \
+    S(BoundRange)                  \
     S(BoundReturn)                 \
     S(StringConstant)              \
     S(BoundSubscript)              \

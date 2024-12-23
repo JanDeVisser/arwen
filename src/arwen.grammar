@@ -59,6 +59,7 @@ statement                   := declaration
                              | conditional
                              | continue
                              | expression
+                             | for
                              | loop
                              | return
                              | while
@@ -132,8 +133,20 @@ else                        := "else"
                              |
                              ;
 
-loop                        := "loop"
-                               statements        [ make_loop                 ]
+for                         := "for"
+                               #ident            [ make_identifier           ]
+                               "in"
+                               range
+                               statements        [ finish_for                ]
+                             ;
+
+range                       := expr
+                               ".."
+                               expr              [ make_range                ]
+                             ;
+
+loop                        := "loop"            [ start_block               ]
+                               statements        [ finish_loop               ]
                              ;
 
 while                       := "while"           [ start_block               ]

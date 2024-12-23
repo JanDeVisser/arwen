@@ -117,24 +117,12 @@ inline TypeAlternatives alternatives<BoundConstant>(Binder &binder, BoundNodeRef
 template<>
 inline BoundNodeReference accept<BoundConstant>(Binder &binder, BoundNodeReference ref, TypeReference type)
 {
-    binder[ref].type = type;
-    switch (type) {
-#undef S
-#define S(T, CType, Size, Signed)            \
-    case T##Type:                            \
-        IMPL.value = IMPL.value.as<CType>(); \
-        break;
-    IntegerTypes(S)
-#undef S
-        case FloatType:
-        IMPL.value = IMPL.value.as<float>();
-        break;
-    case DoubleType:
-        IMPL.value = IMPL.value.as<double>();
-        break;
-    default:
-        UNREACHABLE();
+    if (binder[ref].type && *binder[ref].type == type) {
+        assert(IMPL.value.type() == type);
+        return ref;
     }
+    binder[ref].type = type;
+    IMPL.value = IMPL.value.coerce(type);
     return ref;
 }
 

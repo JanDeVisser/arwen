@@ -40,6 +40,7 @@ namespace Arwen {
     S(ConstantDeclaration)    \
     S(Continue)               \
     S(FloatConstant)          \
+    S(For)                    \
     S(ForeignFunction)        \
     S(Function)               \
     S(FunctionCall)           \
@@ -56,6 +57,7 @@ namespace Arwen {
     S(Parameter)              \
     S(PointerType)            \
     S(Program)                \
+    S(RangeNode)              \
     S(Return)                 \
     S(StartBlock)             \
     S(StringConstant)         \
@@ -147,6 +149,12 @@ struct FloatConstant {
     double value;
 };
 
+struct For {
+    NodeReference identifier;
+    NodeReference range;
+    NodeReference body;
+};
+
 struct ForeignFunction {
     std::string_view foreign_name;
 };
@@ -218,6 +226,11 @@ struct Program {
     std::vector<NodeReference> modules;
 };
 
+struct RangeNode {
+    NodeReference begin;
+    NodeReference end;
+};
+
 struct Return {
     std::optional<NodeReference> expression;
 };
@@ -271,6 +284,7 @@ using ASTNodeImpl = std::variant<
     ConstantDeclaration,
     Continue,
     FloatConstant,
+    For,
     ForeignFunction,
     Function,
     FunctionCall,
@@ -287,6 +301,7 @@ using ASTNodeImpl = std::variant<
     Parameter,
     PointerType,
     Program,
+    RangeNode,
     Return,
     StartBlock,
     StringConstant,
@@ -476,6 +491,10 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
             auto &impl = std::get<Arwen::FloatConstant>(node.impl);
             out << impl.value;
         } break;
+        case Arwen::ASTNodeKind::For: {
+            auto &impl = std::get<Arwen::For>(node.impl);
+            out << std::format("for {} in {} {{\n{}", node.get_node(impl.identifier), node.get_node(impl.range), node.get_node(impl.body));
+        } break;
         case Arwen::ASTNodeKind::ForeignFunction: {
             auto &impl = std::get<Arwen::ForeignFunction>(node.impl);
             out << std::format(" -> \"{}\"\n", impl.foreign_name);
@@ -570,6 +589,10 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
             for (auto decl : impl.modules) {
                 out << std::format("{}\n", node.get_node(decl));
             }
+        } break;
+        case Arwen::ASTNodeKind::RangeNode: {
+            auto &impl = std::get<Arwen::RangeNode>(node.impl);
+            out << std::format("{}..{}", node.get_node(impl.begin), node.get_node(impl.end));
         } break;
         case Arwen::ASTNodeKind::Return: {
             auto &impl = std::get<Arwen::Return>(node.impl);

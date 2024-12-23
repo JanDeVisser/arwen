@@ -1,0 +1,15 @@
+func main() {
+    const ARR_CAP: u32 = 5;
+    var arr: [ARR_CAP]u8;
+
+    for ix in 0 .. 5 {
+        arr[ix] = ix;
+        var i = 0;
+        print("=> ");
+        for i in 0 .. arr[ix] {
+            print("*");
+        }
+        println("");
+    }
+    return 0;
+}

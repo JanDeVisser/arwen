@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <cstddef>
 #include <format>
-#include <ios>
 #include <map>
 #include <optional>
 #include <ostream>
@@ -119,7 +118,6 @@ struct BinaryOperation {
 
 struct Break {
     Ref  target { 0 };
-    bool block_is_loop;
 };
 
 struct Call {

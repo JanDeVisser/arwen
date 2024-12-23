@@ -222,6 +222,19 @@ u64 alignment(TypeReference, Slice const &)
 }
 
 template<>
+u64 size(TypeReference, Range const &range)
+{
+    auto range_type = TypeRegistry::the()[range.range_type].decay();
+    return 2*align_at(range_type.size(), range_type.alignment());
+}
+
+template<>
+u64 alignment(TypeReference, Range const &range)
+{
+    return TypeRegistry::the()[range.range_type].decay().alignment();
+}
+
+template<>
 u64 size(TypeReference, Union const &u)
 {
     auto const &base_type = TypeRegistry::the()[(u.base_type) ? *u.base_type : U64Type].decay();
@@ -372,6 +385,52 @@ std::optional<TypeReference> TypeRegistry::resolve_array(TypeReference element_t
             TypeKind::Array,
             Array {
                 .element_type = element_type,
+            },
+        } });
+}
+
+std::optional<TypeReference> TypeRegistry::resolve_slice(TypeReference element_type)
+{
+    if (element_type >= types.size()) {
+        return {};
+    }
+    for (auto const &t : types) {
+        if (t.typespec.tag() != TypeKind::Slice) {
+            continue;
+        }
+        auto const &arr = t.typespec.get<TypeKind::Slice>();
+        if (arr.element_type == element_type) {
+            return t.ref;
+        }
+    }
+    return register_type({ .name = std::format("[]{}", types[element_type].name),
+        .typespec = TypeSpec {
+            TypeKind::Slice,
+            Slice {
+                .element_type = element_type,
+            },
+        } });
+}
+
+std::optional<TypeReference> TypeRegistry::resolve_range(TypeReference range_type)
+{
+    if (range_type >= types.size() || !types[range_type].is_iterable()) {
+        return {};
+    }
+    for (auto const &t : types) {
+        if (t.typespec.tag() != TypeKind::Range) {
+            continue;
+        }
+        auto const &arr = t.typespec.get<TypeKind::Range>();
+        if (arr.range_type == range_type) {
+            return t.ref;
+        }
+    }
+    return register_type({ .name = std::format("[..]{}", types[range_type].name),
+        .typespec = TypeSpec {
+            TypeKind::Range,
+            Range {
+                .range_type = range_type,
             },
         } });
 }

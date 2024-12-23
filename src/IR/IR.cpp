@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "Type/Value.h"
 #include <cstdint>
 #include <iostream>
 #include <optional>
@@ -167,7 +168,7 @@ void generate(BoundNodeReference ref, BoundBreak const &impl, Binder &binder, Fu
     if (impl.expression) {
         generate(*impl.expression, binder, ir);
     }
-    ir.add_op<Break>(0ul, impl.block_is_loop);
+    ir.add_op<Break>(0ul);
     ir.ops.back().target = impl.block;
 }
 
@@ -178,9 +179,6 @@ void link(Ref ref, Break &impl, Function &function)
     if (op.target) {
         assert(function.scopes.contains(*op.target));
         impl.target = function.scopes[*op.target];
-        if (impl.block_is_loop) {
-            impl.target += 1; // Jump over jump back to loop start
-        }
         op.target = {};
     }
 }
@@ -229,6 +227,43 @@ void generate(BoundNodeReference ref, BoundContinue const &impl, Binder &binder,
 {
     ir.add_op<Jump>();
     ir.ops.back().target = impl.block;
+}
+
+template<>
+void generate(BoundNodeReference ref, BoundFor const &impl, Binder &binder, Function &ir)
+{
+    ir.depth_stack.push_back(ir.current_depth);
+    map(impl.variable_decl, binder, ir);
+
+    generate(impl.variable_decl, binder, ir);
+
+    auto start = ir.ops.size();
+    generate(I(BoundRange, impl.range).end, binder, ir);
+    ir.add_op<PushVariableValue>(
+        ir.get_variable_address(impl.variable_decl),
+        *binder[impl.variable_decl].type);
+    ir.add_op<BinaryOperation>(*binder[impl.variable_decl].type, BinaryOperator::Less, *binder[impl.variable_decl].type);
+    auto jump_to_end_ix = ir.ops.size();
+    ir.add_op<JumpF>(0ul);
+
+    generate(impl.body, binder, ir);
+
+    ir.add_op<PushVariableValue>(
+        ir.get_variable_address(impl.variable_decl),
+        *binder[impl.variable_decl].type);
+    u64 one = 1;
+    ir.add_op<PushConstant>(Value { 1 }.coerce(*binder[impl.variable_decl].type));
+    ir.add_op<BinaryOperation>(*binder[impl.variable_decl].type, BinaryOperator::Add, *binder[impl.variable_decl].type);
+    ir.add_op<PopVariable>(ir.get_variable_address(impl.variable_decl), *binder[impl.variable_decl].type);
+    ir.add_op<Jump>(start);
+    std::get<JumpF>(ir.ops[jump_to_end_ix].op).target = ir.ops.size();
+
+    if (ir.current_depth > ir.variable_depth) {
+        ir.variable_depth = ir.current_depth;
+    }
+    ir.current_depth = ir.depth_stack.back();
+    ir.depth_stack.pop_back();
+    ir.scopes[ref] = ir.ops.size();
 }
 
 template<>
@@ -322,6 +357,15 @@ void generate(BoundNodeReference, BoundIf const &impl, Binder &, Function &ir)
 }
 
 template<>
+void generate(BoundNodeReference ref, BoundLoop const &impl, Binder &, Function &ir)
+{
+    auto start = ir.ops.size();
+    generate(impl.body, ir.program.binder, ir);
+    ir.add_op<Jump>(start);
+    ir.scopes[ref] = ir.ops.size();
+}
+
+template<>
 void generate(BoundNodeReference, BoundMember const &impl, Binder &, Function &ir)
 {
     ir.add_op<PushConstant>(impl.name);
@@ -403,7 +447,7 @@ void map(BoundNodeReference ref, BoundVariableDeclaration const &decl, Binder &b
 }
 
 template<>
-void generate(BoundNodeReference, BoundWhile const &impl, Binder &, Function &ir)
+void generate(BoundNodeReference ref, BoundWhile const &impl, Binder &, Function &ir)
 {
     auto start = ir.ops.size();
     generate(impl.condition, ir.program.binder, ir);
@@ -412,6 +456,7 @@ void generate(BoundNodeReference, BoundWhile const &impl, Binder &, Function &ir
     generate(impl.body, ir.program.binder, ir);
     ir.add_op<Jump>(start);
     std::get<JumpF>(ir.ops[jump_to_end_ix].op).target = ir.ops.size();
+    ir.scopes[ref] = ir.ops.size();
 }
 
 template<>
