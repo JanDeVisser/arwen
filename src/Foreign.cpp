@@ -11,12 +11,12 @@
 #include <unistd.h>
 #include <vector>
 
+#include <IR/Foreign.h>
 #include <Logging.h>
 #include <Resolve.h>
 #include <Result.h>
 #include <Type/Type.h>
 #include <Type/Value.h>
-#include <IR/Foreign.h>
 
 struct Trampoline {
     void (*fnc)();
@@ -48,7 +48,7 @@ Result<Value, ResolveError> foreign_call(std::string_view name, std::vector<Valu
     if (!fnc) {
         fatal("Function '{}' not found", name);
     }
-    tramp.fnc = *(fnc.target<void(*)()>());
+    tramp.fnc = *(fnc.target<void (*)()>());
 
     // Stage A - Initialization
     // This stage is performed exactly once, before processing of the arguments
@@ -184,31 +184,14 @@ Result<Value, ResolveError> foreign_call(std::string_view name, std::vector<Valu
                 case BoolType:
                     tramp.x[ngrn++].i = value.value<bool>();
                     break;
-                case U8Type:
-                    tramp.x[ngrn++].i = value.value<u8>();
-                    break;
-                case I8Type:
-                    tramp.x[ngrn++].i = value.value<i8>();
-                    break;
-                case U16Type:
-                    tramp.x[ngrn++].i = value.value<u16>();
-                    break;
-                case I16Type:
-                    tramp.x[ngrn++].i = value.value<i16>();
-                    break;
-                case U32Type:
-                    tramp.x[ngrn++].i = value.value<u32>();
-                    break;
-                case I32Type:
-                    tramp.x[ngrn++].i = value.value<i32>();
-                    break;
-                case U64Type:
-                    tramp.x[ngrn++].i = value.value<u64>();
-                    break;
-                case I64Type:
-                    tramp.x[ngrn++].i = value.value<i64>();
-                    break;
-                case PtrType:
+#undef S
+#define S(T, C, ...)                       \
+    case T##Type:                          \
+        tramp.x[ngrn++].i = value.as<C>(); \
+        break;
+                IntegerTypes(S)
+#undef S
+                    case PtrType:
                     tramp.x[ngrn++].ptr = value.value<void *>();
                     break;
                 default:
@@ -277,33 +260,22 @@ Result<Value, ResolveError> foreign_call(std::string_view name, std::vector<Valu
     if (trampoline_result) {
         fatal("Error executing '{}'. Trampoline returned {}", name, trampoline_result);
     }
-    switch (ret_type) {
-    case PrimitiveType::Bool:
+    switch (static_cast<TypeReference>(ret_type)) {
+    case BoolType:
         return Value { static_cast<bool>(tramp.ret.i) };
-    case PrimitiveType::Double:
+    case DoubleType:
         return Value { tramp.ret_flt };
-    case PrimitiveType::Float:
-        return Value { static_cast<float>(tramp.ret_flt) };
-    case PrimitiveType::U8:
-        return Value { static_cast<u8>(tramp.ret.i) };
-    case PrimitiveType::I8:
-        return Value { static_cast<i8>(tramp.ret.i) };
-    case PrimitiveType::U16:
-        return Value { static_cast<u16>(tramp.ret.i) };
-    case PrimitiveType::I16:
-        return Value { static_cast<i16>(tramp.ret.i) };
-    case PrimitiveType::U32:
-        return Value { static_cast<u32>(tramp.ret.i) };
-    case PrimitiveType::I32:
-        return Value { static_cast<i32>(tramp.ret.i) };
-    case PrimitiveType::U64:
-        return Value { tramp.ret.i };
-    case PrimitiveType::I64:
-        return Value { static_cast<i64>(tramp.ret.i) };
-    case PrimitiveType::Ptr:
+    case FloatType:
+        return Value { static_cast<f32>(tramp.ret_flt) };
+#undef S
+#define S(T, C, ...) \
+    case T##Type:    \
+        return Value { static_cast<C>(tramp.ret.i) };
+    IntegerTypes(S)
+#undef S
+        case PtrType:
         return Value { tramp.ret.p };
-    default:
-        UNREACHABLE();
+        default : UNREACHABLE();
     }
 }
 

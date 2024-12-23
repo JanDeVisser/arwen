@@ -393,6 +393,9 @@ public:
         case BoolType: {
             *(reinterpret_cast<bool *>(dest)) = std::get<bool>(m_payload);
         } break;
+        case PtrType: {
+            *(reinterpret_cast<void **>(dest)) = std::get<void *>(m_payload);
+        } break;
         case StringType: {
             *(reinterpret_cast<SliceValue *>(dest)) = std::get<SliceValue>(m_payload);
         } break;

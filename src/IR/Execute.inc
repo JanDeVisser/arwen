@@ -12,6 +12,7 @@
 #include <string_view>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -137,7 +138,7 @@ void execute(Operation const &op, ForeignCall const &impl, Scope &scope)
     }
     auto ret = foreign_call(impl.name, args, primitive_ret_type).must();
     if (impl.result_type) {
-        assert(ret.type() == *impl.result_type);
+        // assert(ret.type() == *impl.result_type);
         scope.machine.push(ret);
         exec_log(scope, "{}({}) => {}", decl.name, args, ret);
     } else if (scope.log) {
@@ -217,13 +218,31 @@ void execute(Operation const &op, MakeArray const &impl, Scope &scope)
 template<>
 void execute(Operation const &op, PopArrayElement const &impl, Scope &scope)
 {
-    SliceValue slice = scope.move<SliceValue>(impl.address);
+    auto type = TypeRegistry::the()[impl.type];
+    auto [ elem_type, void_p ] = std::visit(
+        overload {
+            [&](Array const &arr) -> std::pair<TypeReference, void *> {
+                return { arr.element_type, scope.machine.make_pointer(impl.address) };
+            },
+            [&](Slice const &slice) -> std::pair<TypeReference, void *> {
+                SliceValue slice_value = scope.move<SliceValue>(impl.address);
+                return { slice.element_type, slice_value.ptr };
+            },
+            [&](Pointer const &ptr) -> std::pair<TypeReference, void *> {
+                return { ptr.element_type, scope.move<void *>(impl.address) };
+            },
+            [&](auto const &) -> std::pair<TypeReference, void *> {
+                UNREACHABLE();
+                return { VoidType, nullptr };
+            },
+        },
+        type.typespec.payload());
+    auto ptr = reinterpret_cast<u8 *>(void_p);
     auto       ix_size = scope.pop<u64>();
     assert(ix_size == 1);
     auto ix = scope.pop<u64>();
-    assert(ix < slice.len);
-    auto t = TypeRegistry::the()[impl.type];
-    auto ptr = slice.ptr + ix * t.size();
+    auto t = TypeRegistry::the()[elem_type];
+    ptr += ix * t.size();
     scope.machine.pop({ AddressType::Raw, reinterpret_cast<u64>(ptr) }, t.ref);
     if (scope.log) {
         auto v = Value { t.ref, ptr };

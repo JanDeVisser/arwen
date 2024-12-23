@@ -81,26 +81,8 @@ void generate(BoundNodeReference ref, BoundAssignmentExpression const &impl, Bin
                 }
                 generate(binex.right, ir.program.binder, ir);
                 assert(binder.type_of(binex.left) == BoundNodeType::BoundIdentifier);
-                auto type = binder.registry[*binder[binex.left].type];
-                auto elem_type = std::visit(
-                    overload {
-                        [&](Array const &arr) {
-                            return arr.element_type;
-                        },
-                        [&](Slice const &slice) {
-                            return slice.element_type;
-                        },
-                        [&](Pointer const &ptr) {
-                            return ptr.element_type;
-                        },
-                        [&](auto const &) {
-                            UNREACHABLE();
-                            return VoidType;
-                        },
-                    },
-                    type.typespec.payload());
                 auto lhs = ir.get_variable_address(*I(BoundIdentifier, binex.left).declaration);
-                ir.add_op<PopArrayElement>(lhs, elem_type);
+                ir.add_op<PopArrayElement>(lhs, *binder[binex.left].type);
             },
             [](auto const &) {
                 UNREACHABLE();
