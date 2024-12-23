@@ -5,6 +5,7 @@
  */
 
 #include <cassert>
+#include <cstring>
 #include <iostream>
 #include <optional>
 #include <print>
@@ -210,6 +211,7 @@ void execute(Operation const &op, MakeArray const &impl, Scope &scope)
     u64        num_elems = scope.pop<u64>();
     auto       block_size = t.size() * num_elems;
     auto       ptr = scope.machine.reserve(block_size);
+    memset(scope.machine.stack - scope.machine.bp - ptr, 0, block_size);
     SliceValue slice { num_elems, scope.machine.stack - scope.machine.bp - ptr };
     scope.push<SliceValue>(slice);
     exec_log(scope, "{}[{}]", t.name, num_elems);
@@ -218,14 +220,21 @@ void execute(Operation const &op, MakeArray const &impl, Scope &scope)
 template<>
 void execute(Operation const &op, PopArrayElement const &impl, Scope &scope)
 {
+    auto ix_size = scope.pop<u64>();
+    assert(ix_size == 1);
+    auto ix = scope.pop<u64>();
+
     auto type = TypeRegistry::the()[impl.type];
-    auto [ elem_type, void_p ] = std::visit(
+    auto [elem_type, void_p] = std::visit(
         overload {
             [&](Array const &arr) -> std::pair<TypeReference, void *> {
-                return { arr.element_type, scope.machine.make_pointer(impl.address) };
+                SliceValue slice_value = scope.move<SliceValue>(impl.address);
+                assert(ix < slice_value.len);
+                return { arr.element_type, slice_value.ptr };
             },
             [&](Slice const &slice) -> std::pair<TypeReference, void *> {
                 SliceValue slice_value = scope.move<SliceValue>(impl.address);
+                assert(ix < slice_value.len);
                 return { slice.element_type, slice_value.ptr };
             },
             [&](Pointer const &ptr) -> std::pair<TypeReference, void *> {
@@ -238,9 +247,6 @@ void execute(Operation const &op, PopArrayElement const &impl, Scope &scope)
         },
         type.typespec.payload());
     auto ptr = reinterpret_cast<u8 *>(void_p);
-    auto       ix_size = scope.pop<u64>();
-    assert(ix_size == 1);
-    auto ix = scope.pop<u64>();
     auto t = TypeRegistry::the()[elem_type];
     ptr += ix * t.size();
     scope.machine.pop({ AddressType::Raw, reinterpret_cast<u64>(ptr) }, t.ref);
@@ -264,17 +270,38 @@ void execute(Operation const &op, PopVariable const &impl, Scope &scope)
 template<>
 void execute(Operation const &op, PushArrayElement const &impl, Scope &scope)
 {
-    SliceValue slice = scope.move<SliceValue>(impl.address);
-    auto       ix_size = scope.pop<u64>();
+    auto ix_size = scope.pop<u64>();
     assert(ix_size == 1);
     auto ix = scope.pop<u64>();
-    assert(ix < slice.len);
-    auto t = TypeRegistry::the()[impl.type];
-    auto elem_type = TypeRegistry::the()[t.typespec.get<TypeKind::Array>().element_type];
-    auto ptr = slice.ptr + ix * elem_type.size();
-    scope.machine.push({ AddressType::Raw, reinterpret_cast<u64>(ptr) }, elem_type.ref);
+
+    auto type = TypeRegistry::the()[impl.type];
+    auto [elem_type, void_p] = std::visit(
+        overload {
+            [&](Array const &arr) -> std::pair<TypeReference, void *> {
+                SliceValue slice_value = scope.move<SliceValue>(impl.address);
+                assert(ix < slice_value.len);
+                return { arr.element_type, slice_value.ptr };
+            },
+            [&](Slice const &slice) -> std::pair<TypeReference, void *> {
+                SliceValue slice_value = scope.move<SliceValue>(impl.address);
+                assert(ix < slice_value.len);
+                return { slice.element_type, slice_value.ptr };
+            },
+            [&](Pointer const &ptr) -> std::pair<TypeReference, void *> {
+                return { ptr.element_type, scope.move<void *>(impl.address) };
+            },
+            [&](auto const &) -> std::pair<TypeReference, void *> {
+                UNREACHABLE();
+                return { VoidType, nullptr };
+            },
+        },
+        type.typespec.payload());
+    auto ptr = reinterpret_cast<u8 *>(void_p);
+    auto t = TypeRegistry::the()[elem_type];
+    ptr += ix * t.size();
+    scope.machine.push({ AddressType::Raw, reinterpret_cast<u64>(ptr) }, elem_type);
     if (scope.log) {
-        auto v = Value { elem_type.ref, ptr };
+        auto v = Value { elem_type, ptr };
         exec_log(scope, "{}[{}] = {}", t.name, ix, v);
     }
 }
