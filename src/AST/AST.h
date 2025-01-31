@@ -37,6 +37,7 @@ namespace Arwen {
     S(Block)                  \
     S(BoolConstant)           \
     S(Break)                  \
+    S(CharConstant)           \
     S(ConstantDeclaration)    \
     S(Continue)               \
     S(FloatConstant)          \
@@ -59,6 +60,7 @@ namespace Arwen {
     S(Program)                \
     S(RangeNode)              \
     S(Return)                 \
+    S(SliceType)              \
     S(StartBlock)             \
     S(StringConstant)         \
     S(Subscript)              \
@@ -133,6 +135,10 @@ struct BoolConstant {
 struct Break {
     std::optional<NodeReference> label;
     std::optional<NodeReference> expression;
+};
+
+struct CharConstant {
+    u8 value;
 };
 
 struct ConstantDeclaration {
@@ -235,6 +241,10 @@ struct Return {
     std::optional<NodeReference> expression;
 };
 
+struct SliceType {
+    NodeReference element_type;
+};
+
 struct StartBlock {
 };
 
@@ -281,6 +291,7 @@ using ASTNodeImpl = std::variant<
     Block,
     BoolConstant,
     Break,
+    CharConstant,
     ConstantDeclaration,
     Continue,
     FloatConstant,
@@ -303,6 +314,7 @@ using ASTNodeImpl = std::variant<
     Program,
     RangeNode,
     Return,
+    SliceType,
     StartBlock,
     StringConstant,
     Subscript,
@@ -433,7 +445,7 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
         switch (node.kind) {
         case Arwen::ASTNodeKind::ArrayType: {
             auto &impl = std::get<Arwen::ArrayType>(node.impl);
-            out << std::format("[]{}", node.parser->get_node(impl.element_type));
+            out << std::format("[x]{}", node.parser->get_node(impl.element_type));
         } break;
         case Arwen::ASTNodeKind::AssignmentExpression: {
             auto &impl = std::get<Arwen::AssignmentExpression>(node.impl);
@@ -600,6 +612,10 @@ struct std::formatter<Arwen::ASTNode, char> : public Arwen::SimpleFormatParser {
             if (impl.expression) {
                 out << std::format(" {}", node.get_node(*impl.expression));
             }
+        } break;
+        case Arwen::ASTNodeKind::SliceType: {
+            auto &impl = std::get<Arwen::ArrayType>(node.impl);
+            out << std::format("[]{}", node.parser->get_node(impl.element_type));
         } break;
         case Arwen::ASTNodeKind::StringConstant: {
             auto &impl = std::get<Arwen::StringConstant>(node.impl);

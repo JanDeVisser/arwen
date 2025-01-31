@@ -175,6 +175,10 @@ struct BoundReturn {
     std::optional<BoundNodeReference> expression;
 };
 
+struct BoundSliceType {
+    TypeReference element_type;
+};
+
 struct BoundSubscript {
     BoundNodeReferences subscripts;
 };
@@ -226,6 +230,7 @@ struct BoundWhile {
     S(BoundProgram)                \
     S(BoundRange)                  \
     S(BoundReturn)                 \
+    S(BoundSliceType)              \
     S(StringConstant)              \
     S(BoundSubscript)              \
     S(BoundUnaryExpression)        \
@@ -397,6 +402,27 @@ inline TypeAlternatives alternatives(Binder &binder, BoundNodeReference ref, Typ
     if (type.typespec.tag() == TypeKind::Pointer) {
         ret.alternatives.push_back(PtrType);
     }
+    if (type.typespec.tag() == TypeKind::Array) {
+        ret.alternatives.push_back(PtrType);
+        auto slice_type = binder.registry.resolve_slice(type.typespec.get<TypeKind::Array>().element_type).or_else([]() {
+            fatal("Could not resolve slice type");
+            return std::optional { VoidType };
+        });
+        ret.alternatives.push_back(slice_type.value());
+        auto ptr_type = binder.registry.resolve_pointer(type.typespec.get<TypeKind::Array>().element_type).or_else([]() {
+            fatal("Could not resolve pointer type");
+            return std::optional { VoidType };
+        });
+        ret.alternatives.push_back(ptr_type.value());
+    }
+    if (type.typespec.tag() == TypeKind::Slice) {
+        ret.alternatives.push_back(PtrType);
+        auto ptr_type = binder.registry.resolve_pointer(type.typespec.get<TypeKind::Slice>().element_type).or_else([]() {
+            fatal("Could not resolve pointer type");
+            return std::optional { VoidType };
+        });
+        ret.alternatives.push_back(ptr_type.value());
+    }
     return ret;
 }
 
@@ -415,7 +441,27 @@ inline BoundNodeReference accept(Binder &binder, BoundNodeReference ref, TypeRef
         node.type = type;
         return ref;
     }
-    if (desired.typespec.tag() == TypeKind::Pointer && current == PtrType) {
+    if (desired.typespec.tag() == TypeKind::Pointer) {
+        if (current == PtrType) {
+            node.type = type;
+        } else {
+            switch (current_type.typespec.tag()) {
+                case TypeKind::Array:
+                case TypeKind::Slice: {
+                    auto ptr_call = add_node<BoundFunctionCall>(binder, node.ast_ref, node.location, node.parent);
+                    I(BoundFunctionCall, ptr_call).name = "ptr";
+                    I(BoundFunctionCall, ptr_call).arguments.push_back(ref);
+                    binder[ptr_call].type = type;
+                    binder[ref].parent = ptr_call;
+                    return ptr_call;
+                } break;
+                default:
+                    UNREACHABLE();
+            }
+        }
+        return ref;
+    }
+    if (desired.typespec.tag() == TypeKind::Slice && current_type.typespec.tag() == TypeKind::Array) {
         node.type = type;
         return ref;
     }

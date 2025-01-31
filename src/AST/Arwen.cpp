@@ -11,12 +11,14 @@
 #include <optional>
 #include <print>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <AST/AST.h>
 #include <AST/Operator.h>
 #include <Grammar/Parser.h>
 #include <Lexer/Lexer.h>
+#include <Type/Type.h>
 #include <Type/Value.h>
 
 #include <Lib.h>
@@ -38,10 +40,11 @@ std::vector<ASTNodeKind> expressionKinds = {
     ASTNodeKind::UnaryExpression,
 };
 
-std::array<ASTNodeKind, 3> typeKinds = {
+std::array<ASTNodeKind, 5> typeKinds = {
     ASTNodeKind::BasicTypeNode,
     ASTNodeKind::ArrayType,
     ASTNodeKind::PointerType,
+    ASTNodeKind::SliceType,
 };
 
 void list_cache(ArwenParser const &parser)
@@ -288,6 +291,14 @@ extern "C" {
     parser->impl.push_node(parser->last_token.location, ASTNodeKind::StringConstant, StringConstant { parser->last_token.text });
 }
 
+[[maybe_unused]] void arwen_make_char(P *parser)
+{
+    if (parser->last_token.tag() != KindTag::String) {
+        fatal("Expected quoted string, got '{s}'", parser->last_token.kind);
+    }
+    parser->impl.push_node(parser->last_token.location, ASTNodeKind::CharConstant, CharConstant { static_cast<u8>(parser->last_token.text[1]) });
+}
+
 [[maybe_unused]] void arwen_make_int(P *parser)
 {
     if (parser->last_token.tag() != KindTag::Number) {
@@ -477,9 +488,29 @@ extern "C" {
     parser->impl.push_node(parser->last_token.location, ASTNodeKind::BasicTypeNode, BasicTypeNode { .name = parser->last_token.text });
 }
 
-[[maybe_unused]] void arwen_make_array_type(P *parser)
+[[maybe_unused]] void arwen_push_slice_marker(P *parser)
 {
+    parser->impl.push_token(Token { TokenKind { KindTag::Null }, "" });
+}
+
+[[maybe_unused]] void arwen_push_expr_marker(P *parser)
+{
+    parser->impl.push_token(Token { TokenKind { KindTag::Symbol, 'x' }, "x" });
+}
+
+[[maybe_unused]] void arwen_make_subscriptable_type(P *parser)
+{
+    auto type_kind_marker = parser->impl.pop_token();
     auto &element_type = parser->impl.pop_one_of(typeKinds).ref;
+    if (type_kind_marker.text.empty()) {
+        parser->impl.push_node(
+            parser->last_token.location,
+            ASTNodeKind::SliceType,
+            SliceType {
+                .element_type = element_type,
+            });
+        return;
+    }
     auto &array_size = parser->impl.pop_node().ref;
     parser->impl.push_node(
         parser->last_token.location,

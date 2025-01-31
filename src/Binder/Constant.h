@@ -8,9 +8,11 @@
 #include <iostream>
 #include <ostream>
 
+#include <Logging.h>
+
 #include <AST/AST.h>
 #include <Binder/Binder.h>
-#include <Logging.h>
+#include <Type/Value.h>
 
 namespace Arwen {
 
@@ -24,6 +26,16 @@ inline BoundNodeReference bind<BoolConstant>(Binder &binder, NodeReference ast_r
     auto const &ast_impl = std::get<BoolConstant>(ast_node.impl);
     auto        ref = add_node<BoundConstant>(binder, ast_node.ref, ast_node.location, parent);
     IMPL.value = ast_impl.value;
+    return ref;
+}
+
+template<>
+inline BoundNodeReference bind<CharConstant>(Binder &binder, NodeReference ast_ref, BoundNodeReference parent)
+{
+    auto const &ast_node = binder.ast[ast_ref];
+    auto const &ast_impl = std::get<CharConstant>(ast_node.impl);
+    auto        ref = add_node<BoundConstant>(binder, ast_node.ref, ast_node.location, parent);
+    IMPL.value = Value { ast_impl.value };
     return ref;
 }
 

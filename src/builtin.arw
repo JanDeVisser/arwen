@@ -57,6 +57,19 @@ func lseek(fd: i32, offset: u64, whence: i32) i64 -> "lseek";
 func mmap(addr: *u8, len: u64, prot: i32, flags: i32, fd: i32, offset: u64) *u8 -> "mmap";
 func munmap(addr: *u8, len: u64) i32 -> "munmap";
 
+func reverse(s: string) string {
+    var pix: u64 = 0;
+    var qix: u64 = len(s) - 1;
+    while (pix < qix) {
+        var t: u8 = s[pix];
+        s[pix] = s[qix];
+        s[qix] = t;
+        pix = pix + 1;
+        qix = qix - 1;
+    }
+    return s;
+}
+
 func print(s: string) {
     write(1, ptr(s), len(s));
 }
@@ -64,6 +77,25 @@ func print(s: string) {
 func println(s: string) {
     print(s);
     print("\n");
+}
+
+func format(i: u64, buf: string, base: u64) string {
+    // FIXME: 'digits' is var and not const because we
+    // cannot yet subscript constants.
+    var digits: string = "0123456789abcdef";
+    if (i == 0) {
+        buf[0] = '0';
+        return make_string(ptr(buf), 1);
+    }
+    var p: u8 = 0;
+    while (i > 0) {
+        buf[p] = digits[i % base];
+        i = i / base;
+        p = p + 1;
+    }
+    var ret = make_string(ptr(buf), p);
+    reverse(ret);
+    return ret;
 }
 
 func file_size(fd: i32) u64 {

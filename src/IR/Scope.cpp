@@ -16,7 +16,7 @@
 #include <Type/Type.h>
 #include <Type/Value.h>
 
-#include <IR/Execute.inc>
+#include "ExecuteImpl.h"
 
 namespace Arwen::IR {
 

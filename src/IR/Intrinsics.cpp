@@ -30,8 +30,8 @@ void ptr(Scope &scope)
 
 void make_string(Scope &scope)
 {
-    auto pointer = scope.pop<u8*>();
     auto length = scope.pop<u64>();
+    auto pointer = scope.pop<u8*>();
     scope.push<SliceValue>({ length, pointer });
 }
 

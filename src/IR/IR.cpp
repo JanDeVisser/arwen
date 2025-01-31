@@ -79,7 +79,8 @@ void generate(BoundNodeReference ref, BoundAssignmentExpression const &impl, Bin
                 if (binex.op != BinaryOperator::Subscript) {
                     UNREACHABLE();
                 }
-                generate(binex.right, ir.program.binder, ir);
+                assert(binder.type_of(binex.right) == BoundNodeType::BoundSubscript);
+                generate(binex.right, binder, ir);
                 assert(binder.type_of(binex.left) == BoundNodeType::BoundIdentifier);
                 auto lhs = ir.get_variable_address(*I(BoundIdentifier, binex.left).declaration);
                 ir.add_op<PopArrayElement>(lhs, *binder[binex.left].type);
@@ -94,9 +95,9 @@ void generate(BoundNodeReference ref, BoundAssignmentExpression const &impl, Bin
 template<>
 void generate(BoundNodeReference ref, BoundBinaryExpression const &impl, Binder &binder, Function &ir)
 {
-    generate(impl.right, binder, ir);
     switch (impl.op) {
     case BinaryOperator::MemberAccess: {
+        generate(impl.right, binder, ir);
         assert(binder.type_of(impl.left) == BoundNodeType::BoundIdentifier);
         auto const &lhs = I(BoundIdentifier, impl.left);
         NYI();
@@ -104,13 +105,25 @@ void generate(BoundNodeReference ref, BoundBinaryExpression const &impl, Binder 
     } break;
     case BinaryOperator::Subscript: {
         assert(binder.type_of(impl.right) == BoundNodeType::BoundSubscript);
-        assert(binder.type_of(impl.left) == BoundNodeType::BoundIdentifier);
-        auto const &lhs = I(BoundIdentifier, impl.left);
-        auto array_type = binder.registry[*binder[impl.left].type];
-        ir.add_op<PushArrayElement>(ir.get_variable_address(*lhs.declaration), *binder[impl.left].type);
+        generate(impl.right, binder, ir);
+        switch (binder.type_of(impl.left)) {
+            case BoundNodeType::BoundIdentifier: {
+                auto const &lhs = I(BoundIdentifier, impl.left);
+                auto array_type = binder.registry[*binder[impl.left].type];
+                ir.add_op<PushArrayElement>(ir.get_variable_address(*lhs.declaration), *binder[impl.left].type);
+            } break;
+            case BoundNodeType::BoundConstant: {
+                auto const &lhs = I(BoundConstant, impl.left);
+                NYI();
+                // ir.add_op<PushArrayElement>(lhs.value, *binder[impl.left].type);
+            } break;
+            default:
+                UNREACHABLE();
+        }
         return;
     } break;
     default:
+        generate(impl.right, binder, ir);
         generate(impl.left, binder, ir);
         break;
     }
@@ -166,6 +179,12 @@ void link(Ref ref, Break &impl, Function &function)
 }
 
 template<>
+void generate(BoundNodeReference ref, BoundCoercion const &impl, Binder &binder, Function &ir)
+{
+    generate(impl.expression, binder, ir);
+}
+
+template<>
 void map(BoundNodeReference ref, BoundConstantDeclaration const &impl, Binder &binder, Module &ir)
 {
     if (std::holds_alternative<BoundConstant>(binder[impl.initializer].impl)) {
@@ -196,12 +215,6 @@ void generate(BoundNodeReference ref, BoundConstantDeclaration const &impl, Bind
     auto const &type = binder.registry[*binder[ref].type];
     generate(impl.initializer, ir.program.binder, ir);
     ir.add_op<PopVariable>(ir.get_variable_address(ref), type.ref);
-}
-
-template<>
-void generate(BoundNodeReference, BoundCoercion const &impl, Binder &, Function &ir)
-{
-    generate(impl.expression, ir.program.binder, ir);
 }
 
 template<>
@@ -249,44 +262,8 @@ void generate(BoundNodeReference ref, BoundFor const &impl, Binder &binder, Func
 }
 
 template<>
-void link(Ref ref, Jump &impl, Function &function)
-{
-    auto &op = function.ops[ref];
-    if (op.target) {
-        assert(function.scopes.contains(*op.target));
-        impl.target = function.scopes[*op.target];
-        op.target = {};
-    }
-}
-
-template<>
-void link(Ref ref, JumpF &impl, Function &function)
-{
-    auto &op = function.ops[ref];
-    if (op.target) {
-        assert(function.scopes.contains(*op.target));
-        impl.target = function.scopes[*op.target];
-        op.target = {};
-    }
-}
-
-template<>
-void link(Ref ref, JumpT &impl, Function &function)
-{
-    auto &op = function.ops[ref];
-    if (op.target) {
-        assert(function.scopes.contains(*op.target));
-        impl.target = function.scopes[*op.target];
-        op.target = {};
-    }
-}
-
-template<>
 void generate(BoundNodeReference ref, BoundFunctionCall const &impl, Binder &binder, Function &ir)
 {
-    for (auto it = impl.arguments.crbegin(); it != impl.arguments.crend(); ++it) {
-        generate(*it, binder, ir);
-    }
     assert(impl.function.has_value());
     std::optional<TypeReference> result_type = {};
     if (!impl.discard_result && *binder[ref].type != VoidType) {
@@ -297,12 +274,21 @@ void generate(BoundNodeReference ref, BoundFunctionCall const &impl, Binder &bin
     std::visit(
         overload {
             [&](BoundFunctionImplementation const &func_impl) {
-                ir.add_op<Call>(func_impl.name, func.ref, result_type);
+                for (auto const &arg : impl.arguments) {
+                    generate(arg, binder, ir);
+                }
+                ir.add_op<Call>(impl.name, func.ref, result_type);
             },
             [&](BoundForeignFunction const &foreign_func) {
+                for (auto it = impl.arguments.crbegin(); it != impl.arguments.crend(); ++it) {
+                    generate(*it, binder, ir);
+                }
                 ir.add_op<ForeignCall>(foreign_func.foreign_name, func.ref, result_type);
             },
             [&](BoundIntrinsic const &intrinsic) {
+                for (auto const &arg : impl.arguments) {
+                    generate(arg, binder, ir);
+                }
                 ir.add_op<Intrinsic>(intrinsic.name, result_type);
             },
             [&](auto const &) {
@@ -335,6 +321,39 @@ void generate(BoundNodeReference, BoundIf const &impl, Binder &, Function &ir)
         std::get<JumpF>(ir.ops[jump_to_else_ix].op).target = ir.ops.size();
         generate(*impl.false_branch, ir.program.binder, ir);
         std::get<Jump>(ir.ops[jump_to_end_ix].op).target = ir.ops.size();
+    }
+}
+
+template<>
+void link(Ref ref, Jump &impl, Function &function)
+{
+    auto &op = function.ops[ref];
+    if (op.target) {
+        assert(function.scopes.contains(*op.target));
+        impl.target = function.scopes[*op.target];
+        op.target = {};
+    }
+}
+
+template<>
+void link(Ref ref, JumpF &impl, Function &function)
+{
+    auto &op = function.ops[ref];
+    if (op.target) {
+        assert(function.scopes.contains(*op.target));
+        impl.target = function.scopes[*op.target];
+        op.target = {};
+    }
+}
+
+template<>
+void link(Ref ref, JumpT &impl, Function &function)
+{
+    auto &op = function.ops[ref];
+    if (op.target) {
+        assert(function.scopes.contains(*op.target));
+        impl.target = function.scopes[*op.target];
+        op.target = {};
     }
 }
 
@@ -379,10 +398,10 @@ void generate(BoundNodeReference, BoundReturn const &impl, Binder &binder, Funct
 }
 
 template<>
-void generate(BoundNodeReference, BoundSubscript const &impl, Binder &, Function &ir)
+void generate(BoundNodeReference ref, BoundSubscript const &impl, Binder &binder, Function &ir)
 {
     for (auto it = impl.subscripts.crbegin(); it != impl.subscripts.crend(); ++it) {
-        generate(*it, ir.program.binder, ir);
+        generate(*it, binder, ir);
     }
     ir.add_op<PushConstant>(static_cast<int64_t>(impl.subscripts.size()));
 }

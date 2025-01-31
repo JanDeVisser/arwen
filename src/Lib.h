@@ -15,6 +15,7 @@
 #include <map>
 #include <optional>
 #include <print>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -209,7 +210,23 @@ inline std::string_view trim(std::string_view const &s)
         return {};
 
     auto end = s.length() - 1;
-    while (static_cast<ssize_t>(end) >= 0 && isspace(s[end]))
+    while (static_cast<long long>(end) >= 0 && isspace(s[end]))
+        --end;
+    return s.substr(start, end + 1);
+}
+
+inline std::string trim(std::string const&s)
+{
+    if (s.empty())
+        return s;
+    auto start = 0;
+    while (start < s.length() && isspace(s[start]))
+        ++start;
+    if (start == s.length())
+        return {};
+
+    auto end = s.length() - 1;
+    while (static_cast<long long>(end) >= 0 && isspace(s[end]))
         --end;
     return s.substr(start, end + 1);
 }

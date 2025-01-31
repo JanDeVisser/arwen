@@ -11,7 +11,7 @@ std::string_view arwen_grammar = R"(
   lexer:       keyword
   lexer:       identifier
   lexer:       "number: signed=false;float=true;hex=true;binary=true"
-  lexer:       "qstring: quotes=\'\"`/"
+  lexer:       "qstring: quotes=\'\"`"
   lexer:       "comment: ignore=true;marker=/* */;marker=//"
 %
 
@@ -216,12 +216,15 @@ parlist_tail                := ,
 
 typespec                    := #ident            [ make_type                 ]
                              | '['
-                               expr
+                               subscriptable_typespec
                                ']'
-                               typespec          [ make_array_type           ]
+                               typespec          [ make_subscriptable_type   ]
                              | * typespec        [ make_pointer_type         ]
                              ;
 
+subscriptable_typespec      := expr              [ push_expr_marker          ]
+                             |                   [ push_slice_marker         ]
+                             ;
 
 expr                        := prec_14_operand
                                prec_14_rhs
@@ -355,7 +358,7 @@ prec_3_operand              := unary_op         [ push_current_token         ]
                              | prec_2_operand
                              ;
 
-unary_op                    := + | - | ! | ~ | * | &
+unary_op                    := + | - | ! | ~ | &
                              ;
 
 prec_2_operand              := prec_1_operand

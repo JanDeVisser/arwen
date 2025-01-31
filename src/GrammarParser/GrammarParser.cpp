@@ -4,18 +4,20 @@
  * SPDX-License-Identifier: MIT
  */
 
- #include <array>
- #include <format>
- #include <optional>
- #include <print>
- #include <string>
- #include <string_view>
+#include <array>
+#include <format>
+#include <optional>
+#include <print>
+#include <string>
+#include <string_view>
 
-#include <Grammar/Grammar.h>
-#include <Lexer/Lexer.h>
-#include <GrammarParser/GrammarParser.h>
 #include <Lib.h>
 #include <Result.h>
+#include <Unescape.h>
+
+#include <Grammar/Grammar.h>
+#include <GrammarParser/GrammarParser.h>
+#include <Lexer/Lexer.h>
 #include <Type/Value.h>
 
 namespace Arwen {
@@ -151,7 +153,7 @@ Error<GrammarParserError> GrammarParser::parse_non_terminal(Grammar &grammar)
     TRY_FORWARD(GrammarParserError::MalformedProduction, lexer.expect_symbol('='));
     Rule     rule { grammar, name.text };
     Sequence seq { grammar };
-    auto done {false};
+    auto     done { false };
     for (auto t = lexer.peek_next(); t && !done; t = lexer.peek_next()) {
         switch (t->tag()) {
         case KindTag::Symbol:
@@ -168,7 +170,7 @@ Error<GrammarParserError> GrammarParser::parse_non_terminal(Grammar &grammar)
                 lexer.advance();
                 break;
             default:
-                seq.symbols.emplace_back(TokenKind { KindTag::Symbol, t->kind.symbol() } );
+                seq.symbols.emplace_back(TokenKind { KindTag::Symbol, t->kind.symbol() });
                 lexer.advance();
                 break;
             }
@@ -194,20 +196,22 @@ Error<GrammarParserError> GrammarParser::parse_non_terminal(Grammar &grammar)
             }
             lexer.advance();
         } break;
-        case KindTag::String:
+        case KindTag::String: {
             switch (t->kind.quote()) {
-            case '\'':
-                switch (t->text[1]) {
+            case '\'': {
+                auto unescaped = unescape(t->text).must().value_or(std::string{t->text});
+                switch (unescaped[1]) {
                 case '"':
                 case '\'':
-                    seq.symbols.emplace_back(TokenKind { KindTag::String, t->text[1] });
+                case '`':
+                    seq.symbols.emplace_back(TokenKind { KindTag::String, unescaped[1] });
                     break;
                 default:
-                    seq.symbols.emplace_back(TokenKind { KindTag::Symbol, t->text[1] });
+                    seq.symbols.emplace_back(TokenKind { KindTag::Symbol, unescaped[1] });
                     break;
                 }
                 lexer.advance();
-                break;
+            } break;
             case '"': {
                 auto kw = t->text.substr(1, t->text.length() - 2);
                 grammar.lexer.Keywords.add(kw);
@@ -217,7 +221,7 @@ Error<GrammarParserError> GrammarParser::parse_non_terminal(Grammar &grammar)
             default:
                 return GrammarParserError::MalformedProduction;
             }
-            break;
+        } break;
         case KindTag::Eof:
             break;
         default:
@@ -245,7 +249,7 @@ Error<GrammarParserError> GrammarParser::parse(Grammar &grammar)
                 TRY(grammar_config(grammar));
                 break;
             default:
-            return GrammarParserError::UnexpectedSymbol;
+                return GrammarParserError::UnexpectedSymbol;
             }
             break;
         case KindTag::Identifier:
@@ -276,7 +280,7 @@ declaration := "A" | "B" ;
 )";
 
     GrammarParser gp { g };
-    Grammar grammar {};
+    Grammar       grammar {};
     gp.parse(grammar).must();
     grammar.dump();
 }
