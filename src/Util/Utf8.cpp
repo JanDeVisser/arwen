@@ -78,8 +78,8 @@ struct UTF8_std {
 
 struct UTF8 {
     UTF8()
-        : cd_in(iconv_open("UTF-32-INTERNAL", "UTF-8"))
-        , cd_out(iconv_open("UTF-8", "UTF-32-INTERNAL"))
+        : cd_in(iconv_open("WCHAR_T", "UTF-8"))
+        , cd_out(iconv_open("UTF-8", "WCHAR_T"))
     {
         assert(cd_in != reinterpret_cast<iconv_t>(-1));
         assert(cd_out != reinterpret_cast<iconv_t>(-1));

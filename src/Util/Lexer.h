@@ -15,6 +15,7 @@
 #include <Util/StringUtil.h>
 #include <Util/Token.h>
 #include <Util/Utf8.h>
+#include <variant>
 
 namespace Util {
 
@@ -32,8 +33,10 @@ template<typename Buffer>
 struct NoKeywords {
     using KeywordCategoryType = NoKeywordCategory;
     using KeywordCodeType = NoKeywordCode;
-    using Token = Token<KeywordCategoryType, KeywordCodeType>;
+    using Token = GenericToken<KeywordCategoryType, KeywordCodeType>;
     using Keyword = typename Token::Keyword;
+    using Keywords = NoKeywordCode;
+    using Categories = NoKeywordCategory;
 
     std::optional<std::tuple<Token, size_t>> pre_match(Buffer const &, size_t)
     {
@@ -68,7 +71,7 @@ std::optional<std::tuple<CategoryType, CodeType, MatchType>> match_keyword(std::
 
 template<typename Buffer, typename CategoryType, typename CodeType>
 struct EnumKeywords {
-    using Token = Token<CategoryType, CodeType>;
+    using Token = GenericToken<CategoryType, CodeType>;
     using Keyword = typename Token::Keyword;
     using Keywords = CodeType;
     using Categories = CategoryType;
@@ -121,7 +124,7 @@ public:
     using LexerError = Error<LexerErrorMessage>;
     using Keywords = typename Matcher::Keywords;
     using Categories = typename Matcher::Categories;
-    using Token = Token<Categories, Keywords>;
+    using Token = GenericToken<Categories, Keywords>;
     using LexerResult = Result<Token, LexerErrorMessage>;
 
     Lexer() = default;

@@ -18,6 +18,9 @@
 
 namespace Util {
 
+template<class... Ts>
+struct overloads : Ts... { using Ts::operator()...; };
+
 #define ENUMERATE_LOG_LEVELS(S) \
     S(None, 0)                  \
     S(Trace, 1)                 \

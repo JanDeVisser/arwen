@@ -245,7 +245,7 @@ enum class NoKeywordCode {
 };
 
 template<typename KeywordCategoryType = NoKeywordCategory, typename KeywordCodeType = NoKeywordCode, typename Char = char>
-struct Token {
+struct GenericToken {
     using Keywords = KeywordCodeType;
     using Categories = KeywordCategoryType;
 
@@ -256,83 +256,83 @@ struct Token {
 
     using TokenValue = std::variant<std::monostate, NumberType, QuotedString, CommentText, Keyword, Char>;
 
-    Token() = default;
-    Token(Token const &) = default;
+    GenericToken() = default;
+    GenericToken(GenericToken const &) = default;
 
     TokenKind     kind { TokenKind::Unknown };
     TokenLocation location {};
     TokenValue    value;
 
-    static Token number(NumberType type)
+    static GenericToken number(NumberType type)
     {
-        Token ret;
+        GenericToken ret;
         ret.kind = TokenKind::Number;
         ret.value = type;
         return ret;
     }
 
-    static Token symbol(Char sym)
+    static GenericToken symbol(Char sym)
     {
-        Token ret;
+        GenericToken ret;
         ret.kind = TokenKind::Symbol;
         ret.value = TokenValue { std::in_place_index<5>, sym };
         return ret;
     }
 
-    static Token keyword(KeywordCategoryType cat, KeywordCodeType code)
+    static GenericToken keyword(KeywordCategoryType cat, KeywordCodeType code)
     {
-        Token ret;
+        GenericToken ret;
         ret.kind = TokenKind::Keyword;
         ret.value = TokenValue { std::in_place_index<4>, Keyword { cat, code } };
         return ret;
     }
 
-    static Token whitespace()
+    static GenericToken whitespace()
     {
-        Token ret;
+        GenericToken ret;
         ret.kind = TokenKind::Whitespace;
         return ret;
     }
 
-    static Token tab()
+    static GenericToken tab()
     {
-        Token ret;
+        GenericToken ret;
         ret.kind = TokenKind::Tab;
         return ret;
     }
 
-    static Token identifier()
+    static GenericToken identifier()
     {
-        Token ret;
+        GenericToken ret;
         ret.kind = TokenKind::Identifier;
         return ret;
     }
 
-    static Token comment(CommentType type, bool terminated = true)
+    static GenericToken comment(CommentType type, bool terminated = true)
     {
-        Token ret;
+        GenericToken ret;
         ret.kind = TokenKind::Comment;
         ret.value = CommentText { .comment_type = type, .terminated = terminated };
         return ret;
     }
 
-    static Token end_of_line()
+    static GenericToken end_of_line()
     {
-        Token ret;
+        GenericToken ret;
         ret.kind = TokenKind::EndOfLine;
         return ret;
     }
 
-    static Token end_of_file()
+    static GenericToken end_of_file()
     {
-        Token ret;
+        GenericToken ret;
         ret.kind = TokenKind::EndOfFile;
         return ret;
     }
 
-    static Token string(QuoteType type, bool terminated = true, bool triple = false)
+    static GenericToken string(QuoteType type, bool terminated = true, bool triple = false)
     {
-        Token ret;
+        GenericToken ret;
         ret.kind = TokenKind::QuotedString;
         ret.value = QuotedString {
             .quote_type = type,
@@ -572,8 +572,8 @@ struct std::formatter<Util::TokenKind, char> {
 };
 
 template<typename KeywordCategoryType, typename KeywordCodeType>
-struct std::formatter<Util::Token<KeywordCategoryType, KeywordCodeType>, char> {
-    using Token = Util::Token<KeywordCategoryType, KeywordCodeType>;
+struct std::formatter<Util::GenericToken<KeywordCategoryType, KeywordCodeType>, char> {
+    using Token = Util::GenericToken<KeywordCategoryType, KeywordCodeType>;
 
     template<class ParseContext>
     constexpr typename ParseContext::iterator parse(ParseContext &ctx)
@@ -586,7 +586,7 @@ struct std::formatter<Util::Token<KeywordCategoryType, KeywordCodeType>, char> {
     }
 
     template<class FmtContext>
-    typename FmtContext::iterator format(Token const &token, FmtContext &ctx) const
+    typename FmtContext::iterator format(Util::GenericToken<KeywordCategoryType,KeywordCodeType> const &token, FmtContext &ctx) const
     {
         std::ostringstream out;
         out << "[" << Util::TokenKind_name(token.kind) << "] (" << token.location.index << ", " << token.location.length << ")";
