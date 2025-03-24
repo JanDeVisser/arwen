@@ -7,6 +7,7 @@
 #pragma once
 
 #include <cctype>
+#include <deque>
 #include <format>
 #include <string>
 #include <string_view>
@@ -15,7 +16,6 @@
 #include <Util/StringUtil.h>
 #include <Util/Token.h>
 #include <Util/Utf8.h>
-#include <variant>
 
 namespace Util {
 
@@ -153,6 +153,10 @@ public:
             trace(LEXER, "lexer.peek() -> {} [cached]", *m_current);
             return m_current.value();
         }
+        if (!pushed_back.empty()) {
+            m_current = pushed_back.back();
+            return m_current.value();
+        }
         while (!exhausted()) {
             TokenKind k;
             while (true) {
@@ -187,7 +191,9 @@ public:
     Token lex()
     {
         auto ret = peek();
-        if (!m_sources.empty()) {
+        if (!pushed_back.empty()) {
+            pushed_back.pop_back();
+        } else if (!m_sources.empty()) {
             m_sources.back().lex();
         }
         m_current.reset();
@@ -274,6 +280,12 @@ public:
     [[nodiscard]] bool exhausted() const
     {
         return m_sources.empty();
+    }
+
+    void push_back(Token token)
+    {
+        pushed_back.emplace_back(std::move(token));
+        m_current.reset();
     }
 
 private:
@@ -514,6 +526,7 @@ private:
         Matcher              matcher {};
     };
 
+    std::deque<Token>    pushed_back;
     std::vector<Source> m_sources {};
 };
 

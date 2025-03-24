@@ -239,6 +239,7 @@ struct CommentText {
 };
 
 enum class NoKeywordCategory {
+    None,
 };
 
 enum class NoKeywordCode {

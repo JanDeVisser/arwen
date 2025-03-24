@@ -74,6 +74,9 @@ include_directories(. src)
 add_executable(
         arwen
         src/App/arwen.cpp
+        src/App/Parser.cpp
+        src/App/Operator.cpp
+        src/App/SyntaxNode.cpp
 )
 
 target_link_libraries(
