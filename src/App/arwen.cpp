@@ -4,10 +4,11 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "Util/IO.h"
+#include "Util/Result.h"
 #include <iostream>
 #include <string_view>
 
-#include <Util/IO.h>
 #include <Util/Lexer.h>
 #include <Util/Logging.h>
 #include <Util/Options.h>
@@ -32,19 +33,18 @@ void usage()
 
 void compile_file(std::string_view file_name)
 {
-    auto contents_maybe = read_file_by_name<wchar_t>(file_name);
-    if (contents_maybe.is_error()) {
-        std::cerr << contents_maybe.error().to_string() << std::endl;
+    if (auto contents_maybe = read_file_by_name<wchar_t>(file_name); contents_maybe.has_value()) {
+        auto const &contents = contents_maybe.value();
+        Parser parser;
+        auto   mod = parser.parse_module(file_name, contents)->normalize();
+        if (mod) {
+            mod->dump();
+            return;
+        }
+        std::cerr << "Syntax error" << std::endl;
+    } else {
+        std::cerr << "Could not open '" << file_name << "': " << contents_maybe.error().to_string() << std::endl;
     }
-
-    auto  &contents = contents_maybe.value();
-    Parser parser;
-    auto   mod = parser.parse_module(file_name, contents)->normalize();
-    if (mod) {
-        mod->dump();
-        return;
-    }
-    std::cerr << "Syntax error" << std::endl;
 }
 
 int main(int argc, char const **argv)

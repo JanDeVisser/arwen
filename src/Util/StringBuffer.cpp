@@ -4,12 +4,10 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "StringBuffer.h"
-#include "Logging.h"
+#include <Util/StringBuffer.h>
+#include <Util/Logging.h>
 
-namespace Obelix {
-
-logging_category(stringbuffer);
+namespace Util {
 
 StringBuffer::StringBuffer(StringBuffer& other)
     : m_buffer_string(other.m_buffer_string)

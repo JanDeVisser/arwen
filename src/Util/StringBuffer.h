@@ -14,7 +14,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-namespace Obelix {
+namespace Util {
 
 class StringBuffer {
 public:

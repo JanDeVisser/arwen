@@ -6,8 +6,8 @@
 
 #pragma once
 
+#include <filesystem>
 #include <fstream>
-#include <locale>
 #include <netinet/in.h>
 #include <string>
 
@@ -43,10 +43,23 @@ private:
 Result<struct sockaddr_in> tcpip_address_resolve(std::string_view const &ip_address);
 CError                     fd_make_nonblocking(int fd);
 
+namespace fs = std::filesystem;
+
+struct SimpleFileLocator {
+    [[nodiscard]] static Result<fs::path> locate(std::string_view file_name)
+    {
+        fs::path p { file_name };
+        if (fs::exists(p)) {
+            return p;
+        }
+        return LibCError(ENOENT);
+    }
+};
+
 template<typename T = char>
-Result<std::basic_string<T>> read_file_by_name(std::string_view const &file_name)
+Result<std::basic_string<T>> read_file(fs::path const &file)
 {
-    std::ifstream is(std::string { file_name });
+    std::ifstream is(file.string(), std::ios::in);
     if (!is) {
         return LibCError();
     }
@@ -58,13 +71,20 @@ Result<std::basic_string<T>> read_file_by_name(std::string_view const &file_name
 }
 
 template<>
-inline Result<std::wstring> read_file_by_name(std::string_view const &file_name)
+inline Result<std::wstring> read_file(fs::path const &file)
 {
-    std::ifstream is(std::string { file_name });
+    std::ifstream is(file.string(), std::ios::binary | std::ios::in);
     if (!is) {
         return LibCError();
     }
     return read_utf8(is);
+}
+
+template<typename T = char, typename Locator = SimpleFileLocator>
+Result<std::basic_string<T>> read_file_by_name(std::string_view file)
+{
+    auto path = TRY_EVAL(Locator::locate(file));
+    return read_file<T>(path);
 }
 
 template<typename T = char>

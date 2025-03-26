@@ -6,8 +6,6 @@
 
 #pragma once
 
-#include <locale>
-
 #include <Util/Result.h>
 
 namespace Util {

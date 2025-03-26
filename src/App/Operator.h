@@ -31,6 +31,7 @@ using Precedence = uint16_t;
     S(AssignShiftLeft, "<<=")  \
     S(AssignShiftRight, ">>=") \
     S(AssignXor, "^=")         \
+    S(Embed, "@embed")         \
     S(Equals, "==")            \
     S(GreaterEqual, ">=")      \
     S(LessEqual, "<=")         \
@@ -129,13 +130,12 @@ using namespace Util;
 using namespace Arwen;
 
 template<>
-inline std::optional<std::tuple<NoKeywordCategory, ArwenKeyword, MatchType>> Util::match_keyword(std::string const &str)
+inline std::optional<std::tuple<ArwenKeyword, MatchType>> Util::match_keyword(std::string const &str)
 {
 #undef S
 #define S(KW, STR)                                                       \
     if (std::string_view(STR).starts_with(str)) {                        \
         return std::tuple {                                              \
-            NoKeywordCategory::None,                                     \
             ArwenKeyword::KW,                                            \
             (str == STR) ? MatchType::FullMatch : MatchType::PrefixMatch \
         };                                                               \

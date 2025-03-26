@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include "Util/Logging.h"
 #include <cctype>
 #include <deque>
 #include <format>
@@ -16,6 +17,7 @@
 #include <Util/StringUtil.h>
 #include <Util/Token.h>
 #include <Util/Utf8.h>
+#include <variant>
 
 namespace Util {
 
@@ -29,26 +31,35 @@ struct LexerErrorMessage {
     }
 };
 
+struct SkipToken { };
+
 template<typename Buffer>
 struct NoKeywords {
-    using KeywordCategoryType = NoKeywordCategory;
-    using KeywordCodeType = NoKeywordCode;
-    using Token = GenericToken<KeywordCategoryType, KeywordCodeType>;
-    using Keyword = typename Token::Keyword;
-    using Keywords = NoKeywordCode;
-    using Categories = NoKeywordCategory;
+    using Keyword = NoKeywordCode;
+    using Token = GenericToken<Keyword>;
+    using PeekResult = std::variant<Token, Buffer, SkipToken>;
 
-    std::optional<std::tuple<Token, size_t>> pre_match(Buffer const &, size_t)
+    struct MatchResult {
+        PeekResult result;
+        size_t     matched;
+    };
+
+    std::optional<MatchResult> pre_match(Buffer const &, size_t)
     {
         return {};
     }
 
-    std::optional<std::tuple<KeywordCategoryType, KeywordCodeType>> match(std::string const &)
+    PeekResult post_match(Buffer const &, Token const &)
     {
         return {};
     }
 
-    std::optional<std::tuple<KeywordCategoryType, KeywordCodeType, size_t>> match(Buffer const &, size_t)
+    std::optional<Keyword> match(std::string const &)
+    {
+        return {};
+    }
+
+    std::optional<std::tuple<Keyword, size_t>> match(Buffer const &, size_t)
     {
         return {};
     }
@@ -59,44 +70,49 @@ enum class MatchType {
     FullMatch,
 };
 
-enum class SimpleKeywordCategory {
-    Keyword,
-};
-
-template<typename CategoryType, typename CodeType>
-std::optional<std::tuple<CategoryType, CodeType, MatchType>> match_keyword(std::string const &str)
+template<typename Keyword>
+std::optional<std::tuple<Keyword, MatchType>> match_keyword(std::string const &str)
 {
     return {};
 }
 
-template<typename Buffer, typename CategoryType, typename CodeType>
+template<typename Buffer, typename KW>
 struct EnumKeywords {
-    using Token = GenericToken<CategoryType, CodeType>;
-    using Keyword = typename Token::Keyword;
-    using Keywords = CodeType;
-    using Categories = CategoryType;
+    using Keyword = KW;
+    using Token = GenericToken<Keyword>;
+    using PeekResult = std::variant<Token, Buffer, SkipToken>;
 
-    std::optional<std::tuple<Token, size_t>> pre_match(Buffer const &, size_t)
+    struct MatchResult {
+        PeekResult result;
+        size_t     matched;
+    };
+
+    std::optional<MatchResult> pre_match(Buffer const &, size_t)
     {
         return {};
     }
 
-    std::optional<std::tuple<CategoryType, CodeType>> match(std::string const &str)
+    PeekResult post_match(Buffer const &, Token const &)
     {
-        if (auto m = match_keyword<CategoryType, CodeType>(str); m && std::get<MatchType>(*m) == MatchType::FullMatch) {
-            return std::tuple { std::get<CategoryType>(*m), std::get<CodeType>(*m) };
+        return {};
+    }
+
+    std::optional<Keyword> match(std::string const &str)
+    {
+        if (auto m = match_keyword<Keyword>(str); m && std::get<MatchType>(*m) == MatchType::FullMatch) {
+            return std::get<Keyword>(*m);
         }
         return {};
     }
 
-    std::optional<std::tuple<CategoryType, CodeType, size_t>> match(Buffer const &buffer, size_t index)
+    std::optional<std::tuple<Keyword, size_t>> match(Buffer const &buffer, size_t index)
     {
         std::string scanned;
         for (auto ix = index; ix < buffer.length(); ++ix) {
             scanned += buffer[ix];
-            if (auto m = match_keyword<CategoryType, CodeType>(scanned)) {
+            if (auto m = match_keyword<Keyword>(scanned)) {
                 if (std::get<MatchType>(*m) == MatchType::FullMatch) {
-                    return std::tuple { std::get<CategoryType>(*m), std::get<CodeType>(*m), scanned.length() };
+                    return std::tuple { std::get<Keyword>(*m), scanned.length() };
                 }
             } else {
                 return {};
@@ -122,16 +138,17 @@ template<typename Buffer, typename Matcher = NoKeywords<Buffer>, typename Char =
 class Lexer {
 public:
     using LexerError = Error<LexerErrorMessage>;
-    using Keywords = typename Matcher::Keywords;
-    using Categories = typename Matcher::Categories;
-    using Token = GenericToken<Categories, Keywords>;
+    using Keyword = typename Matcher::Keyword;
+    using Token = GenericToken<Keyword>;
     using LexerResult = Result<Token, LexerErrorMessage>;
+    using PeekResult = typename Matcher::PeekResult;
+    using MatchResult = typename Matcher::MatchResult;
 
     Lexer() = default;
 
     void push_source(Buffer source)
     {
-        m_sources.emplace_back(this, source);
+        m_sources.emplace_back(this, std::move(source));
         if constexpr (!BackquotedStrings) {
             m_sources.back().quote_chars = "\"'";
         }
@@ -160,21 +177,29 @@ public:
         while (!exhausted()) {
             TokenKind k;
             while (true) {
-                m_current = m_sources.back().peek_next();
-                trace(LEXER, "lexer.peek() -> {} [source.peek_next()]", *m_current);
-                k = m_current->kind;
-                if constexpr (!Whitespace) {
-                    if (k == TokenKind::Whitespace || k == TokenKind::Tab || k == TokenKind::EndOfLine) {
-                        lex();
-                        trace(LEXER, "skip it");
-                        continue;
+                PeekResult res = m_sources.back().peek_next();
+                if (res.index() == 2) { // Skip it
+                    continue;
+                } else if (res.index() == 1) { // Push a new source buffer
+                    push_source(std::get<Buffer>(res));
+                    continue;
+                } else {
+                    m_current = std::get<Token>(res);
+                    trace(LEXER, "lexer.peek() -> {} [source.peek_next()]", *m_current);
+                    k = m_current->kind;
+                    if constexpr (!Whitespace) {
+                        if (k == TokenKind::Whitespace || k == TokenKind::Tab || k == TokenKind::EndOfLine) {
+                            lex();
+                            trace(LEXER, "skip it");
+                            continue;
+                        }
                     }
-                }
-                if constexpr (!Comments) {
-                    if (k == TokenKind::Comment) {
-                        lex();
-                        trace(LEXER, "skip it");
-                        continue;
+                    if constexpr (!Comments) {
+                        if (k == TokenKind::Comment) {
+                            lex();
+                            trace(LEXER, "skip it");
+                            continue;
+                        }
                     }
                 }
                 break;
@@ -218,7 +243,7 @@ public:
         return false;
     }
 
-    LexerError expect_keyword(Keywords code)
+    LexerError expect_keyword(Keyword code)
     {
         if (auto ret = peek(); !ret.matches_keyword(code)) {
             return LexerErrorMessage {
@@ -230,7 +255,7 @@ public:
         return {};
     }
 
-    bool accept_keyword(Keywords code)
+    bool accept_keyword(Keyword code)
     {
         if (auto ret = peek(); ret.matches_keyword(code)) {
             lex();
@@ -313,101 +338,108 @@ private:
         {
         }
 
-        Token const &peek_next()
+        PeekResult peek_next()
         {
             if (m_current.has_value()) {
                 return *m_current;
             }
 
-            m_current = peek();
-            m_location.length = m_index - m_location.index;
-            m_current->location = m_location;
-            return *m_current;
+            auto res = peek();
+            return std::visit(overloads {
+                                  [this](Token const &token) -> PeekResult {
+                                      m_current = token;
+                                      return PeekResult { *m_current };
+                                  },
+                                  [this, &res](Buffer const &) -> PeekResult {
+                                      return res;
+                                  },
+                                  [this, &res](SkipToken const &) -> PeekResult {
+                                      return res;
+                                  },
+                              },
+                res);
         }
 
-        Token peek()
+        PeekResult peek()
         {
             if (m_index >= m_buffer.length()) {
                 return Token::end_of_file();
             }
-            m_scanned.clear();
-            auto cur = m_buffer[m_index];
-            if (m_in_comment) {
-                if (cur == '\n') {
-                    ++m_index;
-                    return Token::end_of_line();
-                }
-                return block_comment();
+            if (auto res = matcher.pre_match(m_buffer, m_index); res) {
+                m_index += res->matched;
+                return res->result;
             }
-            if (cur == '/') {
-                switch (m_buffer[m_index + 1]) {
-                case '/': {
-                    m_index += 2;
-                    for (; m_index < m_buffer.length() && m_buffer[m_index] != '\n'; ++m_index)
-                        ;
-                    return Token::comment(CommentType::Line);
-                }
-                case '*': {
+            auto match_token = [this]() -> Token {
+                m_scanned.clear();
+                auto cur = m_buffer[m_index];
+                if (m_in_comment) {
+                    if (cur == '\n') {
+                        ++m_index;
+                        return Token::end_of_line();
+                    }
                     return block_comment();
                 }
+                if (cur == '/') {
+                    switch (m_buffer[m_index + 1]) {
+                    case '/': {
+                        m_index += 2;
+                        for (; m_index < m_buffer.length() && m_buffer[m_index] != '\n'; ++m_index)
+                            ;
+                        return Token::comment(CommentType::Line);
+                    }
+                    case '*': {
+                        return block_comment();
+                    }
+                    default:
+                        break;
+                    }
+                }
+                if (isdigit(cur)) {
+                    return scan_number();
+                }
+                if (strchr(quote_chars, cur)) {
+                    ++m_index;
+                    while (m_index < m_buffer.length() && m_buffer[m_index] != cur) {
+                        m_index += (m_buffer[m_index] == '\\') ? 2 : 1;
+                    }
+                    ++m_index;
+                    return { Token::string(static_cast<QuoteType>(cur), m_index < m_buffer.length()) };
+                }
+                switch (cur) {
+                case '\n':
+                    ++m_index;
+                    return Token::end_of_line();
+                case '\t':
+                    ++m_index;
+                    return Token::tab();
+                case ' ':
+                    while (m_index < m_buffer.length() && m_buffer[m_index] == ' ') {
+                        ++m_index;
+                    }
+                    return Token::whitespace();
                 default:
                     break;
                 }
-            }
-            if (auto t = matcher.pre_match(m_buffer, m_index)) {
-                auto token = std::get<Token>(*t);
-                m_index += std::get<size_t>(*t);
-                return token;
-            }
-            if (isdigit(cur)) {
-                return scan_number();
-            }
-            if (strchr(quote_chars, cur)) {
-                ++m_index;
-                while (m_index < m_buffer.length() && m_buffer[m_index] != cur) {
-                    m_index += (m_buffer[m_index] == '\\') ? 2 : 1;
+                if (isalpha(cur) || cur == '_') {
+                    for (; isalnum(m_buffer[m_index]) || m_buffer[m_index] == '_'; ++m_index) {
+                        m_scanned += m_buffer[m_index];
+                    }
+                    if (auto kw = matcher.match(m_scanned); kw) {
+                        return Token::keyword(*kw);
+                    }
+                    return Token::identifier();
                 }
-                ++m_index;
-                return { Token::string(static_cast<QuoteType>(cur), m_index < m_buffer.length()) };
-            }
-            switch (cur) {
-            case '\n':
-                ++m_index;
-                return Token::end_of_line();
-            case '\t':
-                ++m_index;
-                return Token::tab();
-            case ' ':
-                while (m_index < m_buffer.length() && m_buffer[m_index] == ' ') {
-                    ++m_index;
-                }
-                return Token::whitespace();
-            default:
-                break;
-            }
-            if (isalpha(cur) || cur == '_') {
-                for (; isalnum(m_buffer[m_index]) || m_buffer[m_index] == '_'; ++m_index) {
-                    m_scanned += m_buffer[m_index];
-                }
-                if (auto kw = matcher.match(m_scanned); kw) {
-                    return Token::keyword(std::get<typename Matcher::Categories>(*kw), std::get<typename Matcher::Keywords>(*kw));
-                }
-                return Token::identifier();
-            }
 
-            if (auto kw = matcher.match(m_buffer, m_index); kw) {
-                m_index += std::get<size_t>(*kw);
-                return Token::keyword(std::get<typename Matcher::Categories>(*kw), std::get<typename Matcher::Keywords>(*kw));
-            }
-            ++m_index;
-            return Token::symbol(static_cast<int>(cur));
-        }
-
-        void lex()
-        {
-            if (!m_current) {
-                return;
-            }
+                if (auto kw = matcher.match(m_buffer, m_index); kw) {
+                    m_index += std::get<size_t>(*kw);
+                    return Token::keyword(std::get<Keyword>(*kw));
+                }
+                ++m_index;
+                return Token::symbol(static_cast<int>(cur));
+            };
+            auto token = match_token();
+            m_location.length = m_index - m_location.index;
+            token.location = m_location;
             m_location.index = m_index;
             if (m_current->kind == TokenKind::EndOfLine) {
                 ++m_location.line;
@@ -416,6 +448,14 @@ private:
                 m_location.column += m_location.length;
             }
             m_location.length = 0;
+            return matcher.post_match(m_buffer, match_token());
+        }
+
+        void lex()
+        {
+            if (!m_current) {
+                return;
+            }
             m_current.reset();
         }
 
@@ -526,7 +566,7 @@ private:
         Matcher              matcher {};
     };
 
-    std::deque<Token>    pushed_back;
+    std::deque<Token>   pushed_back;
     std::vector<Source> m_sources {};
 };
 

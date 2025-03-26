@@ -161,7 +161,7 @@ Result<JSONValue, JSONValue::ReadError> JSONValue::read_file(std::string_view co
     return json_maybe.value();
 }
 
-using JSONLexer = Lexer<std::string_view, EnumKeywords<std::string_view, SimpleKeywordCategory, JSONKeyword>, char>;
+using JSONLexer = Lexer<std::string_view, EnumKeywords<std::string_view, JSONKeyword>, char>;
 using JSONToken = JSONLexer::Token;
 
 Result<JSONValue, JSONError> decode_value(JSONLexer &lexer, std::string_view const &str)
@@ -274,7 +274,7 @@ Result<JSONValue, JSONError> decode_value(JSONLexer &lexer, std::string_view con
         }
     }
     case TokenKind::Keyword: {
-        switch (token.keyword().code) {
+        switch (token.keyword()) {
         case JSONKeyword::False:
             return JSONValue(false);
         case JSONKeyword::True:
@@ -296,13 +296,12 @@ Result<JSONValue, JSONError> decode_value(JSONLexer &lexer, std::string_view con
 }
 
 template<>
-[[nodiscard]] std::optional<std::tuple<SimpleKeywordCategory, JSONKeyword, MatchType>> match_keyword(std::string const &str)
+[[nodiscard]] std::optional<std::tuple<JSONKeyword, MatchType>> match_keyword(std::string const &str)
 {
 #undef S
 #define S(KW, STR)                                                       \
     if (std::string_view(STR).starts_with(str)) {                        \
         return std::tuple {                                              \
-            SimpleKeywordCategory::Keyword,                              \
             JSONKeyword::KW,                                             \
             (str == STR) ? MatchType::FullMatch : MatchType::PrefixMatch \
         };                                                               \

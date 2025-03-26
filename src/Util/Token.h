@@ -238,23 +238,12 @@ struct CommentText {
     bool        terminated;
 };
 
-enum class NoKeywordCategory {
-    None,
-};
-
 enum class NoKeywordCode {
 };
 
-template<typename KeywordCategoryType = NoKeywordCategory, typename KeywordCodeType = NoKeywordCode, typename Char = char>
+template<typename KW = NoKeywordCode, typename Char = char>
 struct GenericToken {
-    using Keywords = KeywordCodeType;
-    using Categories = KeywordCategoryType;
-
-    struct Keyword {
-        Categories category;
-        Keywords   code;
-    };
-
+    using Keyword = KW;
     using TokenValue = std::variant<std::monostate, NumberType, QuotedString, CommentText, Keyword, Char>;
 
     GenericToken() = default;
@@ -280,11 +269,11 @@ struct GenericToken {
         return ret;
     }
 
-    static GenericToken keyword(KeywordCategoryType cat, KeywordCodeType code)
+    static GenericToken keyword(Keyword const &kw)
     {
         GenericToken ret;
         ret.kind = TokenKind::Keyword;
-        ret.value = TokenValue { std::in_place_index<4>, Keyword { cat, code } };
+        ret.value = TokenValue { std::in_place_index<4>, kw };
         return ret;
     }
 
@@ -361,11 +350,9 @@ struct GenericToken {
         return std::get<4>(value);
     }
 
-    [[nodiscard]] KeywordCodeType keyword_code() const
+    [[nodiscard]] Keyword const& keyword_code() const
     {
-        assert(kind == TokenKind::Keyword);
-        auto kw = keyword();
-        return kw.code;
+        return keyword();
     }
 
     [[nodiscard]] QuotedString const &quoted_string() const
@@ -400,20 +387,19 @@ struct GenericToken {
         return !matches(s);
     }
 
-    bool operator==(KeywordCodeType const &code) const
+    bool operator==(Keyword const &kw) const
     {
-        return matches(code);
+        return matches(kw);
     }
 
-    bool operator!=(KeywordCodeType const &code) const
+    bool operator!=(Keyword const &kw) const
     {
-        return !matches(code);
+        return !matches(kw);
     }
 
     [[nodiscard]] bool matches(TokenKind k) const { return kind == k; }
     [[nodiscard]] bool matches_symbol(Char symbol) const { return matches(TokenKind::Symbol) && this->symbol_code() == symbol; }
-    [[nodiscard]] bool matches_keyword(KeywordCategoryType cat, KeywordCodeType code) const { return matches(TokenKind::Keyword) && this->keyword().category == cat && this->keyword().code == code; }
-    [[nodiscard]] bool matches_keyword(KeywordCodeType code) const { return matches(TokenKind::Keyword) && this->keyword().code == code; }
+    [[nodiscard]] bool matches_keyword(Keyword const& kw) const { return matches(TokenKind::Keyword) && this->keyword() == kw; }
     [[nodiscard]] bool is_identifier() const { return matches(TokenKind::Identifier); }
 };
 
@@ -572,9 +558,9 @@ struct std::formatter<Util::TokenKind, char> {
     }
 };
 
-template<typename KeywordCategoryType, typename KeywordCodeType>
-struct std::formatter<Util::GenericToken<KeywordCategoryType, KeywordCodeType>, char> {
-    using Token = Util::GenericToken<KeywordCategoryType, KeywordCodeType>;
+template<typename Keyword>
+struct std::formatter<Util::GenericToken<Keyword>, char> {
+    using Token = Util::GenericToken<Keyword>;
 
     template<class ParseContext>
     constexpr typename ParseContext::iterator parse(ParseContext &ctx)
@@ -587,7 +573,7 @@ struct std::formatter<Util::GenericToken<KeywordCategoryType, KeywordCodeType>, 
     }
 
     template<class FmtContext>
-    typename FmtContext::iterator format(Util::GenericToken<KeywordCategoryType,KeywordCodeType> const &token, FmtContext &ctx) const
+    typename FmtContext::iterator format(Token const &token, FmtContext &ctx) const
     {
         std::ostringstream out;
         out << "[" << Util::TokenKind_name(token.kind) << "] (" << token.location.index << ", " << token.location.length << ")";
