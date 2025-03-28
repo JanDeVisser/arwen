@@ -6,11 +6,9 @@
 
 #include <memory>
 #include <string>
-#include <variant>
 #include <vector>
 
 #include <App/Operator.h>
-#include <Util/Token.h>
 
 namespace Arwen {
 

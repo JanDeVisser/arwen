@@ -4,10 +4,9 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "App/Operator.h"
-#include "Util/Token.h"
 #include <Util/Logging.h>
 
+#include <App/Operator.h>
 #include <App/Parser.h>
 
 namespace Arwen {
@@ -93,7 +92,7 @@ pSyntaxNode Parser::parse_statement()
     case TokenKind::QuotedString:
         return parse_top_expression();
     case TokenKind::Keyword: {
-        switch (t.keyword_code()) {
+        switch (t.keyword()) {
         case ArwenKeyword::Break:
         case ArwenKeyword::Continue:
             return parse_break_continue();
@@ -128,11 +127,12 @@ pSyntaxNode Parser::parse_statement()
             if (auto expr = parse_top_expression(); expr) {
                 return expr;
             }
-            std::cerr << "Unexpected symbol '" << t.symbol_code() << "'" << std::endl;
+            std::wcerr << "Unexpected symbol '" << t.symbol_code() << "'" << std::endl;
             lexer.lex();
             return nullptr;
         }
     default:
+        lexer.lex();
         return nullptr;
     }
 }
@@ -170,7 +170,7 @@ pSyntaxNode Parser::parse_primary()
         break;
     }
     case TokenKind::Keyword:
-        std::cerr << "Unexpected keyword `" << ArwenKeyword_name(token.keyword_code()) << "`\n";
+        std::cerr << "Unexpected keyword `" << ArwenKeyword_name(token.keyword()) << "`\n";
         return nullptr;
     case TokenKind::Symbol: {
         if (token.symbol_code() == L'(') {

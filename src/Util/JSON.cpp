@@ -147,7 +147,6 @@ enum class JSONKeyword {
 
 Result<JSONValue, JSONValue::ReadError> JSONValue::read_file(std::string_view const &file_name)
 {
-    trace(JSON, "Reading JSON file '{}'", file_name);
     auto json_text_maybe = read_file_by_name(file_name);
     if (json_text_maybe.is_error()) {
         log_error("Error reading JSON file '{}': {}", file_name, json_text_maybe.error().to_string());
@@ -161,8 +160,9 @@ Result<JSONValue, JSONValue::ReadError> JSONValue::read_file(std::string_view co
     return json_maybe.value();
 }
 
-using JSONLexer = Lexer<std::string_view, EnumKeywords<std::string_view, JSONKeyword>, char>;
-using JSONToken = JSONLexer::Token;
+using JSONLexerTypes = LexerTypes<std::string_view, char, JSONKeyword>;
+using JSONLexer = Lexer<JSONLexerTypes, JSONLexerTypes::CScannerPack>;
+using JSONToken = JSONLexerTypes::Token;
 
 Result<JSONValue, JSONError> decode_value(JSONLexer &lexer, std::string_view const &str)
 {
@@ -183,7 +183,6 @@ Result<JSONValue, JSONError> decode_value(JSONLexer &lexer, std::string_view con
                 static_cast<int>(token.location.column),
             };
         }
-        trace(JSON, "decode_string({})", token);
         if (token.location.length > 2) {
             std::string qstr { str.substr(token.location.index + 1, token.location.length - 2) };
             replace_all(qstr, R"(\r)", "\r"sv);
@@ -211,7 +210,6 @@ Result<JSONValue, JSONError> decode_value(JSONLexer &lexer, std::string_view con
     };
 
     auto const &token = lexer.lex();
-    trace(JSON, "decode_value token: {}", token);
     switch (token.kind) {
     case TokenKind::Symbol: {
         switch (token.symbol_code()) {
@@ -219,12 +217,9 @@ Result<JSONValue, JSONError> decode_value(JSONLexer &lexer, std::string_view con
             auto result = JSONValue::object();
             while (!lexer.accept_symbol('}')) {
                 auto const name_token = lexer.lex();
-                trace(JSON, "name_token: {}", name_token);
                 auto name = TRY_EVAL(decode_string(name_token));
-                trace(JSON, "Name: {}", name);
                 TRY(expect_symbol(':'));
                 auto value = TRY_EVAL(decode_value(lexer, str));
-                trace(JSON, "NVP: {}: {}", name, value.to_string());
                 result.set(name, value);
                 if (!lexer.accept_symbol(',')) {
                     TRY(expect_symbol('}'));
@@ -237,7 +232,6 @@ Result<JSONValue, JSONError> decode_value(JSONLexer &lexer, std::string_view con
             auto result = JSONValue::array();
             while (!lexer.accept_symbol(']')) {
                 auto value = TRY_EVAL(decode_value(lexer, str));
-                trace(JSON, "Array elem: {}", value.to_string());
                 result.append(value);
                 if (!lexer.accept_symbol(',')) {
                     TRY(expect_symbol(']'));
@@ -256,7 +250,6 @@ Result<JSONValue, JSONError> decode_value(JSONLexer &lexer, std::string_view con
         }
     }
     case TokenKind::QuotedString: {
-        trace(JSON, "QuotedString: {}", token);
         return JSONValue { TRY_EVAL(decode_string(token)) };
     }
     case TokenKind::Number: {
@@ -295,16 +288,18 @@ Result<JSONValue, JSONError> decode_value(JSONLexer &lexer, std::string_view con
     }
 }
 
+using JSONKeywordMatch = KeywordMatch<JSONKeyword>;
+
 template<>
-[[nodiscard]] std::optional<std::tuple<JSONKeyword, MatchType>> match_keyword(std::string const &str)
+[[nodiscard]] std::optional<JSONKeywordMatch> match_keyword(std::string const &str)
 {
 #undef S
-#define S(KW, STR)                                                       \
-    if (std::string_view(STR).starts_with(str)) {                        \
-        return std::tuple {                                              \
-            JSONKeyword::KW,                                             \
-            (str == STR) ? MatchType::FullMatch : MatchType::PrefixMatch \
-        };                                                               \
+#define S(KW, STR)                                                                                           \
+    if (std::string_view(STR).starts_with(str)) {                                                            \
+        return JSONKeywordMatch {                                                                                             \
+            JSONKeyword::KW,                                                                                 \
+            (str == STR) ? JSONKeywordMatch::MatchType::FullMatch : JSONKeywordMatch::MatchType::PrefixMatch \
+        };                                                                                                   \
     }
     JSONKEYWORD(S)
 #undef S

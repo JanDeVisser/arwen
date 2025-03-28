@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <Util/Token.h>
+#include <Util/Lexer.h>
 
 namespace Util {
 

@@ -6,20 +6,147 @@
 
 #pragma once
 
-#include "Util/Logging.h"
 #include <cctype>
 #include <deque>
 #include <format>
+#include <iostream>
 #include <string>
 #include <string_view>
-
-#include <Util/Result.h>
-#include <Util/StringUtil.h>
-#include <Util/Token.h>
-#include <Util/Utf8.h>
 #include <variant>
 
+#include <Util/Logging.h>
+#include <Util/Result.h>
+#include <Util/StringUtil.h>
+#include <Util/Utf8.h>
+
 namespace Util {
+
+struct NoSuchEnumValue {
+    std::string enum_name;
+    std::string value;
+};
+
+template<typename ResultType>
+using EnumResult = Result<ResultType, NoSuchEnumValue>;
+
+#define VALUE_TOKENKINDS(S) \
+    S(Symbol)               \
+    S(Number)               \
+    S(QuotedString)         \
+    S(Comment)
+
+#define TOKENKINDS(S)   \
+    S(Unknown)          \
+    VALUE_TOKENKINDS(S) \
+    S(Keyword)          \
+    S(EndOfFile)        \
+    S(EndOfLine)        \
+    S(Identifier)       \
+    S(Tab)              \
+    S(Whitespace)       \
+    S(Program)          \
+    S(Module)
+
+enum class TokenKind {
+#undef S
+#define S(kind) kind,
+    TOKENKINDS(S)
+#undef S
+};
+
+inline std::string TokenKind_name(TokenKind kind)
+{
+    switch (kind) {
+#undef S
+#define S(K)           \
+    case TokenKind::K: \
+        return std::format("{} *{}*", #K, static_cast<int>(kind));
+        TOKENKINDS(S)
+#undef S
+    default:
+        UNREACHABLE();
+    }
+}
+
+inline EnumResult<TokenKind> TokenKind_from_string(std::string_view const &kind)
+{
+#undef S
+#define S(K)        \
+    if (kind == #K) \
+        return TokenKind::K;
+    TOKENKINDS(S)
+#undef S
+    return NoSuchEnumValue { "TokenKind", std::string(kind) };
+}
+
+#define QUOTETYPES(S)    \
+    S(SingleQuote, '\'') \
+    S(DoubleQuote, '"')  \
+    S(BackQuote, '`')
+
+enum class QuoteType : char {
+#undef S
+#define S(T, Q) T = (Q),
+    QUOTETYPES(S)
+#undef S
+};
+
+extern std::string           QuoteType_name(QuoteType quote);
+extern EnumResult<QuoteType> QuoteType_from_string(std::string_view quote);
+
+#define COMMENTTYPES(S) \
+    S(Block)            \
+    S(Line)
+
+enum class CommentType {
+#undef S
+#define S(T) T,
+    COMMENTTYPES(S)
+#undef S
+};
+
+extern std::string             CommentType_name(CommentType quote);
+extern EnumResult<CommentType> CommentType_from_string(std::string_view comment);
+
+#define NUMBERTYPES(S) \
+    S(Integer)         \
+    S(Decimal)         \
+    S(HexNumber)       \
+    S(BinaryNumber)
+
+enum class NumberType : int {
+#undef S
+#define S(T) T,
+    NUMBERTYPES(S)
+#undef S
+};
+
+extern std::string            NumberType_name(NumberType quote);
+extern EnumResult<NumberType> NumberType_from_string(std::string_view comment);
+
+struct TokenLocation {
+    TokenLocation() = default;
+    TokenLocation(TokenLocation const &) = default;
+
+    size_t index { 0 };
+    size_t length { 0 };
+    size_t line { 0 };
+    size_t column { 0 };
+};
+
+struct QuotedString {
+    QuoteType quote_type;
+    bool      triple;
+    bool      terminated;
+};
+
+struct CommentText {
+    CommentType comment_type;
+    bool        terminated;
+};
+
+enum class NoKeywordCode {
+};
 
 struct LexerErrorMessage {
     TokenLocation location;
@@ -31,127 +158,509 @@ struct LexerErrorMessage {
     }
 };
 
-struct SkipToken { };
-
-template<typename Buffer>
-struct NoKeywords {
-    using Keyword = NoKeywordCode;
-    using Token = GenericToken<Keyword>;
-    using PeekResult = std::variant<Token, Buffer, SkipToken>;
-
-    struct MatchResult {
-        PeekResult result;
-        size_t     matched;
+template<typename Keyword = NoKeywordCode>
+struct KeywordMatch {
+    enum class MatchType {
+        PrefixMatch,
+        FullMatch,
     };
-
-    std::optional<MatchResult> pre_match(Buffer const &, size_t)
-    {
-        return {};
-    }
-
-    PeekResult post_match(Buffer const &, Token const &)
-    {
-        return {};
-    }
-
-    std::optional<Keyword> match(std::string const &)
-    {
-        return {};
-    }
-
-    std::optional<std::tuple<Keyword, size_t>> match(Buffer const &, size_t)
-    {
-        return {};
-    }
-};
-
-enum class MatchType {
-    PrefixMatch,
-    FullMatch,
+    Keyword   keyword;
+    MatchType match_type;
 };
 
 template<typename Keyword>
-std::optional<std::tuple<Keyword, MatchType>> match_keyword(std::string const &str)
+std::optional<KeywordMatch<Keyword>> match_keyword(std::string const &str)
 {
     return {};
 }
 
-template<typename Buffer, typename KW>
-struct EnumKeywords {
+template<typename B, typename C = wchar_t, typename KW = NoKeywordCode>
+struct LexerTypes {
+    using Buffer = B;
+    using Char = C;
     using Keyword = KW;
-    using Token = GenericToken<Keyword>;
-    using PeekResult = std::variant<Token, Buffer, SkipToken>;
 
-    struct MatchResult {
-        PeekResult result;
-        size_t     matched;
+    using KWMatch = KeywordMatch<Keyword>;
+
+    struct Token {
+        using TokenValue = std::variant<std::monostate, NumberType, QuotedString, CommentText, Char, Keyword>;
+
+        Token() = default;
+        Token(Token const &) = default;
+
+        TokenKind     kind { TokenKind::Unknown };
+        TokenLocation location {};
+        TokenValue    value;
+
+        static Token number(NumberType type)
+        {
+            Token ret;
+            ret.kind = TokenKind::Number;
+            ret.value = type;
+            return ret;
+        }
+
+        static Token symbol(Char sym)
+        {
+            Token ret;
+            ret.kind = TokenKind::Symbol;
+            ret.value.template emplace<Char>(sym);
+            return ret;
+        }
+
+        static Token keyword(Keyword kw)
+        {
+            Token ret;
+            ret.kind = TokenKind::Keyword;
+            ret.value.template emplace<Keyword>(kw);
+            return ret;
+        }
+
+        static Token whitespace()
+        {
+            Token ret;
+            ret.kind = TokenKind::Whitespace;
+            return ret;
+        }
+
+        static Token tab()
+        {
+            Token ret;
+            ret.kind = TokenKind::Tab;
+            return ret;
+        }
+
+        static Token identifier()
+        {
+            Token ret;
+            ret.kind = TokenKind::Identifier;
+            return ret;
+        }
+
+        static Token comment(CommentType type, bool terminated = true)
+        {
+            Token ret;
+            ret.kind = TokenKind::Comment;
+            ret.value = CommentText { .comment_type = type, .terminated = terminated };
+            return ret;
+        }
+
+        static Token end_of_line()
+        {
+            Token ret;
+            ret.kind = TokenKind::EndOfLine;
+            return ret;
+        }
+
+        static Token end_of_file()
+        {
+            Token ret;
+            ret.kind = TokenKind::EndOfFile;
+            return ret;
+        }
+
+        static Token string(QuoteType type, bool terminated = true, bool triple = false)
+        {
+            Token ret;
+            ret.kind = TokenKind::QuotedString;
+            ret.value = QuotedString {
+                .quote_type = type,
+                .triple = triple,
+                .terminated = terminated
+            };
+            return ret;
+        }
+
+        [[nodiscard]] NumberType number_type() const
+        {
+            assert(kind == TokenKind::Number);
+            return std::get<NumberType>(value);
+        }
+
+        [[nodiscard]] Char symbol_code() const
+        {
+            assert(kind == TokenKind::Symbol);
+            return std::get<Char>(value);
+        }
+
+        [[nodiscard]] Keyword keyword() const
+        {
+            assert(kind == TokenKind::Keyword);
+            return std::get<Keyword>(value);
+        }
+
+        [[nodiscard]] QuotedString const &quoted_string() const
+        {
+            assert(kind == TokenKind::QuotedString);
+            return std::get<QuotedString>(value);
+        }
+
+        [[nodiscard]] CommentText const &comment_text() const
+        {
+            assert(kind == TokenKind::Comment);
+            return std::get<CommentText>(value);
+        }
+
+        bool operator==(TokenKind const &k) const
+        {
+            return k == kind;
+        }
+
+        bool operator!=(TokenKind const &k) const
+        {
+            return k != kind;
+        }
+
+        bool operator==(wchar_t s) const
+        {
+            return matches_symbol(s);
+        }
+
+        bool operator!=(wchar_t s) const
+        {
+            return !matches_symbol(s);
+        }
+
+        [[nodiscard]] bool matches(TokenKind k) const { return kind == k; }
+        [[nodiscard]] bool matches_symbol(Char symbol) const { return matches(TokenKind::Symbol) && this->symbol_code() == symbol; }
+        [[nodiscard]] bool matches_keyword(Keyword kw) const { return matches(TokenKind::Keyword) && this->keyword() == kw; }
+        [[nodiscard]] bool is_identifier() const { return matches(TokenKind::Identifier); }
     };
 
-    std::optional<MatchResult> pre_match(Buffer const &, size_t)
-    {
-        return {};
-    }
+    using LexerResult = Result<Token, LexerErrorMessage>;
 
-    PeekResult post_match(Buffer const &, Token const &)
-    {
-        return {};
-    }
+    struct SkipToken { };
 
-    std::optional<Keyword> match(std::string const &str)
-    {
-        if (auto m = match_keyword<Keyword>(str); m && std::get<MatchType>(*m) == MatchType::FullMatch) {
-            return std::get<Keyword>(*m);
+    struct ScanResult {
+        std::variant<Token, Buffer, SkipToken> result;
+        size_t                                 matched;
+
+        ScanResult() = default;
+        ScanResult(ScanResult const&) = default;
+        ScanResult& operator=(ScanResult const&) = default;
+
+        template <typename T>
+        ScanResult(T result, size_t matched)
+            : result(std::move(result))
+            , matched(matched)
+        {
+            // std::cout << "ScanResult matched " << this->matched << " ";
+            // std::visit(overloads {
+            //     [](Token const &token) {
+            //         std::cout << " token [" << TokenKind_name(token.kind) << "]\n";
+            //     },
+            //     [](Buffer const &buffer) {
+            //         std::cout << " buffer. " << buffer.length() << " chars\n";
+            //     },
+            //     [](SkipToken const &) {
+            //         std::cout << " skip\n";
+            //     }
+            // }, this->result);
         }
-        return {};
-    }
+    };
 
-    std::optional<std::tuple<Keyword, size_t>> match(Buffer const &buffer, size_t index)
-    {
-        std::string scanned;
-        for (auto ix = index; ix < buffer.length(); ++ix) {
-            scanned += buffer[ix];
-            if (auto m = match_keyword<Keyword>(scanned)) {
-                if (std::get<MatchType>(*m) == MatchType::FullMatch) {
-                    return std::tuple { std::get<Keyword>(*m), scanned.length() };
+    template<typename... Scanners>
+    struct ScannerPack {
+        std::tuple<Scanners...> scanners {};
+
+        std::optional<ScanResult> scan(Buffer const &buffer, size_t index)
+        {
+            // std::cout << "ScannerPack<" << sizeof...(Scanners) << ">\n";
+            return peek<Scanners...>(buffer, index);
+        }
+
+        template<typename S, typename... Ss>
+        std::optional<ScanResult> peek(Buffer const &buffer, size_t index)
+        {
+            S &scanner = std::get<S>(scanners);
+            if (auto res = scanner.scan(buffer, index)) {
+                return *res;
+            }
+            if constexpr (sizeof...(Ss) > 0) {
+                return peek<Ss...>(buffer, index);
+            }
+            return {};
+        }
+    };
+
+    struct SlashSlash {
+        constexpr static char const *value = "//";
+    };
+
+    struct HashmarkComments {
+        constexpr static char const *value = "#";
+    };
+
+    template <typename Marker, bool Ignore = true>
+    struct LineComments {
+        constexpr static char const *marker = Marker::value;
+        size_t length {0};
+
+        LineComments() {
+            length = strlen(marker);
+        }
+
+        std::optional<ScanResult> scan(Buffer const &buffer, size_t index)
+        {
+            // std::cout << "LineComments<" << marker << ':' << length << ',' << Ignore << ">\n";
+            auto ix = index;
+            for (; ix < buffer.length() && ix - index < length; ++ix) {
+                if (marker[ix-index] != buffer[ix]) {
+                    return {};
                 }
-            } else {
+            }
+            if (ix == buffer.length() && ix - index < length) {
+                return {};
+            }
+            for (; ix < buffer.length() && buffer[ix] != '\n'; ++ix)
+                ;
+            if constexpr (Ignore) {
+                return ScanResult { SkipToken {}, ix - index };
+            }
+            return ScanResult { Token::comment(CommentType::Line), ix - index };
+        }
+    };
+
+    struct CBlockComments {
+        constexpr static char const *begin = "/*";
+        constexpr static char const *end = "*/";
+    };
+
+    template <typename Markers, bool Ignore = true>
+    struct BlockComments {
+        constexpr static char const *begin = Markers::begin;
+        constexpr static char const *end = Markers::end;
+        size_t begin_length;
+        size_t end_length;
+        bool m_in_comment { false };
+
+        BlockComments() {
+            begin_length = strlen(begin);
+            end_length = strlen(end);
+        }
+
+        std::optional<ScanResult> scan(Buffer const &buffer, size_t index)
+        {
+            // std::cout << "BlockComments<" << begin << ':' << begin_length << ',' << end << ':' << end_length << ',' << Ignore << "> " << m_in_comment << "\n";
+            auto cur = buffer[index];
+            if (m_in_comment) {
+                return block_comment(buffer, index);
+            }
+            auto ix = index;
+            for (; ix < buffer.length() && ix - index < begin_length; ++ix) {
+                if (begin[ix-index] != buffer[ix]) {
+                    return {};
+                }
+            }
+            if (ix == buffer.length() && ix - index < begin_length) {
+                return {};
+            }
+            m_in_comment = true;
+            return block_comment(buffer, index);
+        }
+
+        std::optional<ScanResult> block_comment(Buffer const &buffer, size_t index)
+        {
+            auto ix = index;
+            for (; ix < buffer.length(); ++ix) {
+                auto iix = ix;
+                for (;iix < buffer.length() && iix - ix < end_length; ++iix) {
+                    if (begin[iix-ix] != buffer[iix]) {
+                        break;
+                    }
+                }
+                if ((iix == buffer.length() && iix - ix < end_length) || buffer[iix] == '\n') {
+                    if ( iix == index) {
+                        return {};
+                    }
+                    if constexpr (Ignore) {
+                        return ScanResult { SkipToken {}, ix - index };
+                    }
+                    return ScanResult { Token::comment(CommentType::Block, false), iix - index };
+                }
+                if (iix - ix == end_length) {
+                    m_in_comment = false;
+                    if constexpr (Ignore) {
+                        return ScanResult { SkipToken {}, ix - index };
+                    }
+                    return ScanResult { Token::comment(CommentType::Block, true), iix - index };
+                }
+            }
+            UNREACHABLE();
+        }
+    };
+
+    using CStyleComments = ScannerPack<LineComments<SlashSlash>, BlockComments<CBlockComments>>;
+
+    struct NumberScanner {
+        std::optional<ScanResult> scan(Buffer const &buffer, size_t index)
+        {
+            // std::cout << "NumberScanner\n";
+            auto type = NumberType::Integer;
+            auto ix = index;
+            auto cur = buffer[ix];
+            if (!isdigit(cur)) {
+                return {};
+            }
+            int (*predicate)(int) = isdigit;
+            if (ix < buffer.length() - 1 && cur == '0') {
+                if (buffer[ix + 1] == 'x' || buffer[ix + 1] == 'X') {
+                    if (ix == buffer.length() - 2 || !isxdigit(buffer[ix + 2])) {
+                        return ScanResult { Token::number(NumberType::Integer), ix - index + 1 };
+                    }
+                    type = NumberType::HexNumber;
+                    predicate = isxdigit;
+                    ix = ix + 2;
+                } else if (buffer[ix + 1] == 'b' || buffer[ix + 1] == 'B') {
+                    if (ix == buffer.length() - 2 || !isbdigit(buffer[ix + 2])) {
+                        return ScanResult { Token::number(NumberType::Integer), ix - index + 1 };
+                    }
+                    type = NumberType::BinaryNumber;
+                    predicate = isbdigit;
+                    ix = ix + 2;
+                }
+            }
+            for (; ix < buffer.length(); ++ix) {
+                Char const ch = buffer[ix];
+                if (!predicate(ch) && ((ch != '.') || (type == NumberType::Decimal))) {
+                    // FIXME lex '1..10' as '1', '..', '10'. It will now lex as '1.', '.', '10'
+                    break;
+                }
+                if (ch == '.') {
+                    if (type != NumberType::Integer) {
+                        break;
+                    }
+                    type = NumberType::Decimal;
+                }
+            }
+            return ScanResult { Token::number(type), ix - index };
+        }
+    };
+
+    struct DefaultQuotes {
+        constexpr static char const *quote_chars = "\"'`";
+    };
+
+    struct SingleDoubleQuotes {
+        constexpr static char const *quote_chars = "\"'";
+    };
+
+    template<typename Quotes = DefaultQuotes>
+    struct QuotedStringScanner {
+        std::optional<ScanResult> scan(Buffer const &buffer, size_t index)
+        {
+            // std::cout << "QuotedStringScanner\n";
+            auto ix = index;
+            auto cur = buffer[ix];
+            if (strchr(Quotes::quote_chars, cur)) {
+                ++ix;
+                while (ix < buffer.length() && buffer[ix] != cur) {
+                    ix += (buffer[ix] == '\\') ? 2 : 1;
+                }
+                if (ix < buffer.length()) {
+                    ++ix;
+                }
+                return ScanResult { Token::string(static_cast<QuoteType>(cur), ix < buffer.length()), ix - index };
+            }
+            return {};
+        }
+    };
+
+    template <bool Ignore = true>
+    struct WhitespaceScanner {
+        std::optional<ScanResult> scan(Buffer const &buffer, size_t index)
+        {
+            // std::cout << "WhitespaceScanner\n";
+            auto ix = index;
+            auto cur = buffer[ix];
+            switch (cur) {
+            case '\n':
+                return ScanResult { Token::end_of_line(), 1 };
+            case '\t':
+                if constexpr (Ignore) {
+                    return ScanResult { SkipToken {}, 1 };
+                } else {
+                    return ScanResult { Token::tab(), 1 };
+                }
+            case ' ':
+                while (ix < buffer.length() && buffer[ix] == ' ') {
+                    ++ix;
+                }
+                if constexpr (Ignore) {
+                    return ScanResult { SkipToken {}, ix - index };
+                } else {
+                    return ScanResult { Token::whitespace(), ix - index };
+                }
+            default:
                 return {};
             }
         }
-        return {};
-    }
+    };
 
-    std::string_view get_scope(Token const &)
-    {
-        return "identifier";
-    }
+    struct IdentifierScanner {
+        std::optional<ScanResult> scan(Buffer const &buffer, size_t index)
+        {
+            // std::cout << "IdentifierScanner\n";
+            auto cur = buffer[index];
+            if (isalpha(cur) || cur == '_') {
+                std::string scanned;
+                auto        ix = index;
+                for (; isalnum(buffer[ix]) || buffer[ix] == '_'; ++ix) {
+                    scanned += buffer[ix];
+                }
+                if (auto m = match_keyword<Keyword>(scanned); m && m->match_type == KWMatch::MatchType::FullMatch) {
+                    return ScanResult { Token::keyword(m->keyword), ix - index };
+                }
+                return ScanResult { Token::identifier(), ix - index };
+            }
+            return {};
+        }
+    };
+
+    struct KeywordScanner {
+        std::optional<ScanResult> scan(Buffer const &buffer, size_t index)
+        {
+            // std::cout << "KeywordScanner\n";
+            for (auto ix = index; ix < buffer.length(); ++ix) {
+                std::string scanned;
+                scanned += buffer[ix];
+                if (auto m = match_keyword<Keyword>(scanned)) {
+                    if (m->match_type == KWMatch::MatchType::FullMatch) {
+                        return ScanResult { Token::keyword(m->keyword), ix - index };
+                    }
+                } else {
+                    break;
+                }
+            }
+            return {};
+        }
+    };
+
+    using CScannerPack = ScannerPack<CStyleComments,
+        NumberScanner,
+        QuotedStringScanner<SingleDoubleQuotes>,
+        WhitespaceScanner<>,
+        IdentifierScanner,
+        KeywordScanner>;
 };
 
-template<bool Whitespace = false, bool Comments = false, bool BackquotedStrings = false>
-struct LexerConfig {
-    bool whitespace { Whitespace };
-    bool comments { Comments };
-    bool backquotedStrings { BackquotedStrings };
-};
-
-template<typename Buffer, typename Matcher = NoKeywords<Buffer>, typename Char = wchar_t, bool Whitespace = false, bool Comments = false, bool BackquotedStrings = false>
+template<typename Types, typename... Scanners>
 class Lexer {
 public:
+    using Buffer = Types::Buffer;
+    using Char = Types::Char;
+    using Keyword = Types::Keyword;
+    using Token = Types::Token;
+    using ScanResult = Types::ScanResult;
+    using LexerResult = Types::LexerResult;
+    using SkipToken = Types::SkipToken;
     using LexerError = Error<LexerErrorMessage>;
-    using Keyword = typename Matcher::Keyword;
-    using Token = GenericToken<Keyword>;
-    using LexerResult = Result<Token, LexerErrorMessage>;
-    using PeekResult = typename Matcher::PeekResult;
-    using MatchResult = typename Matcher::MatchResult;
 
     Lexer() = default;
 
     void push_source(Buffer source)
     {
         m_sources.emplace_back(this, std::move(source));
-        if constexpr (!BackquotedStrings) {
-            m_sources.back().quote_chars = "\"'";
-        }
     }
 
     std::basic_string_view<Char> text(Token const &token) const
@@ -167,49 +676,31 @@ public:
     Token const &peek()
     {
         if (m_current.has_value()) {
-            trace(LEXER, "lexer.peek() -> {} [cached]", *m_current);
             return m_current.value();
         }
         if (!pushed_back.empty()) {
             m_current = pushed_back.back();
             return m_current.value();
         }
-        while (!exhausted()) {
-            TokenKind k;
-            while (true) {
-                PeekResult res = m_sources.back().peek_next();
-                if (res.index() == 2) { // Skip it
-                    continue;
-                } else if (res.index() == 1) { // Push a new source buffer
-                    push_source(std::get<Buffer>(res));
-                    continue;
-                } else {
-                    m_current = std::get<Token>(res);
-                    trace(LEXER, "lexer.peek() -> {} [source.peek_next()]", *m_current);
-                    k = m_current->kind;
-                    if constexpr (!Whitespace) {
-                        if (k == TokenKind::Whitespace || k == TokenKind::Tab || k == TokenKind::EndOfLine) {
-                            lex();
-                            trace(LEXER, "skip it");
-                            continue;
-                        }
-                    }
-                    if constexpr (!Comments) {
-                        if (k == TokenKind::Comment) {
-                            lex();
-                            trace(LEXER, "skip it");
-                            continue;
-                        }
-                    }
-                }
-                break;
-            }
-            if (k != TokenKind::EndOfFile) {
-                break;
-            }
-            m_sources.pop_back();
+        while (!m_current.has_value()) {
+            ScanResult res { m_sources.back().peek_next() };
+            std::visit(overloads {
+                           [this](Token const &token) -> void {
+                               if (token.matches(TokenKind::EndOfFile)) {
+                                   m_sources.pop_back();
+                                   if (!exhausted()) {
+                                       return;
+                                   }
+                               }
+                               m_current = token;
+                           },
+                           [this,&res](Buffer const &buffer) -> void {
+                               push_source(std::get<Buffer>(res.result));
+                           },
+                           [](SkipToken) -> void {
+                           } },
+                res.result);
         }
-        trace(LEXER, "lexer.peek() -> {} [caching it]", *m_current);
         return m_current.value();
     }
 
@@ -324,131 +815,59 @@ private:
 
     class Source {
     public:
-        char const *quote_chars;
-
         [[nodiscard]] TokenLocation const &location() const
         {
             return m_location;
         }
 
         Source(Lexer *lexer, Buffer const &src)
-            : quote_chars("\"'`")
-            , m_buffer(src)
+            : m_buffer(src)
             , m_lexer(lexer)
         {
         }
 
-        PeekResult peek_next()
+        ScanResult peek_next()
         {
             if (m_current.has_value()) {
-                return *m_current;
+                return { *m_current, m_current->location.length };
             }
-
-            auto res = peek();
-            return std::visit(overloads {
-                                  [this](Token const &token) -> PeekResult {
-                                      m_current = token;
-                                      return PeekResult { *m_current };
-                                  },
-                                  [this, &res](Buffer const &) -> PeekResult {
-                                      return res;
-                                  },
-                                  [this, &res](SkipToken const &) -> PeekResult {
-                                      return res;
-                                  },
-                              },
-                res);
-        }
-
-        PeekResult peek()
-        {
             if (m_index >= m_buffer.length()) {
-                return Token::end_of_file();
+                return { Token::end_of_file(), 1 };
             }
-            if (auto res = matcher.pre_match(m_buffer, m_index); res) {
-                m_index += res->matched;
-                return res->result;
-            }
-            auto match_token = [this]() -> Token {
-                m_scanned.clear();
-                auto cur = m_buffer[m_index];
-                if (m_in_comment) {
-                    if (cur == '\n') {
-                        ++m_index;
-                        return Token::end_of_line();
-                    }
-                    return block_comment();
+            ScanResult ret { peek<Scanners...>() };
+            m_index += ret.matched;
+            m_location.length = ret.matched;
+            std::visit(overloads {
+                           [ret, this](Token &token) -> void {
+                               token.location = m_location;
+                           },
+                           [](auto const &) -> void {
+                           } },
+                ret.result);
+            for (; m_location.index < m_index; ++m_location.index) {
+                if (m_buffer[m_location.index] == '\n') {
+                    ++m_location.line;
+                    m_location.column = 0;
+                } else {
+                    ++m_location.column;
                 }
-                if (cur == '/') {
-                    switch (m_buffer[m_index + 1]) {
-                    case '/': {
-                        m_index += 2;
-                        for (; m_index < m_buffer.length() && m_buffer[m_index] != '\n'; ++m_index)
-                            ;
-                        return Token::comment(CommentType::Line);
-                    }
-                    case '*': {
-                        return block_comment();
-                    }
-                    default:
-                        break;
-                    }
-                }
-                if (isdigit(cur)) {
-                    return scan_number();
-                }
-                if (strchr(quote_chars, cur)) {
-                    ++m_index;
-                    while (m_index < m_buffer.length() && m_buffer[m_index] != cur) {
-                        m_index += (m_buffer[m_index] == '\\') ? 2 : 1;
-                    }
-                    ++m_index;
-                    return { Token::string(static_cast<QuoteType>(cur), m_index < m_buffer.length()) };
-                }
-                switch (cur) {
-                case '\n':
-                    ++m_index;
-                    return Token::end_of_line();
-                case '\t':
-                    ++m_index;
-                    return Token::tab();
-                case ' ':
-                    while (m_index < m_buffer.length() && m_buffer[m_index] == ' ') {
-                        ++m_index;
-                    }
-                    return Token::whitespace();
-                default:
-                    break;
-                }
-                if (isalpha(cur) || cur == '_') {
-                    for (; isalnum(m_buffer[m_index]) || m_buffer[m_index] == '_'; ++m_index) {
-                        m_scanned += m_buffer[m_index];
-                    }
-                    if (auto kw = matcher.match(m_scanned); kw) {
-                        return Token::keyword(*kw);
-                    }
-                    return Token::identifier();
-                }
-
-                if (auto kw = matcher.match(m_buffer, m_index); kw) {
-                    m_index += std::get<size_t>(*kw);
-                    return Token::keyword(std::get<Keyword>(*kw));
-                }
-                ++m_index;
-                return Token::symbol(static_cast<int>(cur));
-            };
-            auto token = match_token();
-            m_location.length = m_index - m_location.index;
-            token.location = m_location;
-            m_location.index = m_index;
-            if (m_current->kind == TokenKind::EndOfLine) {
-                ++m_location.line;
-                m_location.column = 0;
-            } else {
-                m_location.column += m_location.length;
             }
             m_location.length = 0;
-            return matcher.post_match(m_buffer, match_token());
+            return ret;
+        }
+
+        template<typename S, typename... Ss>
+        ScanResult peek()
+        {
+            S &scanner = std::get<S>(m_scanners);
+            if (std::optional<ScanResult> res = scanner.scan(m_buffer, m_index); res) {
+                return *res;
+            }
+            if constexpr (sizeof...(Ss) > 0) {
+                return peek<Ss...>();
+            } else {
+                return ScanResult { Token::symbol(static_cast<wchar_t>(m_buffer[m_index])), 1 };
+            }
         }
 
         void lex()
@@ -457,65 +876,6 @@ private:
                 return;
             }
             m_current.reset();
-        }
-
-        Token block_comment()
-        {
-            for (; m_index < m_buffer.length() && m_buffer[m_index] != '\n' && (m_buffer[m_index - 1] != '*' || m_buffer[m_index] != '/'); ++m_index)
-                ;
-            if (m_index >= m_buffer.length()) {
-                return Token::comment(CommentType::Block, false);
-            }
-            if (m_buffer[m_index] == '\n') {
-                m_in_comment = true;
-                return Token::comment(CommentType::Block, false);
-            }
-            m_in_comment = false;
-            ++m_index;
-            return Token::comment(CommentType::Block, true);
-        }
-
-        Token scan_number()
-        {
-            auto type = NumberType::Integer;
-            auto cur = m_buffer[m_index];
-            int  ix = m_index;
-            int (*predicate)(int) = isdigit;
-            if (m_index < m_buffer.length() - 1 && cur == '0') {
-                if (m_buffer[m_index + 1] == 'x' || m_buffer[m_index + 1] == 'X') {
-                    if (m_index == m_buffer.length() - 2 || !isxdigit(m_buffer[m_index + 2])) {
-                        m_index += 1;
-                        return Token::number(NumberType::Integer);
-                    }
-                    type = NumberType::HexNumber;
-                    predicate = isxdigit;
-                    ix = m_index + 2;
-                } else if (m_buffer[m_index + 1] == 'b' || m_buffer[m_index + 1] == 'B') {
-                    if (m_index == m_buffer.length() - 2 || !isbdigit(m_buffer[m_index + 2])) {
-                        m_index += 1;
-                        return Token::number(NumberType::Integer);
-                    }
-                    type = NumberType::BinaryNumber;
-                    predicate = isbdigit;
-                    ix = m_index + 2;
-                }
-            }
-            while (ix < m_buffer.length()) {
-                Char const ch = m_buffer[ix];
-                if (!predicate(ch) && ((ch != '.') || (type == NumberType::Decimal))) {
-                    // FIXME lex '1..10' as '1', '..', '10'. It will now lex as '1.', '.', '10'
-                    break;
-                }
-                if (ch == '.') {
-                    if (type != NumberType::Integer) {
-                        break;
-                    }
-                    type = NumberType::Decimal;
-                }
-                ++ix;
-            }
-            m_index = ix;
-            return Token::number(type);
         }
 
         Char operator*() const
@@ -556,18 +916,17 @@ private:
         }
 
     private:
-        Buffer               m_buffer;
-        size_t               m_index { 0 };
-        Lexer               *m_lexer;
-        TokenLocation        m_location {};
-        std::optional<Token> m_current {};
-        bool                 m_in_comment { false };
-        std::string          m_scanned;
-        Matcher              matcher {};
+        Buffer                  m_buffer;
+        size_t                  m_index { 0 };
+        Lexer                  *m_lexer;
+        TokenLocation           m_location {};
+        std::optional<Token>    m_current {};
+        bool                    m_in_comment { false };
+        std::string             m_scanned;
+        std::tuple<Scanners...> m_scanners {};
     };
 
     std::deque<Token>   pushed_back;
     std::vector<Source> m_sources {};
 };
-
 }

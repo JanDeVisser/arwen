@@ -6,7 +6,6 @@
 
 #pragma once
 
-#include "Util/Token.h"
 #include <cstdint>
 #include <optional>
 #include <tuple>
@@ -126,21 +125,26 @@ extern char const *Operator_name(Operator op);
 
 }
 
-using namespace Util;
+namespace Util {
+
 using namespace Arwen;
 
+using ArwenKeywordMatch = KeywordMatch<ArwenKeyword>;
+
 template<>
-inline std::optional<std::tuple<ArwenKeyword, MatchType>> Util::match_keyword(std::string const &str)
+[[nodiscard]] inline std::optional<ArwenKeywordMatch> match_keyword(std::string const &str)
 {
 #undef S
-#define S(KW, STR)                                                       \
-    if (std::string_view(STR).starts_with(str)) {                        \
-        return std::tuple {                                              \
-            ArwenKeyword::KW,                                            \
-            (str == STR) ? MatchType::FullMatch : MatchType::PrefixMatch \
-        };                                                               \
+#define S(KW, STR)                                                                                             \
+    if (std::string_view(STR).starts_with(str)) {                                                              \
+        return ArwenKeywordMatch {                                                                                    \
+            ArwenKeyword::KW,                                                                                  \
+            (str == STR) ? ArwenKeywordMatch::MatchType::FullMatch : ArwenKeywordMatch::MatchType::PrefixMatch \
+        };                                                                                                     \
     }
     ArwenKeywords(S)
 #undef S
         return {};
+}
+
 }

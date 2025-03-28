@@ -4,16 +4,14 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "Util/IO.h"
-#include "Util/Result.h"
 #include <iostream>
 #include <string_view>
 
+#include <Util/IO.h>
 #include <Util/Lexer.h>
 #include <Util/Logging.h>
 #include <Util/Options.h>
-#include <Util/Token.h>
-
+#include <Util/Result.h>
 #include <App/Parser.h>
 
 namespace Arwen {
@@ -36,7 +34,7 @@ void compile_file(std::string_view file_name)
     if (auto contents_maybe = read_file_by_name<wchar_t>(file_name); contents_maybe.has_value()) {
         auto const &contents = contents_maybe.value();
         Parser parser;
-        auto   mod = parser.parse_module(file_name, contents)->normalize();
+        auto   mod = parser.parse_module(file_name, contents);
         if (mod) {
             mod->dump();
             return;
@@ -58,6 +56,8 @@ int main(int argc, char const **argv)
             usage("arwen compile <main file name>");
         }
         compile_file(argv[cmd_ix + 1]);
+    } else {
+        usage(std::format("Invalid command '{}'", argv[cmd_ix]));
     }
     return 0;
 }
