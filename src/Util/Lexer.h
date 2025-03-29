@@ -609,10 +609,10 @@ struct LexerTypes {
                     scanned += buffer[ix];
                 }
                 if (auto m = match_keyword<Keyword>(scanned); m && m->match_type == KWMatch::MatchType::FullMatch) {
-                    std::cout << "Identifier is keyword: " << scanned << std::endl;
+                    // std::cout << "Identifier is keyword: " << scanned << std::endl;
                     return ScanResult { Token::keyword(m->keyword), scanned.length() };
                 }
-                std::cout << "Identifier is not a keyword: " << scanned << std::endl;
+                // std::cout << "Identifier is not a keyword: " << scanned << std::endl;
                 return ScanResult { Token::identifier(), scanned.length() };
             }
             return {};
@@ -628,7 +628,7 @@ struct LexerTypes {
                 scanned += buffer[ix];
                 if (auto m = match_keyword<Keyword>(scanned); m) {
                     if (m->match_type == KWMatch::MatchType::FullMatch) {
-                        std::cout << "Standalone keyword: " << scanned << std::endl;
+                        // std::cout << "Standalone keyword: " << scanned << std::endl;
                         return ScanResult { Token::keyword(m->keyword), scanned.length() };
                     }
                 } else {

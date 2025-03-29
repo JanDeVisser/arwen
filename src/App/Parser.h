@@ -35,6 +35,7 @@ struct Parser {
 
     Parser() = default;
 
+    pSyntaxNode                parse_file(std::wstring const& text);
     pSyntaxNode                parse_module(std::string_view name, std::wstring const& text);
     Token                      parse_statements(SyntaxNodes &statements);
     pSyntaxNode                parse_statement();
@@ -45,7 +46,9 @@ struct Parser {
     std::optional<OperatorDef> check_binop(Precedence min_prec);
     std::optional<OperatorDef> check_prefix_op();
     pSyntaxNode                parse_break_continue();
+    pSyntaxNode                parse_embed();
     pSyntaxNode                parse_if();
+    pSyntaxNode                parse_include();
     pSyntaxNode                parse_loop();
     pSyntaxNode                parse_while();
 };

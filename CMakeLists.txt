@@ -77,6 +77,8 @@ add_executable(
         src/App/Parser.cpp
         src/App/Operator.cpp
         src/App/SyntaxNode.cpp
+        src/App/Syntax/Embed.cpp
+        src/App/Syntax/Include.cpp
 )
 
 target_link_libraries(

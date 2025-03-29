@@ -35,11 +35,16 @@ void compile_file(std::string_view file_name)
         auto const &contents = contents_maybe.value();
         Parser parser;
         auto   mod = parser.parse_module(file_name,contents);
-        if (mod) {
-            mod->dump();
+        if (!mod) {
+            std::cerr << "Syntax error" << std::endl;
             return;
         }
-        std::cerr << "Syntax error" << std::endl;
+        auto normalized = mod->normalize();
+        if (!normalized) {
+            std::cerr << "Internal error" << std::endl;
+            return;
+        }
+        normalized->dump();
     } else {
         std::cerr << "Could not open '" << file_name << "': " << contents_maybe.error().to_string() << std::endl;
     }

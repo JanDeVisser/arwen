@@ -30,6 +30,7 @@ using Precedence = uint16_t;
     S(AssignShiftRight, ">>=") \
     S(AssignXor, "^=")         \
     S(Embed, "@embed")         \
+    S(Include, "@include")     \
     S(Equals, "==")            \
     S(GreaterEqual, ">=")      \
     S(LessEqual, "<=")         \

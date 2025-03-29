@@ -20,6 +20,7 @@ using namespace Util;
     S(Break)               \
     S(Continue)            \
     S(Dummy)               \
+    S(Embed)               \
     S(ExpressionList)      \
     S(Identifier)          \
     S(IfStatement)         \
@@ -114,6 +115,15 @@ struct Dummy : SyntaxNode {
     pBoundNode bind() override;
 };
 
+struct Embed : SyntaxNode {
+    std::wstring file_name;
+
+    Embed(std::wstring_view file_name);
+    pSyntaxNode normalize() override;
+    pBoundNode  bind() override;
+    void       header() override;
+};
+
 struct ExpressionList : SyntaxNode {
     SyntaxNodes expressions;
 
@@ -140,6 +150,15 @@ struct IfStatement : SyntaxNode {
     pSyntaxNode normalize() override;
     pBoundNode  bind() override;
     void        dump_node(int indent) override;
+};
+
+struct Include : SyntaxNode {
+    std::wstring file_name;
+
+    Include(std::wstring_view file_name);
+    pSyntaxNode normalize() override;
+    pBoundNode  bind() override;
+    void       header() override;
 };
 
 struct LoopStatement : SyntaxNode {

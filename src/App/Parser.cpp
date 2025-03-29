@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "Util/Lexer.h"
 #include <Util/Logging.h>
 
 #include <App/Operator.h>
@@ -44,6 +45,26 @@ std::vector<OperatorDef> Parser::operators {
     { Operator::ShiftRight, ArwenKeyword::ShiftRight, 10 },
     { Operator::Subtract, '-', 11 },
 };
+
+pSyntaxNode Parser::parse_file(std::wstring const &text)
+{
+    this->text = text;
+    lexer.push_source(text);
+
+    SyntaxNodes statements;
+    if (auto t = parse_statements(statements); !t.matches(TokenKind::EndOfFile)) {
+        std::cerr << "Expected end of file" << std::endl;
+        return nullptr;
+    }
+    switch (statements.size()) {
+    case 0:
+        return nullptr;
+    case 1:
+        return statements[0];
+    default:
+        return make_node<Block>(statements);
+    }
+}
 
 pSyntaxNode Parser::parse_module(std::string_view name, std::wstring const &text)
 {
@@ -96,8 +117,12 @@ pSyntaxNode Parser::parse_statement()
         case ArwenKeyword::Break:
         case ArwenKeyword::Continue:
             return parse_break_continue();
+        case ArwenKeyword::Embed:
+            return parse_embed();
         case ArwenKeyword::If:
             return parse_if();
+        case ArwenKeyword::Include:
+            return parse_include();
         case ArwenKeyword::Loop:
             return parse_loop();
         case ArwenKeyword::While:
@@ -300,6 +325,27 @@ pSyntaxNode Parser::parse_break_continue()
     return make_node<Continue>(label);
 }
 
+pSyntaxNode Parser::parse_embed()
+{
+    auto kw = lexer.lex();
+    if (lexer.expect_symbol('(').is_error()) {
+        std::cerr << "Malformed '@embed' statement: expected '('" << std::endl;
+        return nullptr;
+    }
+    auto file_name = lexer.expect(TokenKind::QuotedString);
+    if (file_name.is_error()) {
+        std::cerr << "Malformed '@embed' statement: no file name" << std::endl;
+        return nullptr;
+    }
+    auto fname = text_of(file_name.value());
+    fname = fname.substr(0, fname.length() - 1).substr(1);
+    if (lexer.expect_symbol(')').is_error()) {
+        std::cerr << "Malformed '@embed' statement: expected ')'" << std::endl;
+        return nullptr;
+    }
+    return make_node<Embed>(fname);
+}
+
 pSyntaxNode Parser::parse_if()
 {
     auto const &if_token = lexer.lex();
@@ -324,6 +370,27 @@ pSyntaxNode Parser::parse_if()
         }
     }
     return make_node<IfStatement>(condition, if_branch, else_branch);
+}
+
+pSyntaxNode Parser::parse_include()
+{
+    auto kw = lexer.lex();
+    if (lexer.expect_symbol('(').is_error()) {
+        std::cerr << "Malformed '@include' statement: expected '('" << std::endl;
+        return nullptr;
+    }
+    auto file_name = lexer.expect(TokenKind::QuotedString);
+    if (file_name.is_error()) {
+        std::cerr << "Malformed '@include' statement: no file name" << std::endl;
+        return nullptr;
+    }
+    auto fname = text_of(file_name.value());
+    fname = fname.substr(0, fname.length() - 1).substr(1);
+    if (lexer.expect_symbol(')').is_error()) {
+        std::cerr << "Malformed '@include' statement: expected ')'" << std::endl;
+        return nullptr;
+    }
+    return make_node<Include>(fname);
 }
 
 pSyntaxNode Parser::parse_loop()
