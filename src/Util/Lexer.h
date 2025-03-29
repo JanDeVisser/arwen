@@ -609,9 +609,11 @@ struct LexerTypes {
                     scanned += buffer[ix];
                 }
                 if (auto m = match_keyword<Keyword>(scanned); m && m->match_type == KWMatch::MatchType::FullMatch) {
-                    return ScanResult { Token::keyword(m->keyword), ix - index };
+                    std::cout << "Identifier is keyword: " << scanned << std::endl;
+                    return ScanResult { Token::keyword(m->keyword), scanned.length() };
                 }
-                return ScanResult { Token::identifier(), ix - index };
+                std::cout << "Identifier is not a keyword: " << scanned << std::endl;
+                return ScanResult { Token::identifier(), scanned.length() };
             }
             return {};
         }
@@ -621,12 +623,13 @@ struct LexerTypes {
         std::optional<ScanResult> scan(Buffer const &buffer, size_t index)
         {
             // std::cout << "KeywordScanner\n";
+            std::string scanned;
             for (auto ix = index; ix < buffer.length(); ++ix) {
-                std::string scanned;
                 scanned += buffer[ix];
-                if (auto m = match_keyword<Keyword>(scanned)) {
+                if (auto m = match_keyword<Keyword>(scanned); m) {
                     if (m->match_type == KWMatch::MatchType::FullMatch) {
-                        return ScanResult { Token::keyword(m->keyword), ix - index };
+                        std::cout << "Standalone keyword: " << scanned << std::endl;
+                        return ScanResult { Token::keyword(m->keyword), scanned.length() };
                     }
                 } else {
                     break;
@@ -692,6 +695,8 @@ public:
                                        return;
                                    }
                                }
+                               // std::cout << '[' << TokenKind_name(token.kind) << ' ' << token.location.index << ' ' << token.location.length << ' '
+                               //      << as_utf8(m_sources.back().substr(token.location.index, token.location.length)) << ']' << std::endl;
                                m_current = token;
                            },
                            [this,&res](Buffer const &buffer) -> void {
@@ -800,6 +805,9 @@ public:
 
     void push_back(Token token)
     {
+        if (!exhausted()) {
+            m_sources.back().push_back(token);
+        }
         pushed_back.emplace_back(std::move(token));
         m_current.reset();
     }
@@ -824,6 +832,20 @@ private:
             : m_buffer(src)
             , m_lexer(lexer)
         {
+        }
+
+        void push_back(Token const& token)
+        {
+            m_index = token.location.index + token.location.length;
+            m_location = token.location;
+            m_location.index = m_index;
+            if (token.matches(TokenKind::EndOfLine)) {
+                m_location.line += 1;
+                m_location.column = 0;
+            } else {
+                m_location.column += token.location.length;
+            }
+            m_current.reset();
         }
 
         ScanResult peek_next()

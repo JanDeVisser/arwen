@@ -45,17 +45,17 @@ std::vector<OperatorDef> Parser::operators {
     { Operator::Subtract, '-', 11 },
 };
 
-pSyntaxNode Parser::parse_module(std::string_view name, std::wstring text)
+pSyntaxNode Parser::parse_module(std::string_view name, std::wstring const &text)
 {
     this->text = text;
-    lexer.push_source(std::move(text));
+    lexer.push_source(text);
 
     SyntaxNodes statements;
     if (auto t = parse_statements(statements); !t.matches(TokenKind::EndOfFile)) {
         std::cerr << "Expected end of file" << std::endl;
         return nullptr;
     }
-    return make_node<Module>(name, statements);
+    return make_node<Module>(name, text, statements);
 }
 
 Parser::Token Parser::parse_statements(SyntaxNodes &statements)

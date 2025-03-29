@@ -286,9 +286,10 @@ void LoopStatement::header()
     }
 }
 
-Module::Module(std::string_view name, SyntaxNodes statements)
+Module::Module(std::string_view name, std::wstring_view source, SyntaxNodes statements)
     : SyntaxNode(SyntaxNodeType::Module)
     , name(name)
+    , source(source)
 {
     switch (statements.size()) {
     case 0:
@@ -301,16 +302,17 @@ Module::Module(std::string_view name, SyntaxNodes statements)
     }
 }
 
-Module::Module(std::string_view name, pSyntaxNode statement)
+Module::Module(std::string_view name, std::wstring_view source, pSyntaxNode statement)
     : SyntaxNode(SyntaxNodeType::Module)
     , name(name)
+    , source(source)
     , statements(statement)
 {
 }
 
 pSyntaxNode Module::normalize()
 {
-    return make_node<Module>(name, statements->normalize());
+    return make_node<Module>(name, source, statements->normalize());
 }
 
 pBoundNode Module::bind()

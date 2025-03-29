@@ -8,7 +8,6 @@
 
 #include <cstdint>
 #include <optional>
-#include <tuple>
 #include <variant>
 
 #include <Util/Lexer.h>
@@ -135,12 +134,15 @@ template<>
 [[nodiscard]] inline std::optional<ArwenKeywordMatch> match_keyword(std::string const &str)
 {
 #undef S
-#define S(KW, STR)                                                                                             \
-    if (std::string_view(STR).starts_with(str)) {                                                              \
-        return ArwenKeywordMatch {                                                                                    \
-            ArwenKeyword::KW,                                                                                  \
-            (str == STR) ? ArwenKeywordMatch::MatchType::FullMatch : ArwenKeywordMatch::MatchType::PrefixMatch \
-        };                                                                                                     \
+#define S(KW, STR)                                                                                                                      \
+    {                                                                                                                                   \
+        std::string_view kw_str { STR };                                                                                                \
+        if (kw_str.starts_with(str)) {                                                                                                  \
+            return ArwenKeywordMatch {                                                                                                  \
+                ArwenKeyword::KW,                                                                                                       \
+                (str.length() == kw_str.length()) ? ArwenKeywordMatch::MatchType::FullMatch : ArwenKeywordMatch::MatchType::PrefixMatch \
+            };                                                                                                                          \
+        }                                                                                                                               \
     }
     ArwenKeywords(S)
 #undef S

@@ -34,7 +34,7 @@ void compile_file(std::string_view file_name)
     if (auto contents_maybe = read_file_by_name<wchar_t>(file_name); contents_maybe.has_value()) {
         auto const &contents = contents_maybe.value();
         Parser parser;
-        auto   mod = parser.parse_module(file_name, contents);
+        auto   mod = parser.parse_module(file_name,contents);
         if (mod) {
             mod->dump();
             return;

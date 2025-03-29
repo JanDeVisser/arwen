@@ -23,7 +23,7 @@ namespace Arwen {
 using namespace Util;
 
 struct Parser {
-    using ArwenLexerTypes = LexerTypes<std::wstring, wchar_t, ArwenKeyword>;
+    using ArwenLexerTypes = LexerTypes<std::wstring_view, wchar_t, ArwenKeyword>;
     using ArwenLexer = Lexer<ArwenLexerTypes, ArwenLexerTypes::CScannerPack>;
     using Token = ArwenLexer::Token;
 
@@ -35,7 +35,7 @@ struct Parser {
 
     Parser() = default;
 
-    pSyntaxNode                parse_module(std::string_view name, std::wstring text);
+    pSyntaxNode                parse_module(std::string_view name, std::wstring const& text);
     Token                      parse_statements(SyntaxNodes &statements);
     pSyntaxNode                parse_statement();
     std::wstring_view          text_of(Token const &token);

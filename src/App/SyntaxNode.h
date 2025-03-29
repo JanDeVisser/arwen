@@ -154,11 +154,12 @@ struct LoopStatement : SyntaxNode {
 };
 
 struct Module : SyntaxNode {
-    std::string name;
-    pSyntaxNode statements;
+    std::string       name;
+    std::wstring_view source;
+    pSyntaxNode       statements;
 
-    Module(std::string_view name, SyntaxNodes statements);
-    Module(std::string_view name, pSyntaxNode statement);
+    Module(std::string_view name, std::wstring_view source, SyntaxNodes statements);
+    Module(std::string_view name, std::wstring_view source, pSyntaxNode statement);
     pSyntaxNode normalize() override;
     pBoundNode  bind() override;
     void        header() override;
