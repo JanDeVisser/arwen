@@ -195,6 +195,9 @@ pSyntaxNode Parser::parse_primary()
         break;
     }
     case TokenKind::Keyword:
+        if (token.matches_keyword(ArwenKeyword::Embed)) {
+            return parse_embed();
+        }
         std::cerr << "Unexpected keyword `" << ArwenKeyword_name(token.keyword()) << "`\n";
         return nullptr;
     case TokenKind::Symbol: {

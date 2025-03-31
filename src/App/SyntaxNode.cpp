@@ -4,13 +4,13 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <functional>
 #include <memory>
-
-#include <Util/Logging.h>
 
 #include <App/Operator.h>
 #include <App/SyntaxNode.h>
+#include <Util/Logging.h>
+#include <Util/StringUtil.h>
+#include <string_view>
 
 namespace Arwen {
 
@@ -59,52 +59,23 @@ pSyntaxNode SyntaxNode::normalize()
     return this->shared_from_this();
 }
 
-BinaryExpression::BinaryExpression(pSyntaxNode lhs, Operator op, pSyntaxNode rhs)
-    : SyntaxNode(SyntaxNodeType::BinaryExpression)
-    , lhs(lhs)
-    , op(op)
-    , rhs(rhs)
+ConstantExpression::ConstantExpression(SyntaxNodeType type)
+    : SyntaxNode(type)
 {
 }
 
-pSyntaxNode BinaryExpression::normalize()
+pSyntaxNode ConstantExpression::evaluate_binop(Operator op, pConstantExpression const &rhs)
 {
-    if (op != Operator::Sequence) {
-        return make_node<BinaryExpression>(lhs->normalize(), op, rhs->normalize());
+    switch (op) {
+#undef S
+#undef S
+#define S(O)          \
+    case Operator::O: \
+        return evaluate_##O(rhs);
+        Operators(S)
+#undef S
+            default : UNREACHABLE();
     }
-
-    SyntaxNodes                      nodes;
-    std::function<void(pSyntaxNode)> flatten;
-    flatten = [&nodes, &flatten](pSyntaxNode n) {
-        if (auto binex = std::dynamic_pointer_cast<BinaryExpression>(n); binex) {
-            if (binex->op == Operator::Sequence) {
-                nodes.push_back(binex->lhs);
-                flatten(binex->rhs);
-            } else {
-                nodes.push_back(binex);
-            }
-        } else {
-            nodes.push_back(n);
-        }
-    };
-    flatten(shared_from_this());
-    return make_node<ExpressionList>(nodes)->normalize();
-}
-
-pBoundNode BinaryExpression::bind()
-{
-    return nullptr;
-}
-
-void BinaryExpression::header()
-{
-    std::cout << Operator_name(op);
-}
-
-void BinaryExpression::dump_node(int indent)
-{
-    lhs->dump(indent + 4);
-    rhs->dump(indent + 4);
 }
 
 Block::Block(SyntaxNodes statements)
@@ -132,6 +103,22 @@ void Block::dump_node(int indent)
     for (auto const &stmt : statements) {
         stmt->dump(indent + 4);
     }
+}
+
+BoolConstant::BoolConstant(bool value)
+    : ConstantExpression(SyntaxNodeType::BoolConstant)
+    , value(value)
+{
+}
+
+pBoundNode BoolConstant::bind()
+{
+    return nullptr;
+}
+
+void BoolConstant::header()
+{
+    std::wcout << ((value) ? L"True" : L"False");
 }
 
 Break::Break(Label label)
@@ -168,6 +155,30 @@ void Continue::header()
     if (label) {
         std::wcout << *label;
     }
+}
+
+DoubleQuotedString::DoubleQuotedString(std::wstring_view string, bool strip_quotes)
+    : ConstantExpression(SyntaxNodeType::DoubleQuotedString)
+    , string(strip_quotes ? string.substr(0, string.length() - 1).substr(1) : string)
+{
+}
+
+pBoundNode DoubleQuotedString::bind()
+{
+    return nullptr;
+}
+
+void DoubleQuotedString::header()
+{
+    std::wcout << string;
+}
+
+pSyntaxNode DoubleQuotedString::evaluate_Add(pConstantExpression const &rhs)
+{
+    if (auto rhs_string = std::dynamic_pointer_cast<DoubleQuotedString>(rhs); rhs_string != nullptr) {
+        return make_node<DoubleQuotedString>(string + rhs_string->string, false);
+    }
+    return nullptr;
 }
 
 Dummy::Dummy()
@@ -330,24 +341,6 @@ void Module::dump_node(int indent)
     statements->dump(indent + 4);
 }
 
-Number::Number(std::wstring_view number, NumberType type)
-    : SyntaxNode(SyntaxNodeType::Number)
-    , number(number)
-    , number_type(type)
-{
-}
-
-pBoundNode Number::bind()
-{
-    return nullptr;
-}
-
-void Number::header()
-{
-    std::wcout << number << L" ";
-    std::cout << NumberType_name(number_type);
-}
-
 QuotedString::QuotedString(std::wstring_view str, QuoteType type)
     : SyntaxNode(SyntaxNodeType::QuotedString)
     , string(str)
@@ -365,6 +358,34 @@ void QuotedString::header()
     std::wcout << string;
 }
 
+pSyntaxNode QuotedString::normalize()
+{
+    switch (quote_type) {
+    case QuoteType::DoubleQuote:
+        return make_node<DoubleQuotedString>(string, true);
+    case QuoteType::SingleQuote:
+        return make_node<SingleQuotedString>(string, true);
+    default:
+        UNREACHABLE();
+    }
+}
+
+SingleQuotedString::SingleQuotedString(std::wstring_view string, bool strip_quotes)
+    : ConstantExpression(SyntaxNodeType::SingleQuotedString)
+    , string(strip_quotes ? string.substr(0, string.length() - 1).substr(1) : string)
+{
+}
+
+pBoundNode SingleQuotedString::bind()
+{
+    return nullptr;
+}
+
+void SingleQuotedString::header()
+{
+    std::wcout << string;
+}
+
 UnaryExpression::UnaryExpression(Operator op, pSyntaxNode operand)
     : SyntaxNode(SyntaxNodeType::UnaryExpression)
     , op(op)
@@ -374,7 +395,7 @@ UnaryExpression::UnaryExpression(Operator op, pSyntaxNode operand)
 
 pSyntaxNode UnaryExpression::normalize()
 {
-    return make_node<UnaryExpression>(op,  operand->normalize());
+    return make_node<UnaryExpression>(op, operand->normalize());
 }
 
 pBoundNode UnaryExpression::bind()

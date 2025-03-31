@@ -15,7 +15,7 @@ namespace Arwen {
 using namespace Util;
 
 Include::Include(std::wstring_view file_name)
-    : SyntaxNode(SyntaxNodeType::Embed)
+    : SyntaxNode(SyntaxNodeType::Include)
     , file_name(file_name)
 {
 }

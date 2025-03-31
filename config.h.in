@@ -10,7 +10,7 @@
 #define ARWEN_NAME                          "@arwen_NAME@"
 #define ARWEN_VERSION_MAJOR                 "@arwen_VERSION_MAJOR@"
 #define ARWEN_VERSION_MINOR                 "@arwen_VERSION_MINOR@"
-#define ARWEN_VERSION                       "@arwen_VERSION_MAJOR@.@ARWEN_VERSION_MINOR@"
+#define ARWEN_VERSION                       "@arwen_VERSION_MAJOR@.@arwen_VERSION_MINOR@"
 #define ARWEN_DIR                           "@arwen_DIR@"
 #define ARWEN_DATADIR                       "@arwen_DATADIR@"
 #define ARWEN_SYSTEM                        "@CMAKE_SYSTEM_NAME@"

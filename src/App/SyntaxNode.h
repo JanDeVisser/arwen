@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -17,17 +18,23 @@ using namespace Util;
 #define SyntaxNodeTypes(S) \
     S(BinaryExpression)    \
     S(Block)               \
+    S(BoolConstant)        \
     S(Break)               \
     S(Continue)            \
+    S(Decimal)             \
+    S(DoubleQuotedString)  \
     S(Dummy)               \
     S(Embed)               \
     S(ExpressionList)      \
     S(Identifier)          \
     S(IfStatement)         \
+    S(Include)             \
+    S(Integer)             \
     S(LoopStatement)       \
     S(Module)              \
     S(Number)              \
     S(QuotedString)        \
+    S(SingleQuotedString)  \
     S(UnaryExpression)     \
     S(WhileStatement)
 
@@ -82,6 +89,24 @@ struct BinaryExpression : SyntaxNode {
     void        dump_node(int indent) override;
 };
 
+using pConstantExpression = std::shared_ptr<struct ConstantExpression>;
+
+struct ConstantExpression : SyntaxNode {
+    ConstantExpression(SyntaxNodeType type);
+    pSyntaxNode evaluate_binop(Operator op, pConstantExpression const &rhs);
+
+#undef S
+#undef S
+#define S(O)                                                         \
+    virtual pSyntaxNode evaluate_##O(pConstantExpression const &rhs) \
+    {                                                                \
+        return make_node<BinaryExpression>(                          \
+            this->shared_from_this(), Operator::O, rhs);             \
+    }
+    Operators(S)
+#undef S
+};
+
 struct Block : SyntaxNode {
     SyntaxNodes statements;
 
@@ -90,6 +115,14 @@ struct Block : SyntaxNode {
     pSyntaxNode normalize() override;
     pBoundNode  bind() override;
     void        dump_node(int indent) override;
+};
+
+struct BoolConstant : ConstantExpression {
+    bool value;
+
+    BoolConstant(bool value);
+    pBoundNode bind() override;
+    void       header() override;
 };
 
 struct Break : SyntaxNode {
@@ -110,6 +143,36 @@ struct Continue : SyntaxNode {
     void       header() override;
 };
 
+struct Decimal : ConstantExpression {
+    double value;
+
+    Decimal(std::wstring const &number);
+    Decimal(double number);
+    pBoundNode bind() override;
+    void       header() override;
+
+    pSyntaxNode evaluate_Add(pConstantExpression const &rhs) override;
+    pSyntaxNode evaluate_Subtract(pConstantExpression const &rhs) override;
+    pSyntaxNode evaluate_Multiply(pConstantExpression const &rhs) override;
+    pSyntaxNode evaluate_Divide(pConstantExpression const &rhs) override;
+    pSyntaxNode evaluate_Modulo(pConstantExpression const &rhs) override;
+    pSyntaxNode evaluate_Equals(pConstantExpression const &rhs) override;
+    pSyntaxNode evaluate_NotEqual(pConstantExpression const &rhs) override;
+    pSyntaxNode evaluate_Less(pConstantExpression const &rhs) override;
+    pSyntaxNode evaluate_LessEqual(pConstantExpression const &rhs) override;
+    pSyntaxNode evaluate_Greater(pConstantExpression const &rhs) override;
+    pSyntaxNode evaluate_GreaterEqual(pConstantExpression const &rhs) override;
+};
+
+struct DoubleQuotedString : ConstantExpression {
+    std::wstring string;
+
+    DoubleQuotedString(std::wstring_view str, bool strip_quotes);
+    pBoundNode  bind() override;
+    void        header() override;
+    pSyntaxNode evaluate_Add(pConstantExpression const &rhs) override;
+};
+
 struct Dummy : SyntaxNode {
     Dummy();
     pBoundNode bind() override;
@@ -121,7 +184,7 @@ struct Embed : SyntaxNode {
     Embed(std::wstring_view file_name);
     pSyntaxNode normalize() override;
     pBoundNode  bind() override;
-    void       header() override;
+    void        header() override;
 };
 
 struct ExpressionList : SyntaxNode {
@@ -158,7 +221,28 @@ struct Include : SyntaxNode {
     Include(std::wstring_view file_name);
     pSyntaxNode normalize() override;
     pBoundNode  bind() override;
+    void        header() override;
+};
+
+struct Integer : ConstantExpression {
+    uint64_t value;
+
+    Integer(std::wstring_view number);
+    Integer(uint64_t number);
+    pBoundNode bind() override;
     void       header() override;
+
+    pSyntaxNode evaluate_Add(pConstantExpression const &rhs) override;
+    pSyntaxNode evaluate_Subtract(pConstantExpression const &rhs) override;
+    pSyntaxNode evaluate_Multiply(pConstantExpression const &rhs) override;
+    pSyntaxNode evaluate_Divide(pConstantExpression const &rhs) override;
+    pSyntaxNode evaluate_Modulo(pConstantExpression const &rhs) override;
+    pSyntaxNode evaluate_Equals(pConstantExpression const &rhs) override;
+    pSyntaxNode evaluate_NotEqual(pConstantExpression const &rhs) override;
+    pSyntaxNode evaluate_Less(pConstantExpression const &rhs) override;
+    pSyntaxNode evaluate_LessEqual(pConstantExpression const &rhs) override;
+    pSyntaxNode evaluate_Greater(pConstantExpression const &rhs) override;
+    pSyntaxNode evaluate_GreaterEqual(pConstantExpression const &rhs) override;
 };
 
 struct LoopStatement : SyntaxNode {
@@ -190,8 +274,9 @@ struct Number : SyntaxNode {
     NumberType   number_type;
 
     Number(std::wstring_view number, NumberType type);
-    pBoundNode bind() override;
-    void       header() override;
+    pSyntaxNode normalize() override;
+    pBoundNode  bind() override;
+    void        header() override;
 };
 
 struct QuotedString : SyntaxNode {
@@ -199,6 +284,15 @@ struct QuotedString : SyntaxNode {
     QuoteType    quote_type;
 
     QuotedString(std::wstring_view str, QuoteType type);
+    pBoundNode  bind() override;
+    void        header() override;
+    pSyntaxNode normalize() override;
+};
+
+struct SingleQuotedString : ConstantExpression {
+    std::wstring string;
+
+    SingleQuotedString(std::wstring_view str, bool strip_quotes);
     pBoundNode bind() override;
     void       header() override;
 };
