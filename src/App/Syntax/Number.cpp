@@ -24,10 +24,10 @@ pSyntaxNode evaluate_numeric_op(auto *lhs, pConstantExpression const &rhs, Func 
         auto rhs_integer = std::dynamic_pointer_cast<Integer>(rhs);
         auto z = func(lhs->value, rhs_integer->value);
         if constexpr (std::is_integral_v<decltype(z)>) {
-            return make_node<Integer>(z);
+            return make_node<Integer>(lhs->location + rhs->location, z);
         }
         if constexpr (std::is_floating_point_v<decltype(z)>) {
-            return make_node<Decimal>(z);
+            return make_node<Decimal>(lhs->location + rhs->location, z);
         }
         fatal("Unexpected return type in evaluate_numeric_op");
     }
@@ -35,10 +35,10 @@ pSyntaxNode evaluate_numeric_op(auto *lhs, pConstantExpression const &rhs, Func 
         auto rhs_decimal = std::dynamic_pointer_cast<Decimal>(rhs);
         auto z = func(lhs->value, rhs_decimal->value);
         if constexpr (std::is_integral_v<decltype(z)>) {
-            return make_node<Integer>(z);
+            return make_node<Integer>(lhs->location + rhs->location, z);
         }
         if constexpr (std::is_floating_point_v<decltype(z)>) {
-            return make_node<Decimal>(z);
+            return make_node<Decimal>(lhs->location + rhs->location, z);
         }
         fatal("Unexpected return type in evaluate_numeric_op");
     }
@@ -54,12 +54,12 @@ pSyntaxNode evaluate_comparison_op(auto *lhs, pConstantExpression const &rhs, Fu
     case SyntaxNodeType::Integer: {
         auto rhs_integer = std::dynamic_pointer_cast<Integer>(rhs);
         bool z = func(lhs->value, rhs_integer->value);
-        return make_node<BoolConstant>(z);
+        return make_node<BoolConstant>(lhs->location + rhs->location, z);
     }
     case SyntaxNodeType::Decimal: {
         auto rhs_integer = std::dynamic_pointer_cast<Integer>(rhs);
         bool z = func(lhs->value, rhs_integer->value);
-        return make_node<BoolConstant>(z);
+        return make_node<BoolConstant>(lhs->location + rhs->location, z);
     }
     default:
         return nullptr;
@@ -99,9 +99,9 @@ void Number::header()
 pSyntaxNode Number::normalize()
 {
     if (number_type == NumberType::Decimal) {
-        return make_node<Decimal>(number);
+        return make_node<Decimal>(location, number);
     }
-    return make_node<Integer>(number);
+    return make_node<Integer>(location, number);
 }
 
 Decimal::Decimal(std::wstring const& number)
@@ -170,11 +170,11 @@ pSyntaxNode Decimal::evaluate_Modulo(pConstantExpression const &rhs)
     switch (rhs->type) {
     case SyntaxNodeType::Integer: {
         auto rhs_integer = std::dynamic_pointer_cast<Integer>(rhs);
-        return make_node<Decimal>(fmod(value, rhs_integer->value));
+        return make_node<Decimal>(location + rhs->location, fmod(value, rhs_integer->value));
     }
     case SyntaxNodeType::Decimal: {
         auto rhs_decimal = std::dynamic_pointer_cast<Decimal>(rhs);
-        return make_node<Decimal>(fmod(value, rhs_decimal->value));
+        return make_node<Decimal>(location + rhs->location, fmod(value, rhs_decimal->value));
     }
     default:
         return nullptr;
@@ -272,7 +272,7 @@ pSyntaxNode Integer::evaluate_Multiply(pConstantExpression const &rhs)
         for (auto ix = 0; ix < value; ++value) {
             s += rhs_string->string;
         }
-        return make_node<DoubleQuotedString>(s, false);
+        return make_node<DoubleQuotedString>(location + rhs->location, s, false);
     }
     return evaluate_numeric_op(
         this, rhs,
@@ -299,11 +299,11 @@ pSyntaxNode Integer::evaluate_Modulo(pConstantExpression const &rhs)
     switch (rhs->type) {
     case SyntaxNodeType::Integer: {
         auto rhs_integer = std::dynamic_pointer_cast<Integer>(rhs);
-        return make_node<Integer>(value % rhs_integer->value);
+        return make_node<Integer>(location + rhs->location, value % rhs_integer->value);
     }
     case SyntaxNodeType::Decimal: {
         auto rhs_decimal = std::dynamic_pointer_cast<Decimal>(rhs);
-        return make_node<Decimal>(fmod(value, rhs_decimal->value));
+        return make_node<Decimal>(location + rhs->location, fmod(value, rhs_decimal->value));
     }
     default:
         return nullptr;

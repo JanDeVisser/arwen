@@ -5,7 +5,7 @@
  */
 
 #pragma clang diagnostic push
-#pragma ide diagnostic ignored "google-explicit-constructor"
+#pragma ide diagnostic   ignored "google-explicit-constructor"
 
 #pragma once
 
@@ -102,7 +102,7 @@ public:
     Error &operator=(Error const &other) = default;
     operator bool() const { return is_error(); }
 
-    ErrorType         &error() { return m_error.value(); }
+    ErrorType const   &error() const { return m_error.value(); }
     [[nodiscard]] bool is_error() const { return m_error.has_value(); }
 
 protected:

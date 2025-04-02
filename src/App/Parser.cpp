@@ -4,8 +4,11 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "Util/Lexer.h"
+#include <Util/Defer.h>
+#include <Util/Lexer.h>
 #include <Util/Logging.h>
+#include <Util/Result.h>
+#include <Util/Utf8.h>
 
 #include <App/Operator.h>
 #include <App/Parser.h>
@@ -53,7 +56,7 @@ pSyntaxNode Parser::parse_file(std::wstring const &text)
 
     SyntaxNodes statements;
     if (auto t = parse_statements(statements); !t.matches(TokenKind::EndOfFile)) {
-        std::cerr << "Expected end of file" << std::endl;
+        append(t, "Expected end of file");
         return nullptr;
     }
     switch (statements.size()) {
@@ -62,7 +65,7 @@ pSyntaxNode Parser::parse_file(std::wstring const &text)
     case 1:
         return statements[0];
     default:
-        return make_node<Block>(statements);
+        return make_node<Block>(statements[0]->location + statements.back()->location, statements);
     }
 }
 
@@ -73,10 +76,13 @@ pSyntaxNode Parser::parse_module(std::string_view name, std::wstring const &text
 
     SyntaxNodes statements;
     if (auto t = parse_statements(statements); !t.matches(TokenKind::EndOfFile)) {
-        std::cerr << "Expected end of file" << std::endl;
+        append(t, "Expected end of file");
         return nullptr;
     }
-    return make_node<Module>(name, text, statements);
+    if (!statements.empty()) {
+        return make_node<Module>(statements[0]->location + statements.back()->location, name, text, statements);
+    }
+    return nullptr;
 }
 
 Parser::Token Parser::parse_statements(SyntaxNodes &statements)
@@ -98,12 +104,16 @@ pSyntaxNode Parser::parse_statement()
     auto const t = lexer.peek();
     switch (t.kind) {
     case TokenKind::EndOfFile:
-        std::cerr << "Unexpected end of file" << std::endl;
+        append(t, "Unexpected end of file");
         return nullptr;
     case TokenKind::Identifier:
+        if (pending_id) {
+            // This is the type of a variable decl:
+            return parse_var_decl();
+        }
         lexer.lex();
         if (lexer.peek().matches_symbol(':')) {
-            pending_label = text_of(t);
+            pending_id = t;
             lexer.lex();
             return parse_statement();
         }
@@ -119,16 +129,20 @@ pSyntaxNode Parser::parse_statement()
             return parse_break_continue();
         case ArwenKeyword::Embed:
             return parse_embed();
+        case ArwenKeyword::Func:
+            return parse_func();
         case ArwenKeyword::If:
             return parse_if();
         case ArwenKeyword::Include:
             return parse_include();
+        case ArwenKeyword::Return:
+            return parse_return();
         case ArwenKeyword::Loop:
             return parse_loop();
         case ArwenKeyword::While:
             return parse_while();
         default:
-            std::wcerr << "Unexpected keyword '" << text_of(t) << "'." << std::endl;
+            append(t, "Unexpected keyword '{}'", as_utf8(text_of(t)));
             lexer.lex();
             return nullptr;
         }
@@ -136,40 +150,74 @@ pSyntaxNode Parser::parse_statement()
     case TokenKind::Symbol:
         switch (t.symbol_code()) {
         case ';':
-            pending_label.reset();
-            return make_node<Dummy>();
+            pending_id.reset();
+            lexer.lex();
+            return make_node<Dummy>(lexer.lex().location);
         case '{': {
-            pending_label.reset();
+            pending_id.reset();
             lexer.lex();
             SyntaxNodes block;
+            auto        old_level = level;
+            level = ParseLevel::Block;
+            Defer defer { [this, old_level]() { level = old_level; } };
             if (auto const t = parse_statements(block); !t.matches_symbol('}')) {
-                std::cerr << "Unexpected end of block" << std::endl;
+                append(t, "Unexpected end of block");
                 return nullptr;
             }
-            return make_node<Block>(block);
+            return make_node<Block>(block[0]->location + block.back()->location, block);
         }
+        case '=':
+            if (pending_id) {
+                // This is the '=' of a variable decl with implied type:
+                return parse_var_decl();
+            }
+            // Fall through
         default:
             if (auto expr = parse_top_expression(); expr) {
                 return expr;
             }
-            std::wcerr << "Unexpected symbol '" << t.symbol_code() << "'" << std::endl;
+            append(t, "Unexpected symbol '{:c}'", static_cast<char>(t.symbol_code()));
             lexer.lex();
             return nullptr;
         }
     default:
         lexer.lex();
+        append(t, L"Unexpected token '{}'", text_of(t));
         return nullptr;
     }
 }
 
-std::wstring_view Parser::text_of(Token const &token)
+std::wstring_view Parser::text_of(Token const &token) const
 {
-    return text.substr(token.location.index, token.location.length);
+    return text_of(token.location);
+}
+
+std::wstring_view Parser::text_of(LexerErrorMessage const &error) const
+{
+    return text_of(error.location);
+}
+
+std::wstring_view Parser::text_of(LexerError const &error) const
+{
+    return text_of(error.error().location);
+}
+
+std::wstring_view Parser::text_of(LexerResult const &res) const
+{
+    if (res.is_error()) {
+        return text_of(res.error().location);
+    }
+    return text_of(res.value().location);
+}
+
+std::wstring_view Parser::text_of(TokenLocation const &location) const
+{
+    return text.substr(location.index, location.length);
 }
 
 pSyntaxNode Parser::parse_top_expression()
 {
-    pending_label.reset();
+    pending_id.reset();
     auto lhs = parse_primary();
     return (lhs) ? parse_expr(lhs, 0) : nullptr;
 }
@@ -180,17 +228,17 @@ pSyntaxNode Parser::parse_primary()
     pSyntaxNode ret { nullptr };
     switch (token.kind) {
     case TokenKind::Number: {
-        ret = make_node<Number>(text_of(token), token.number_type());
+        ret = make_node<Number>(token.location, text_of(token), token.number_type());
         lexer.lex();
         break;
     }
     case TokenKind::QuotedString: {
-        ret = make_node<QuotedString>(text_of(token), token.quoted_string().quote_type);
+        ret = make_node<QuotedString>(token.location, text_of(token), token.quoted_string().quote_type);
         lexer.lex();
         break;
     }
     case TokenKind::Identifier: {
-        ret = make_node<Identifier>(text_of(token));
+        ret = make_node<Identifier>(token.location, text_of(token));
         lexer.lex();
         break;
     }
@@ -198,14 +246,17 @@ pSyntaxNode Parser::parse_primary()
         if (token.matches_keyword(ArwenKeyword::Embed)) {
             return parse_embed();
         }
-        std::cerr << "Unexpected keyword `" << ArwenKeyword_name(token.keyword()) << "`\n";
+        if (token.matches_keyword(ArwenKeyword::Include)) {
+            return parse_include();
+        }
+        append(token, "Unexpected keyword '{}'", ArwenKeyword_name(token.keyword()));
         return nullptr;
     case TokenKind::Symbol: {
         if (token.symbol_code() == L'(') {
             lexer.lex();
             ret = parse_top_expression();
-            if (!lexer.peek().matches_symbol(')')) {
-                std::cerr << "Expected ')'" << std::endl;
+            if (auto t = lexer.peek(); !t.matches_symbol(')')) {
+                append(t, "Expected ')'");
                 return nullptr;
             }
             lexer.lex();
@@ -213,18 +264,21 @@ pSyntaxNode Parser::parse_primary()
         }
         if (auto const op_maybe = check_prefix_op(); op_maybe) {
             auto &op = *op_maybe;
-            lexer.lex();
-            auto operand = parse_primary();
+            auto  op_token = lexer.lex();
+            auto  operand = parse_primary();
             if (!operand) {
-                std::cerr << "Expected operand following prefix operator " << Operator_name(op.op) << std::endl;
+                append(token, "Expected operand following prefix operator '{}'", Operator_name(op.op));
                 return nullptr;
             }
-            ret = make_node<UnaryExpression>(op.op, operand);
+            ret = make_node<UnaryExpression>(op_token.location, op.op, operand);
         }
     } // Fall through
     default:
-        std::wcerr << "Unexpected token `" << text_of(token) << "`\n";
+        append(token, L"Unexpected token `{}`", text_of(token));
         ret = nullptr;
+    }
+    if (ret == nullptr) {
+        append(token, "Expected primary expression");
     }
     return ret;
 }
@@ -237,26 +291,25 @@ pSyntaxNode Parser::parse_expr(pSyntaxNode lhs, Precedence min_prec)
             // Don't lex the '(' so parse_primary will return a
             // single expression, probably a binop with op = ','.
             auto param_list = parse_primary();
-            return make_node<BinaryExpression>(lhs, curr_op.op, param_list);
+            return make_node<BinaryExpression>(lhs->location + param_list->location, lhs, curr_op.op, param_list);
         }
-        lexer.lex();
+        auto token = lexer.lex();
         auto rhs = parse_primary();
         if (!rhs) {
-            std::cerr << "Expected right hand side operand following infix operator " << Operator_name(curr_op.op) << std::endl;
+            append(token, "Expected right hand side operand following infix operator `{}`", Operator_name(curr_op.op));
             return nullptr;
         }
         for (auto next_op_maybe = check_binop(curr_op.precedence); next_op_maybe; next_op_maybe = check_binop(curr_op.precedence)) {
             auto const &next_op = *next_op_maybe;
             auto        next_prec = curr_op.precedence + ((next_op.precedence > curr_op.precedence) ? 1 : 0);
+            token = lexer.peek();
             rhs = parse_expr(rhs, next_prec);
             if (!rhs) {
-                std::cerr << "Expected right hand side operand following infix operator " << Operator_name(next_op.op) << std::endl;
+                append(token, "Expected right hand side operand following infix operator `{}`", Operator_name(next_op.op));
                 return nullptr;
             }
         }
-        if (curr_op.op == Operator::Call) {
-        }
-        lhs = make_node<BinaryExpression>(lhs, curr_op.op, rhs);
+        lhs = make_node<BinaryExpression>(lhs->location + rhs->location, lhs, curr_op.op, rhs);
     }
     return lhs;
 }
@@ -311,124 +364,303 @@ std::optional<OperatorDef> Parser::check_prefix_op()
 
 pSyntaxNode Parser::parse_break_continue()
 {
+    pending_id.reset();
     auto kw = lexer.lex();
     assert(kw.matches_keyword(ArwenKeyword::Break) || kw.matches_keyword(ArwenKeyword::Continue));
     Label label {};
     if (lexer.accept_symbol(':')) {
         auto lbl = lexer.peek();
         if (!lbl.matches(TokenKind::Identifier)) {
-            std::cerr << "Expected label name after `:`" << std::endl;
+            append(lbl, "Expected label name after `:`");
             return nullptr;
         }
         label = text_of(lbl);
     }
     if (kw.matches_keyword(ArwenKeyword::Break)) {
-        return make_node<Break>(label);
+        return make_node<Break>(kw.location, label);
     }
-    return make_node<Continue>(label);
+    return make_node<Continue>(kw.location, label);
 }
 
 pSyntaxNode Parser::parse_embed()
 {
+    pending_id.reset();
     auto kw = lexer.lex();
-    if (lexer.expect_symbol('(').is_error()) {
-        std::cerr << "Malformed '@embed' statement: expected '('" << std::endl;
+    auto token = lexer.peek();
+    if (auto res = lexer.expect_symbol('('); res.is_error()) {
+        append(res.error());
         return nullptr;
     }
+    lexer.lex();
     auto file_name = lexer.expect(TokenKind::QuotedString);
     if (file_name.is_error()) {
-        std::cerr << "Malformed '@embed' statement: no file name" << std::endl;
+        append(file_name.error());
         return nullptr;
     }
     auto fname = text_of(file_name.value());
     fname = fname.substr(0, fname.length() - 1).substr(1);
-    if (lexer.expect_symbol(')').is_error()) {
-        std::cerr << "Malformed '@embed' statement: expected ')'" << std::endl;
+    auto close_paren = lexer.peek();
+    if (auto res = lexer.expect_symbol(')'); res.is_error()) {
+        append(res.error());
         return nullptr;
     }
-    return make_node<Embed>(fname);
+    return make_node<Embed>(kw.location + close_paren.location, fname);
+}
+
+pSyntaxNode Parser::parse_func()
+{
+    pending_id.reset();
+    auto func = lexer.lex();
+    level = ParseLevel::Function;
+    Defer        defer { [this]() { level = ParseLevel::Module; } };
+    std::wstring name;
+    if (auto res = lexer.expect_identifier(); res.is_error()) {
+        append(res.error(), "Expected function name");
+        return nullptr;
+    } else {
+        name = text_of(res.value());
+    }
+    if (auto res = lexer.expect_symbol('('); res.is_error()) {
+        append(res.error(), "Expected '(' in function definition");
+    }
+    std::vector<pParameter> params;
+    while (true) {
+        std::wstring  param_name;
+        TokenLocation start;
+        if (auto res = lexer.expect_identifier(); res.is_error()) {
+            append(res.error(), "Expected parameter name");
+            return nullptr;
+        } else {
+            param_name = text_of(res.value());
+            start = res.value().location;
+        }
+        if (auto res = lexer.expect_symbol(':'); res.is_error()) {
+            append(res.error(), "Expected ':' in function parameter declaration");
+        }
+        std::wstring  param_type;
+        TokenLocation end;
+        if (auto res = lexer.expect_identifier(); res.is_error()) {
+            append(res.error(), "Expected parameter type");
+            return nullptr;
+        } else {
+            param_type = text_of(res.value());
+            end = res.value().location;
+        }
+        params.emplace_back(make_node<Parameter>(start + end, param_name, param_type));
+        if (lexer.accept_symbol(')')) {
+            break;
+        }
+        if (auto res = lexer.expect_symbol(','); res.is_error()) {
+            append(res.error(), "Expected ',' in function signature");
+        }
+        if (lexer.accept_symbol(')')) {
+            break;
+        }
+    }
+    std::wstring  return_type;
+    TokenLocation return_type_loc;
+    if (auto res = lexer.expect_identifier(); res.is_error()) {
+        append(res.error(), "Expected return type");
+        return nullptr;
+    } else {
+        return_type = text_of(res.value());
+        return_type_loc = res.value().location;
+    }
+    auto decl = make_node<FunctionDeclaration>(func.location + return_type_loc, name, params, return_type);
+    if (auto impl = parse_statement(); impl != nullptr) {
+        return make_node<FunctionDefinition>(decl->location + impl->location, decl, impl);
+    }
+    return nullptr;
 }
 
 pSyntaxNode Parser::parse_if()
 {
+    pending_id.reset();
     auto const &if_token = lexer.lex();
     assert(if_token.matches_keyword(ArwenKeyword::If));
-    pending_label.reset();
     auto condition = parse_top_expression();
     if (condition == nullptr) {
-        std::cerr << "Error parsing `if` condition" << std::endl;
+        append(if_token, "Error parsing `if` condition");
         return nullptr;
     }
     auto if_branch = parse_statement();
     if (if_branch == nullptr) {
-        std::cerr << "Error parsing `if` branch" << std::endl;
+        append(if_token, "Error parsing `if` branch");
         return nullptr;
     }
     pSyntaxNode else_branch { nullptr };
+    auto        else_kw = lexer.peek();
     if (lexer.accept_keyword(ArwenKeyword::Else)) {
         else_branch = parse_statement();
         if (else_branch == nullptr) {
-            std::cerr << "Error parsing `else` branch" << std::endl;
+            append(else_kw, "Error parsing `else` branch");
             return nullptr;
         }
     }
-    return make_node<IfStatement>(condition, if_branch, else_branch);
+    return make_node<IfStatement>(if_token.location + (else_branch != nullptr ? else_branch->location : if_branch->location), condition, if_branch, else_branch);
 }
 
 pSyntaxNode Parser::parse_include()
 {
+    pending_id.reset();
     auto kw = lexer.lex();
-    if (lexer.expect_symbol('(').is_error()) {
-        std::cerr << "Malformed '@include' statement: expected '('" << std::endl;
+    if (auto res = lexer.expect_symbol('('); res.is_error()) {
+        append(res.error(), "Malformed '@include' statement: expected '('");
         return nullptr;
     }
     auto file_name = lexer.expect(TokenKind::QuotedString);
     if (file_name.is_error()) {
-        std::cerr << "Malformed '@include' statement: no file name" << std::endl;
+        append(file_name.error(), "Malformed '@include' statement: no file name");
         return nullptr;
     }
     auto fname = text_of(file_name.value());
     fname = fname.substr(0, fname.length() - 1).substr(1);
-    if (lexer.expect_symbol(')').is_error()) {
-        std::cerr << "Malformed '@include' statement: expected ')'" << std::endl;
+    auto close_paren = lexer.peek();
+    if (auto res = lexer.expect_symbol(')'); res.is_error()) {
+        append(res.error(), L"Malformed '@include' statement: expected ')', got '{}'", text_of(res.error().location));
         return nullptr;
     }
-    return make_node<Include>(fname);
+    return make_node<Include>(kw.location + close_paren.location, fname);
 }
 
 pSyntaxNode Parser::parse_loop()
 {
-    auto label = pending_label;
-    pending_label.reset();
-    auto const &loop_token = lexer.lex();
+    auto loop_token = lexer.lex();
     assert(loop_token.matches_keyword(ArwenKeyword::Loop));
+    TokenLocation location = loop_token.location;
+    Label         label;
+    if (pending_id) {
+        label = text_of(*pending_id);
+        location = pending_id->location;
+        pending_id.reset();
+    }
     auto stmt = parse_statement();
     if (stmt == nullptr) {
-        std::cerr << "Error parsing `loop` block" << std::endl;
+        append(loop_token, "Error parsing `loop` block");
         return nullptr;
     }
-    auto ret = make_node<LoopStatement>(label, stmt);
+    auto ret = make_node<LoopStatement>(location + stmt->location, label, stmt);
+    return ret;
+}
+
+pSyntaxNode Parser::parse_return()
+{
+    pending_id.reset();
+    auto const &kw = lexer.lex();
+    assert(kw.matches_keyword(ArwenKeyword::Return));
+    auto expr = parse_top_expression();
+    if (expr == nullptr) {
+        append(kw.location, "Error parsing return expression");
+        return nullptr;
+    }
+    return make_node<Return>(kw.location + expr->location, expr);
+}
+
+pSyntaxNode Parser::parse_var_decl()
+{
+    assert(pending_id.has_value());
+    auto                        name = pending_id.value();
+    Token                       token = lexer.peek();
+    std::optional<std::wstring> type_name {};
+    auto                        end_location = token.location;
+    if (token.matches(TokenKind::Identifier)) {
+        type_name = text_of(token);
+        end_location = token.location;
+        lexer.lex();
+    }
+    token = lexer.peek();
+    pSyntaxNode initializer = nullptr;
+    if (token.matches_symbol('=')) {
+        lexer.lex();
+        initializer = parse_top_expression();
+        if (initializer == nullptr) {
+            append(token.location, "Error parsing initialization expression");
+            return nullptr;
+        }
+        end_location = initializer->location;
+    } else if (!type_name) {
+        append(token, "Expected variable initialization expression");
+        return nullptr;
+    } else {
+        end_location = token.location;
+    }
+    auto ret = make_node<VariableDeclaration>(
+        name.location + end_location,
+        std::wstring { text_of(name) },
+        type_name,
+        initializer);
+    pending_id.reset();
     return ret;
 }
 
 pSyntaxNode Parser::parse_while()
 {
-    auto label = pending_label;
-    pending_label.reset();
-    auto const &while_token = lexer.lex();
+    auto while_token = lexer.lex();
     assert(while_token.matches_keyword(ArwenKeyword::While));
+    TokenLocation location = while_token.location;
+    Label         label;
+    if (pending_id) {
+        label = text_of(*pending_id);
+        location = pending_id->location;
+        pending_id.reset();
+    }
     auto condition = parse_top_expression();
     if (condition == nullptr) {
-        std::cerr << "Error parsing `while` condition" << std::endl;
+        append(while_token, "Error parsing `while` condition");
         return nullptr;
     }
     auto stmt = parse_statement();
     if (stmt == nullptr) {
-        std::cerr << "Error parsing `while` block" << std::endl;
+        append(while_token, "Error parsing `while` block");
         return nullptr;
     }
-    auto ret = make_node<WhileStatement>(label, condition, stmt);
+    auto ret = make_node<WhileStatement>(location + stmt->location, label, condition, stmt);
     return ret;
+}
+
+void Parser::append(LexerErrorMessage const &lexer_error)
+{
+    append(lexer_error.location, MUST_EVAL(to_wstring(lexer_error.message)));
+}
+
+void Parser::append(LexerErrorMessage const &lexer_error, char const *message)
+{
+    append(lexer_error.location, message);
+}
+
+void Parser::append(LexerErrorMessage const &lexer_error, wchar_t const *message)
+{
+    append(lexer_error.location, message);
+}
+
+void Parser::append(Token const &token, wchar_t const *message)
+{
+    append(token.location, message);
+}
+
+void Parser::append(Token const &token, char const *message)
+{
+    append(token.location, message);
+}
+
+void Parser::append(TokenLocation location, std::wstring message)
+{
+    errors.emplace_back(std::move(location), std::move(message));
+}
+
+void Parser::append(TokenLocation location, std::string const &message)
+{
+    errors.emplace_back(std::move(location), MUST_EVAL(to_wstring(message)));
+}
+
+void Parser::append(TokenLocation location, wchar_t const *message)
+{
+    errors.emplace_back(std::move(location), std::wstring { message });
+}
+
+void Parser::append(TokenLocation location, char const *message)
+{
+    errors.emplace_back(std::move(location), MUST_EVAL(to_wstring(message)));
 }
 
 }

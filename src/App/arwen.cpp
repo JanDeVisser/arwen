@@ -34,14 +34,23 @@ void compile_file(std::string_view file_name)
     if (auto contents_maybe = read_file_by_name<wchar_t>(file_name); contents_maybe.has_value()) {
         auto const &contents = contents_maybe.value();
         Parser parser;
+        std::wcout << "STAGE 1 - Parsing" << std::endl;
         auto   mod = parser.parse_module(file_name,contents);
+        for (auto const &err : parser.errors) {
+            std::wcerr << err.location.line + 1 << ':' << err.location.column + 1 << " " << err.message << std::endl;
+        }
         if (!mod) {
-            std::cerr << "Syntax error" << std::endl;
+            std::cerr << "Syntax error(s) found" << std::endl;
             return;
         }
+        parser.errors.clear();
+        std::wcout << "STAGE 2 - Folding" << std::endl;
         auto normalized = mod->normalize();
+        for (auto const &err : parser.errors) {
+            std::wcerr << err.location.line << ':' << err.location.column << " " << err.message << std::endl;
+        }
         if (!normalized) {
-            std::cerr << "Internal error" << std::endl;
+            std::cerr << "Internal error(s) encountered" << std::endl;
             return;
         }
         normalized->dump();

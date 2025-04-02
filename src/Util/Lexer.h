@@ -9,7 +9,6 @@
 #include <cctype>
 #include <deque>
 #include <format>
-#include <iostream>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -127,11 +126,24 @@ extern EnumResult<NumberType> NumberType_from_string(std::string_view comment);
 struct TokenLocation {
     TokenLocation() = default;
     TokenLocation(TokenLocation const &) = default;
+    TokenLocation(TokenLocation const &first, TokenLocation const &second)
+    {
+        index = std::min(first.index, second.index);
+        length = std::max(first.index + first.length, second.index + second.length) - index;
+        line = std::min(first.line, second.line);
+        column = std::min(first.column, second.column);
+    }
+    TokenLocation operator+(TokenLocation const &other) const { return TokenLocation { *this, other }; }
 
     size_t index { 0 };
     size_t length { 0 };
     size_t line { 0 };
     size_t column { 0 };
+
+    TokenLocation merge(TokenLocation const& other) const
+    {
+        return TokenLocation { *this, other };
+    }
 };
 
 struct QuotedString {
@@ -329,17 +341,19 @@ struct LexerTypes {
 
     using LexerResult = Result<Token, LexerErrorMessage>;
 
-    struct SkipToken { };
+    struct SkipToken {
+        size_t index;
+    };
 
     struct ScanResult {
         std::variant<Token, Buffer, SkipToken> result;
         size_t                                 matched;
 
         ScanResult() = default;
-        ScanResult(ScanResult const&) = default;
-        ScanResult& operator=(ScanResult const&) = default;
+        ScanResult(ScanResult const &) = default;
+        ScanResult &operator=(ScanResult const &) = default;
 
-        template <typename T>
+        template<typename T>
         ScanResult(T result, size_t matched)
             : result(std::move(result))
             , matched(matched)
@@ -391,12 +405,13 @@ struct LexerTypes {
         constexpr static char const *value = "#";
     };
 
-    template <typename Marker, bool Ignore = true>
+    template<typename Marker, bool Ignore = true>
     struct LineComments {
         constexpr static char const *marker = Marker::value;
-        size_t length {0};
+        size_t                       length { 0 };
 
-        LineComments() {
+        LineComments()
+        {
             length = strlen(marker);
         }
 
@@ -405,7 +420,7 @@ struct LexerTypes {
             // std::cout << "LineComments<" << marker << ':' << length << ',' << Ignore << ">\n";
             auto ix = index;
             for (; ix < buffer.length() && ix - index < length; ++ix) {
-                if (marker[ix-index] != buffer[ix]) {
+                if (marker[ix - index] != buffer[ix]) {
                     return {};
                 }
             }
@@ -415,7 +430,7 @@ struct LexerTypes {
             for (; ix < buffer.length() && buffer[ix] != '\n'; ++ix)
                 ;
             if constexpr (Ignore) {
-                return ScanResult { SkipToken {}, ix - index };
+                return ScanResult { SkipToken { index }, ix - index };
             }
             return ScanResult { Token::comment(CommentType::Line), ix - index };
         }
@@ -426,15 +441,16 @@ struct LexerTypes {
         constexpr static char const *end = "*/";
     };
 
-    template <typename Markers, bool Ignore = true>
+    template<typename Markers, bool Ignore = true>
     struct BlockComments {
         constexpr static char const *begin = Markers::begin;
         constexpr static char const *end = Markers::end;
-        size_t begin_length;
-        size_t end_length;
-        bool m_in_comment { false };
+        size_t                       begin_length;
+        size_t                       end_length;
+        bool                         m_in_comment { false };
 
-        BlockComments() {
+        BlockComments()
+        {
             begin_length = strlen(begin);
             end_length = strlen(end);
         }
@@ -448,7 +464,7 @@ struct LexerTypes {
             }
             auto ix = index;
             for (; ix < buffer.length() && ix - index < begin_length; ++ix) {
-                if (begin[ix-index] != buffer[ix]) {
+                if (begin[ix - index] != buffer[ix]) {
                     return {};
                 }
             }
@@ -464,24 +480,24 @@ struct LexerTypes {
             auto ix = index;
             for (; ix < buffer.length(); ++ix) {
                 auto iix = ix;
-                for (;iix < buffer.length() && iix - ix < end_length; ++iix) {
-                    if (begin[iix-ix] != buffer[iix]) {
+                for (; iix < buffer.length() && iix - ix < end_length; ++iix) {
+                    if (begin[iix - ix] != buffer[iix]) {
                         break;
                     }
                 }
                 if ((iix == buffer.length() && iix - ix < end_length) || buffer[iix] == '\n') {
-                    if ( iix == index) {
+                    if (iix == index) {
                         return {};
                     }
                     if constexpr (Ignore) {
-                        return ScanResult { SkipToken {}, ix - index };
+                        return ScanResult { SkipToken { index }, ix - index };
                     }
                     return ScanResult { Token::comment(CommentType::Block, false), iix - index };
                 }
                 if (iix - ix == end_length) {
                     m_in_comment = false;
                     if constexpr (Ignore) {
-                        return ScanResult { SkipToken {}, ix - index };
+                        return ScanResult { SkipToken { index }, ix - index };
                     }
                     return ScanResult { Token::comment(CommentType::Block, true), iix - index };
                 }
@@ -566,7 +582,7 @@ struct LexerTypes {
         }
     };
 
-    template <bool Ignore = true>
+    template<bool Ignore = true>
     struct WhitespaceScanner {
         std::optional<ScanResult> scan(Buffer const &buffer, size_t index)
         {
@@ -575,10 +591,14 @@ struct LexerTypes {
             auto cur = buffer[ix];
             switch (cur) {
             case '\n':
-                return ScanResult { Token::end_of_line(), 1 };
+                if constexpr (Ignore) {
+                    return ScanResult { SkipToken { index }, 1 };
+                } else {
+                    return ScanResult { Token::end_of_line(), 1 };
+                }
             case '\t':
                 if constexpr (Ignore) {
-                    return ScanResult { SkipToken {}, 1 };
+                    return ScanResult { SkipToken { index }, 1 };
                 } else {
                     return ScanResult { Token::tab(), 1 };
                 }
@@ -587,7 +607,7 @@ struct LexerTypes {
                     ++ix;
                 }
                 if constexpr (Ignore) {
-                    return ScanResult { SkipToken {}, ix - index };
+                    return ScanResult { SkipToken { index }, ix - index };
                 } else {
                     return ScanResult { Token::whitespace(), ix - index };
                 }
@@ -699,7 +719,7 @@ public:
                                //      << as_utf8(m_sources.back().substr(token.location.index, token.location.length)) << ']' << std::endl;
                                m_current = token;
                            },
-                           [this,&res](Buffer const &buffer) -> void {
+                           [this, &res](Buffer const &buffer) -> void {
                                push_source(std::get<Buffer>(res.result));
                            },
                            [](SkipToken) -> void {
@@ -834,7 +854,7 @@ private:
         {
         }
 
-        void push_back(Token const& token)
+        void push_back(Token const &token)
         {
             m_index = token.location.index + token.location.length;
             m_location = token.location;

@@ -25,7 +25,7 @@ pSyntaxNode Embed::normalize()
     auto fname = as_utf8(file_name);
     if (auto contents_maybe = read_file_by_name<wchar_t>(fname); contents_maybe.has_value()) {
         auto const &contents = contents_maybe.value();
-        return make_node<DoubleQuotedString>(contents, false);
+        return make_node<DoubleQuotedString>(location, contents, false);
     } else {
         std::cerr << "Could not open '" << fname << "': " << contents_maybe.error().to_string() << std::endl;
         return nullptr;

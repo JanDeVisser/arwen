@@ -26,6 +26,8 @@ using namespace Util;
     S(Dummy)               \
     S(Embed)               \
     S(ExpressionList)      \
+    S(FunctionDeclaration) \
+    S(FunctionDefinition)  \
     S(Identifier)          \
     S(IfStatement)         \
     S(Include)             \
@@ -33,9 +35,12 @@ using namespace Util;
     S(LoopStatement)       \
     S(Module)              \
     S(Number)              \
+    S(Parameter)           \
     S(QuotedString)        \
+    S(Return)              \
     S(SingleQuotedString)  \
     S(UnaryExpression)     \
+    S(VariableDeclaration) \
     S(WhileStatement)
 
 enum class SyntaxNodeType {
@@ -71,9 +76,38 @@ struct SyntaxNode : std::enable_shared_from_this<SyntaxNode> {
 
 template<class Node, typename... Args>
     requires std::derived_from<Node, SyntaxNode>
-static std::shared_ptr<Node> make_node(Args &&...args)
+static std::shared_ptr<Node> make_node(TokenLocation location, Args &&...args)
 {
-    return std::make_shared<Node>(args...);
+    auto ret = std::make_shared<Node>(args...);
+    ret->location = std::move(location);
+    return ret;
+}
+
+template<class Node, typename... Args>
+    requires std::derived_from<Node, SyntaxNode>
+static std::shared_ptr<Node> make_node(pSyntaxNode const &child, Args &&...args)
+{
+    auto ret = std::make_shared<Node>(args...);
+    ret->location = child->location;
+    return ret;
+}
+
+template<class Node, typename... Args>
+    requires std::derived_from<Node, SyntaxNode>
+static std::shared_ptr<Node> make_node(std::array<pSyntaxNode, 2> const &children, Args &&...args)
+{
+    auto ret = std::make_shared<Node>(args...);
+    ret->location = children[0]->location + children[1]->location;
+    return ret;
+}
+
+template<class Node, typename... Args>
+    requires std::derived_from<Node, SyntaxNode>
+static std::shared_ptr<Node> make_node(std::vector<pSyntaxNode> const &children, Args &&...args)
+{
+    auto ret = std::make_shared<Node>(args...);
+    ret->location = children[0]->location + children.back()->location;
+    return ret;
 }
 
 struct BinaryExpression : SyntaxNode {
@@ -101,6 +135,7 @@ struct ConstantExpression : SyntaxNode {
     virtual pSyntaxNode evaluate_##O(pConstantExpression const &rhs) \
     {                                                                \
         return make_node<BinaryExpression>(                          \
+            this->location + rhs->location,                          \
             this->shared_from_this(), Operator::O, rhs);             \
     }
     Operators(S)
@@ -196,6 +231,32 @@ struct ExpressionList : SyntaxNode {
     void        dump_node(int indent) override;
 };
 
+using pParameter = std::shared_ptr<struct Parameter>;
+
+struct FunctionDeclaration : SyntaxNode {
+    std::wstring            name;
+    std::vector<pParameter> parameters;
+    std::wstring            return_type;
+
+    FunctionDeclaration(std::wstring name, std::vector<pParameter> parameters, std::wstring return_type);
+    pSyntaxNode normalize() override;
+    pBoundNode  bind() override;
+    void        header() override;
+    void        dump_node(int indent) override;
+};
+
+using pFunctionDeclaration = std::shared_ptr<FunctionDeclaration>;
+
+struct FunctionDefinition : SyntaxNode {
+    pFunctionDeclaration declaration;
+    pSyntaxNode          implementation;
+
+    FunctionDefinition(pFunctionDeclaration declaration, pSyntaxNode implementation);
+    pSyntaxNode normalize() override;
+    pBoundNode  bind() override;
+    void        dump_node(int indent) override;
+};
+
 struct Identifier : SyntaxNode {
     std::wstring identifier;
 
@@ -279,6 +340,15 @@ struct Number : SyntaxNode {
     void        header() override;
 };
 
+struct Parameter : SyntaxNode {
+    std::wstring name;
+    std::wstring type_name;
+
+    Parameter(std::wstring name, std::wstring type_name);
+    pBoundNode bind() override;
+    void       header() override;
+};
+
 struct QuotedString : SyntaxNode {
     std::wstring string;
     QuoteType    quote_type;
@@ -287,6 +357,14 @@ struct QuotedString : SyntaxNode {
     pBoundNode  bind() override;
     void        header() override;
     pSyntaxNode normalize() override;
+};
+
+struct Return : SyntaxNode {
+    pSyntaxNode expression;
+
+    Return(pSyntaxNode expression);
+    pBoundNode bind() override;
+    void       dump_node(int indent) override;
 };
 
 struct SingleQuotedString : ConstantExpression {
@@ -304,6 +382,18 @@ struct UnaryExpression : SyntaxNode {
     UnaryExpression(Operator op, pSyntaxNode operand);
     pSyntaxNode normalize() override;
     pBoundNode  bind() override;
+    void        header() override;
+    void        dump_node(int indent) override;
+};
+
+struct VariableDeclaration : SyntaxNode {
+    std::wstring                name;
+    std::optional<std::wstring> type_name {};
+    pSyntaxNode                 initializer;
+
+    VariableDeclaration(std::wstring name, std::optional<std::wstring> type_name, pSyntaxNode initializer);
+    pBoundNode  bind() override;
+    pSyntaxNode normalize() override;
     void        header() override;
     void        dump_node(int indent) override;
 };

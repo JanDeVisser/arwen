@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "Util/Lexer.h"
+#include <iostream>
 #include <memory>
 
 #include <App/Operator.h>
@@ -11,6 +13,7 @@
 #include <Util/Logging.h>
 #include <Util/StringUtil.h>
 #include <string_view>
+#include <unistd.h>
 
 namespace Arwen {
 
@@ -40,7 +43,7 @@ SyntaxNode::SyntaxNode(SyntaxNodeType type)
 void SyntaxNode::dump(int indent)
 {
     print_indent(indent);
-    std::cout << SyntaxNodeType_name(type) << " ";
+    std::cout << SyntaxNodeType_name(type) << " (" << location.index << ".." << location.index + location.length << ") ";
     header();
     std::cout << std::endl;
     dump_node(indent);
@@ -90,7 +93,7 @@ pSyntaxNode Block::normalize()
     for (auto const &stmt : statements) {
         normalized.emplace_back(stmt->normalize());
     }
-    return make_node<Block>(normalized);
+    return make_node<Block>(location, normalized);
 }
 
 pBoundNode Block::bind()
@@ -176,7 +179,7 @@ void DoubleQuotedString::header()
 pSyntaxNode DoubleQuotedString::evaluate_Add(pConstantExpression const &rhs)
 {
     if (auto rhs_string = std::dynamic_pointer_cast<DoubleQuotedString>(rhs); rhs_string != nullptr) {
-        return make_node<DoubleQuotedString>(string + rhs_string->string, false);
+        return make_node<DoubleQuotedString>(location + rhs->location, string + rhs_string->string, false);
     }
     return nullptr;
 }
@@ -203,7 +206,7 @@ pSyntaxNode ExpressionList::normalize()
     for (auto const &expr : expressions) {
         normalized.emplace_back(expr->normalize());
     }
-    return make_node<ExpressionList>(normalized);
+    return make_node<ExpressionList>(location, normalized);
 }
 
 pBoundNode ExpressionList::bind()
@@ -246,6 +249,7 @@ IfStatement::IfStatement(pSyntaxNode condition, pSyntaxNode if_branch, pSyntaxNo
 pSyntaxNode IfStatement::normalize()
 {
     return make_node<IfStatement>(
+        location,
         condition->normalize(),
         if_branch->normalize(),
         (else_branch != nullptr) ? else_branch->normalize() : nullptr);
@@ -276,6 +280,7 @@ LoopStatement::LoopStatement(Label label, pSyntaxNode statement)
 pSyntaxNode LoopStatement::normalize()
 {
     return make_node<LoopStatement>(
+        location,
         label,
         statement->normalize());
 }
@@ -304,12 +309,14 @@ Module::Module(std::string_view name, std::wstring_view source, SyntaxNodes stat
 {
     switch (statements.size()) {
     case 0:
-        this->statements = make_node<Dummy>();
+        this->statements = make_node<Dummy>({0,0,0,0});
         break;
     case 1:
         this->statements = statements[0];
-    default:
-        this->statements = make_node<Block>(std::move(statements));
+    default: {
+        TokenLocation loc = statements.front()->location + statements.back()->location;
+        this->statements = make_node<Block>(loc, std::move(statements));
+    }
     }
 }
 
@@ -323,7 +330,7 @@ Module::Module(std::string_view name, std::wstring_view source, pSyntaxNode stat
 
 pSyntaxNode Module::normalize()
 {
-    return make_node<Module>(name, source, statements->normalize());
+    return make_node<Module>(location, name, source, statements->normalize());
 }
 
 pBoundNode Module::bind()
@@ -362,9 +369,9 @@ pSyntaxNode QuotedString::normalize()
 {
     switch (quote_type) {
     case QuoteType::DoubleQuote:
-        return make_node<DoubleQuotedString>(string, true);
+        return make_node<DoubleQuotedString>(location, string, true);
     case QuoteType::SingleQuote:
-        return make_node<SingleQuotedString>(string, true);
+        return make_node<SingleQuotedString>(location, string, true);
     default:
         UNREACHABLE();
     }
@@ -395,7 +402,7 @@ UnaryExpression::UnaryExpression(Operator op, pSyntaxNode operand)
 
 pSyntaxNode UnaryExpression::normalize()
 {
-    return make_node<UnaryExpression>(op, operand->normalize());
+    return make_node<UnaryExpression>(location, op, operand->normalize());
 }
 
 pBoundNode UnaryExpression::bind()
@@ -413,6 +420,43 @@ void UnaryExpression::dump_node(int indent)
     operand->dump_node(indent + 4);
 }
 
+VariableDeclaration::VariableDeclaration(std::wstring name, std::optional<std::wstring> type_name, pSyntaxNode initializer)
+    : SyntaxNode(SyntaxNodeType::VariableDeclaration)
+    , name(std::move(name))
+    , type_name(type_name)
+    , initializer(std::move(initializer))
+{
+}
+
+pBoundNode VariableDeclaration::bind()
+{
+    return nullptr;
+}
+
+pSyntaxNode VariableDeclaration::normalize()
+{
+    return make_node<VariableDeclaration>(
+        location,
+        name,
+        type_name,
+        initializer->normalize());
+}
+
+void VariableDeclaration::dump_node(int indent)
+{
+    if (initializer != nullptr) {
+        initializer->dump(indent + 4);
+    }
+}
+
+void VariableDeclaration::header()
+{
+    if (type_name) {
+        std::wcout << *type_name << ' ';
+    }
+    std::wcout << name;
+}
+
 WhileStatement::WhileStatement(Label label, pSyntaxNode condition, pSyntaxNode statement)
     : SyntaxNode(SyntaxNodeType::WhileStatement)
     , label(std::move(label))
@@ -425,6 +469,7 @@ WhileStatement::WhileStatement(Label label, pSyntaxNode condition, pSyntaxNode s
 pSyntaxNode WhileStatement::normalize()
 {
     return make_node<WhileStatement>(
+        location,
         label,
         condition->normalize(),
         statement->normalize());

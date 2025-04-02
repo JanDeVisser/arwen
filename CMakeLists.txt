@@ -79,8 +79,11 @@ add_executable(
         src/App/SyntaxNode.cpp
         src/App/Syntax/BinaryExpression.cpp
         src/App/Syntax/Embed.cpp
+        src/App/Syntax/Function.cpp
         src/App/Syntax/Include.cpp
         src/App/Syntax/Number.cpp
+        src/App/Syntax/Return.cpp
+        src/App/Type.cpp
 )
 
 target_link_libraries(

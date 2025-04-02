@@ -28,7 +28,11 @@ pSyntaxNode Include::normalize()
         Parser      parser;
         auto        node = parser.parse_file(contents);
         if (node) {
-            return node->normalize();
+            node = node->normalize();
+            if (node) {
+                node->location = location;
+            }
+            return node;
         }
         std::cerr << "Syntax error" << std::endl;
     } else {

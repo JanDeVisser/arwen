@@ -37,7 +37,7 @@ pSyntaxNode BinaryExpression::normalize()
             }
         };
         flatten(shared_from_this());
-        return make_node<ExpressionList>(nodes)->normalize();
+        return make_node<ExpressionList>(nodes, nodes)->normalize();
     };
 
     auto evaluate = [this](pSyntaxNode const &lhs, Operator op, pSyntaxNode const &rhs) -> pSyntaxNode {
@@ -48,7 +48,7 @@ pSyntaxNode BinaryExpression::normalize()
                 return ret;
             }
         }
-        return make_node<BinaryExpression>(lhs, op, rhs);
+        return make_node<BinaryExpression>(lhs->location + rhs->location, lhs, op, rhs);
     };
 
     if (op == Operator::Sequence) {
