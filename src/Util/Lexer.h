@@ -705,6 +705,10 @@ public:
             m_current = pushed_back.back();
             return m_current.value();
         }
+        if (m_sources.empty()) {
+            m_current = Token::end_of_file();
+            return m_current.value();
+        }
         while (!m_current.has_value()) {
             ScanResult res { m_sources.back().peek_next() };
             std::visit(overloads {

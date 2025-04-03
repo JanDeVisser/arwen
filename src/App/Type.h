@@ -73,7 +73,10 @@ struct StructType {
     std::vector<Field> fields;
 };
 
+using VoidType = std::monostate;
+
 using TypeDescription = std::variant<
+    VoidType,
     IntType,
     FloatType,
     BoolType,

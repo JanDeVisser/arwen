@@ -29,25 +29,26 @@ using Precedence = uint16_t;
     S(AssignShiftLeft, "<<=")  \
     S(AssignShiftRight, ">>=") \
     S(AssignXor, "^=")         \
-    S(Embed, "@embed")         \
-    S(Include, "@include")     \
-    S(Equals, "==")            \
-    S(GreaterEqual, ">=")      \
-    S(LessEqual, "<=")         \
-    S(LogicalAnd, "&&")        \
-    S(LogicalOr, "||")         \
-    S(NotEqual, "!=")          \
-    S(ShiftLeft, "<<")         \
-    S(ShiftRight, ">>")        \
     S(Break, "break")          \
     S(Continue, "continue")    \
     S(Defer, "defer")          \
-    S(Func, "func")            \
-    S(If, "if")                \
     S(Else, "else")            \
+    S(Embed, "@embed")         \
+    S(Equals, "==")            \
+    S(Func, "func")            \
+    S(GreaterEqual, ">=")      \
+    S(If, "if")                \
+    S(Include, "@include")     \
+    S(LessEqual, "<=")         \
+    S(LogicalAnd, "&&")        \
+    S(LogicalOr, "||")         \
     S(Loop, "loop")            \
+    S(NotEqual, "!=")          \
     S(Return, "return")        \
-    S(While, "while")
+    S(ShiftLeft, "<<")         \
+    S(ShiftRight, ">>")        \
+    S(While, "while")          \
+    S(Yield, "yield")
 
 enum class ArwenKeyword {
 #undef S

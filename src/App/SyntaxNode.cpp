@@ -159,6 +159,28 @@ void Continue::header()
         std::wcout << *label;
     }
 }
+DeferStatement::DeferStatement(pSyntaxNode stmt)
+    : SyntaxNode(SyntaxNodeType::DeferStatement)
+    , stmt(std::move(stmt))
+{
+}
+
+pSyntaxNode DeferStatement::normalize()
+{
+    return make_node<DeferStatement>(
+        location,
+        stmt->normalize());
+}
+
+pBoundNode DeferStatement::bind()
+{
+    return nullptr;
+}
+
+void DeferStatement::dump_node(int indent)
+{
+    stmt->dump(indent + 4);
+}
 
 DoubleQuotedString::DoubleQuotedString(std::wstring_view string, bool strip_quotes)
     : ConstantExpression(SyntaxNodeType::DoubleQuotedString)
@@ -457,6 +479,16 @@ void VariableDeclaration::header()
     std::wcout << name;
 }
 
+Void::Void()
+    : ConstantExpression(SyntaxNodeType::Void)
+{
+}
+
+pBoundNode Void::bind()
+{
+    return nullptr;
+}
+
 WhileStatement::WhileStatement(Label label, pSyntaxNode condition, pSyntaxNode statement)
     : SyntaxNode(SyntaxNodeType::WhileStatement)
     , label(std::move(label))
@@ -487,6 +519,38 @@ void WhileStatement::dump_node(int indent)
 }
 
 void WhileStatement::header()
+{
+    if (label) {
+        std::wcout << *label;
+    }
+}
+
+Yield::Yield(Label label, pSyntaxNode statement)
+    : SyntaxNode(SyntaxNodeType::Yield)
+    , label(std::move(label))
+    , statement(std::move(statement))
+{
+}
+
+pSyntaxNode Yield::normalize()
+{
+    return make_node<Yield>(
+        location,
+        label,
+        statement->normalize());
+}
+
+pBoundNode Yield::bind()
+{
+    return nullptr;
+}
+
+void Yield::dump_node(int indent)
+{
+    statement->dump(indent + 4);
+}
+
+void Yield::header()
 {
     if (label) {
         std::wcout << *label;

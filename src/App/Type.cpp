@@ -39,6 +39,7 @@ TypeRegistry::TypeRegistry()
     types.emplace(L"bool", make_type(L"bool", BoolType::boolean));
     types.emplace(L"string", make_type(L"string", SliceType { types[L"u32"] }));
     types.emplace(L"char", make_type(L"char", TypeAlias { types[L"u32"] }));
+    types.emplace(L"void", make_type(L"void", VoidType {}));
 }
 
 TypeRegistry &TypeRegistry::the()

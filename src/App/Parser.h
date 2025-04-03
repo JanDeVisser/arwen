@@ -56,6 +56,7 @@ struct Parser {
     pSyntaxNode                parse_module(std::string_view name, std::wstring const &text);
     Token                      parse_statements(SyntaxNodes &statements);
     pSyntaxNode                parse_statement();
+    pSyntaxNode                parse_module_level_statement();
     std::wstring_view          text_of(Token const &token) const;
     std::wstring_view          text_of(LexerErrorMessage const &error) const;
     std::wstring_view          text_of(LexerError const &error) const;
@@ -67,6 +68,7 @@ struct Parser {
     std::optional<OperatorDef> check_binop(Precedence min_prec);
     std::optional<OperatorDef> check_prefix_op();
     pSyntaxNode                parse_break_continue();
+    pSyntaxNode                parse_defer();
     pSyntaxNode                parse_embed();
     pSyntaxNode                parse_func();
     pSyntaxNode                parse_if();
@@ -75,6 +77,7 @@ struct Parser {
     pSyntaxNode                parse_return();
     pSyntaxNode                parse_var_decl();
     pSyntaxNode                parse_while();
+    pSyntaxNode                parse_yield();
 
     void append(LexerErrorMessage const &lexer_error);
     void append(LexerErrorMessage const &lexer_error, char const *message);

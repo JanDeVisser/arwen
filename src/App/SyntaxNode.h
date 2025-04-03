@@ -22,6 +22,7 @@ using namespace Util;
     S(Break)               \
     S(Continue)            \
     S(Decimal)             \
+    S(DeferStatement)      \
     S(DoubleQuotedString)  \
     S(Dummy)               \
     S(Embed)               \
@@ -41,7 +42,9 @@ using namespace Util;
     S(SingleQuotedString)  \
     S(UnaryExpression)     \
     S(VariableDeclaration) \
-    S(WhileStatement)
+    S(Void)                \
+    S(WhileStatement)      \
+    S(Yield)
 
 enum class SyntaxNodeType {
 #undef S
@@ -80,6 +83,7 @@ static std::shared_ptr<Node> make_node(TokenLocation location, Args &&...args)
 {
     auto ret = std::make_shared<Node>(args...);
     ret->location = std::move(location);
+    std::cout << "[" << SyntaxNodeType_name(ret->type) << "] (" << ret->location.line + 1 << "," << ret->location.column + 1 << ")" << std::endl;
     return ret;
 }
 
@@ -197,6 +201,15 @@ struct Decimal : ConstantExpression {
     pSyntaxNode evaluate_LessEqual(pConstantExpression const &rhs) override;
     pSyntaxNode evaluate_Greater(pConstantExpression const &rhs) override;
     pSyntaxNode evaluate_GreaterEqual(pConstantExpression const &rhs) override;
+};
+
+struct DeferStatement : SyntaxNode {
+    pSyntaxNode stmt;
+
+    DeferStatement(pSyntaxNode stmt);
+    pSyntaxNode normalize() override;
+    pBoundNode  bind() override;
+    void        dump_node(int indent) override;
 };
 
 struct DoubleQuotedString : ConstantExpression {
@@ -398,12 +411,28 @@ struct VariableDeclaration : SyntaxNode {
     void        dump_node(int indent) override;
 };
 
+struct Void : ConstantExpression {
+    Void();
+    pBoundNode bind() override;
+};
+
 struct WhileStatement : SyntaxNode {
     Label       label;
     pSyntaxNode condition;
     pSyntaxNode statement;
 
     WhileStatement(Label label, pSyntaxNode condition, pSyntaxNode statement);
+    pSyntaxNode normalize() override;
+    pBoundNode  bind() override;
+    void        header() override;
+    void        dump_node(int indent) override;
+};
+
+struct Yield : SyntaxNode {
+    Label       label;
+    pSyntaxNode statement;
+
+    Yield(Label label, pSyntaxNode statement);
     pSyntaxNode normalize() override;
     pBoundNode  bind() override;
     void        header() override;

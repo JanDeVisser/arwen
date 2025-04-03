@@ -93,15 +93,51 @@ Parser::Token Parser::parse_statements(SyntaxNodes &statements)
             lexer.lex();
             return t;
         }
-        if (auto stmt = parse_statement(); stmt != nullptr) {
+        if (auto stmt = (level == ParseLevel::Module) ? parse_module_level_statement() : parse_statement(); stmt != nullptr) {
             statements.push_back(stmt);
         }
     }
 }
 
+pSyntaxNode Parser::parse_module_level_statement()
+{
+    auto const t = lexer.peek();
+    // std::cerr << TokenKind_name(t.kind) << " " << std::endl;
+    switch (t.kind) {
+    case TokenKind::EndOfFile:
+        append(t, "Unexpected end of file");
+        return nullptr;
+    case TokenKind::Identifier:
+        lexer.lex();
+        if (auto err = lexer.expect_symbol(':'); err.is_error()) {
+            append(err.error(), "Expected variable declaration");
+            break;
+        }
+        pending_id = t;
+        lexer.lex();
+        return parse_statement();
+    case TokenKind::Keyword: {
+        switch (t.keyword()) {
+        case ArwenKeyword::Func:
+            return parse_func();
+        case ArwenKeyword::Include:
+            return parse_include();
+        default:
+            break;
+        }
+    } break;
+    default:
+        break;
+    }
+    lexer.lex();
+    append(t, L"Unexpected token '{}'", text_of(t));
+    return nullptr;
+}
+
 pSyntaxNode Parser::parse_statement()
 {
     auto const t = lexer.peek();
+    std::cerr << TokenKind_name(t.kind) << " " << std::endl;
     switch (t.kind) {
     case TokenKind::EndOfFile:
         append(t, "Unexpected end of file");
@@ -127,6 +163,8 @@ pSyntaxNode Parser::parse_statement()
         case ArwenKeyword::Break:
         case ArwenKeyword::Continue:
             return parse_break_continue();
+        case ArwenKeyword::Defer:
+            return parse_defer();
         case ArwenKeyword::Embed:
             return parse_embed();
         case ArwenKeyword::Func:
@@ -141,6 +179,8 @@ pSyntaxNode Parser::parse_statement()
             return parse_loop();
         case ArwenKeyword::While:
             return parse_while();
+        case ArwenKeyword::Yield:
+            return parse_yield();
         default:
             append(t, "Unexpected keyword '{}'", as_utf8(text_of(t)));
             lexer.lex();
@@ -160,11 +200,15 @@ pSyntaxNode Parser::parse_statement()
             auto        old_level = level;
             level = ParseLevel::Block;
             Defer defer { [this, old_level]() { level = old_level; } };
-            if (auto const t = parse_statements(block); !t.matches_symbol('}')) {
+            if (auto const end_token = parse_statements(block); !end_token.matches_symbol('}')) {
                 append(t, "Unexpected end of block");
                 return nullptr;
+            } else {
+                if (block.empty()) {
+                    return make_node<Void>(t.location + end_token.location);
+                }
+                return make_node<Block>(t.location + end_token.location, block);
             }
-            return make_node<Block>(block[0]->location + block.back()->location, block);
         }
         case '=':
             if (pending_id) {
@@ -212,7 +256,10 @@ std::wstring_view Parser::text_of(LexerResult const &res) const
 
 std::wstring_view Parser::text_of(TokenLocation const &location) const
 {
-    return text.substr(location.index, location.length);
+    if (location.index < text.length()) {
+        return text.substr(location.index, location.length);
+    }
+    return L"";
 }
 
 pSyntaxNode Parser::parse_top_expression()
@@ -405,6 +452,18 @@ pSyntaxNode Parser::parse_embed()
         return nullptr;
     }
     return make_node<Embed>(kw.location + close_paren.location, fname);
+}
+
+pSyntaxNode Parser::parse_defer()
+{
+    pending_id.reset();
+    auto kw = lexer.lex();
+    if (auto stmt = parse_statement(); stmt == nullptr) {
+        append(kw, "Could not parse defer statement");
+        return nullptr;
+    } else {
+        return make_node<DeferStatement>(kw.location + stmt->location, stmt);
+    }
 }
 
 pSyntaxNode Parser::parse_func()
@@ -618,6 +677,28 @@ pSyntaxNode Parser::parse_while()
     return ret;
 }
 
+pSyntaxNode Parser::parse_yield()
+{
+    pending_id.reset();
+    auto kw = lexer.lex();
+    assert(kw.matches_keyword(ArwenKeyword::Yield));
+    Label label {};
+    if (lexer.accept_symbol(':')) {
+        if (auto res = lexer.expect_identifier(); res.is_error()) {
+            append(res.value(), "Expected label name after `:`");
+            return nullptr;
+        } else {
+            label = text_of(res.value());
+        }
+    }
+    if (auto stmt = parse_statement(); stmt == nullptr) {
+        append(kw, "Could not parse yield expression");
+        return nullptr;
+    } else {
+        return make_node<Yield>(kw.location, label, stmt);
+    }
+}
+
 void Parser::append(LexerErrorMessage const &lexer_error)
 {
     append(lexer_error.location, MUST_EVAL(to_wstring(lexer_error.message)));
@@ -645,22 +726,23 @@ void Parser::append(Token const &token, char const *message)
 
 void Parser::append(TokenLocation location, std::wstring message)
 {
+    std::wcerr << location.line + 1 << ":" << location.column + 1 << " " << message << std::endl;
     errors.emplace_back(std::move(location), std::move(message));
 }
 
 void Parser::append(TokenLocation location, std::string const &message)
 {
-    errors.emplace_back(std::move(location), MUST_EVAL(to_wstring(message)));
+    append(std::move(location), MUST_EVAL(to_wstring(message)));
 }
 
 void Parser::append(TokenLocation location, wchar_t const *message)
 {
-    errors.emplace_back(std::move(location), std::wstring { message });
+    append(std::move(location), std::wstring { message });
 }
 
 void Parser::append(TokenLocation location, char const *message)
 {
-    errors.emplace_back(std::move(location), MUST_EVAL(to_wstring(message)));
+    append(std::move(location), MUST_EVAL(to_wstring(message)));
 }
 
 }
