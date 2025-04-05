@@ -67,6 +67,7 @@ struct Parser {
     pSyntaxNode                parse_expr(pSyntaxNode lhs, Precedence min_prec);
     std::optional<OperatorDef> check_binop(Precedence min_prec);
     std::optional<OperatorDef> check_prefix_op();
+    pTypeSpecification         parse_type();
     pSyntaxNode                parse_break_continue();
     pSyntaxNode                parse_defer();
     pSyntaxNode                parse_embed();

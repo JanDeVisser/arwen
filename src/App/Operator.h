@@ -35,6 +35,7 @@ using Precedence = uint16_t;
     S(Else, "else")            \
     S(Embed, "@embed")         \
     S(Equals, "==")            \
+    S(ExternLink, "->")        \
     S(Func, "func")            \
     S(GreaterEqual, ">=")      \
     S(If, "if")                \

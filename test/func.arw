@@ -3,4 +3,13 @@ func foo(x: i32) i32
 	return x * 2
 }
 
-foo(12)
+func bar(quux: []int) bool/string
+{
+    return true
+}
+
+func main() i32
+{
+	foo(12)
+ 	return 0
+}

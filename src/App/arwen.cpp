@@ -45,7 +45,7 @@ void compile_file(std::string_view file_name)
         }
         parser.errors.clear();
         std::wcout << "STAGE 2 - Folding" << std::endl;
-        auto normalized = mod->normalize();
+        auto normalized = mod->normalize(parser);
         for (auto const &err : parser.errors) {
             std::wcerr << err.location.line << ':' << err.location.column << " " << err.message << std::endl;
         }

@@ -12,6 +12,7 @@
 
 #include <App/Operator.h>
 #include <App/Parser.h>
+#include <string>
 
 namespace Arwen {
 
@@ -137,7 +138,6 @@ pSyntaxNode Parser::parse_module_level_statement()
 pSyntaxNode Parser::parse_statement()
 {
     auto const t = lexer.peek();
-    std::cerr << TokenKind_name(t.kind) << " " << std::endl;
     switch (t.kind) {
     case TokenKind::EndOfFile:
         append(t, "Unexpected end of file");
@@ -409,6 +409,72 @@ std::optional<OperatorDef> Parser::check_prefix_op()
     return {};
 }
 
+pTypeSpecification Parser::parse_type()
+{
+    TypeFlag flags { TypeFlag::None };
+    auto     t = lexer.peek();
+    auto     start_location = t.location;
+    if (lexer.accept_symbol('[')) {
+        if (auto err = lexer.expect_symbol(']'); err.is_error()) {
+            append(t, "Expected `]' to close slice type specification");
+            return nullptr;
+        }
+        flags |= TypeFlag::Slice;
+    }
+    auto name = lexer.expect_identifier();
+    if (name.is_error()) {
+        append(name.error(), "Expected type name");
+        return nullptr;
+    }
+    auto               end_location = name.value().location;
+    TypeSpecifications arguments;
+    if (lexer.accept_symbol('<')) {
+        while (true) {
+            auto arg = parse_type();
+            if (arg == nullptr) {
+                append(lexer.peek(), "Expected type specification");
+                return nullptr;
+            }
+            end_location = arg->location;
+            arguments.push_back(arg);
+            auto t = lexer.peek();
+            if (t.matches_symbol('>')) {
+                lexer.lex();
+                end_location = t.location;
+                break;
+            }
+            if (auto err = lexer.expect_symbol(','); err.is_error()) {
+                append(err.error(), "Expected `,` or `>`");
+                return nullptr;
+            }
+            t = lexer.peek();
+            if (t.matches_symbol('>')) {
+                lexer.lex();
+                end_location = t.location;
+                break;
+            }
+        }
+    }
+    pTypeSpecification error_type { nullptr };
+    if (lexer.accept_symbol('/')) {
+        error_type = parse_type();
+        if (error_type == nullptr) {
+            append(lexer.peek(), "Expected error type");
+            return nullptr;
+        }
+        end_location = error_type->location;
+    }
+    bool optional { false };
+    t = lexer.peek();
+    if (t.matches_symbol('?')) {
+        lexer.lex();
+        flags |= TypeFlag::Optional;
+        end_location = t.location;
+    }
+    return make_node<TypeSpecification>(
+        start_location + end_location, std::wstring { text_of(name) }, arguments, error_type, flags);
+}
+
 pSyntaxNode Parser::parse_break_continue()
 {
     pending_id.reset();
@@ -484,6 +550,9 @@ pSyntaxNode Parser::parse_func()
     }
     std::vector<pParameter> params;
     while (true) {
+        if (lexer.accept_symbol(')')) {
+            break;
+        }
         std::wstring  param_name;
         TokenLocation start;
         if (auto res = lexer.expect_identifier(); res.is_error()) {
@@ -496,36 +565,42 @@ pSyntaxNode Parser::parse_func()
         if (auto res = lexer.expect_symbol(':'); res.is_error()) {
             append(res.error(), "Expected ':' in function parameter declaration");
         }
-        std::wstring  param_type;
+        auto          param_type = parse_type();
         TokenLocation end;
-        if (auto res = lexer.expect_identifier(); res.is_error()) {
-            append(res.error(), "Expected parameter type");
+        if (param_type == nullptr) {
+            append(lexer.peek(), "Expected parameter type");
             return nullptr;
-        } else {
-            param_type = text_of(res.value());
-            end = res.value().location;
         }
-        params.emplace_back(make_node<Parameter>(start + end, param_name, param_type));
+        params.emplace_back(make_node<Parameter>(start + param_type->location, param_name, param_type));
         if (lexer.accept_symbol(')')) {
             break;
         }
         if (auto res = lexer.expect_symbol(','); res.is_error()) {
             append(res.error(), "Expected ',' in function signature");
         }
-        if (lexer.accept_symbol(')')) {
-            break;
+    }
+    auto          return_type = parse_type();
+    TokenLocation return_type_loc;
+    if (return_type == nullptr) {
+        append(lexer.peek(), "Expected return type");
+        return nullptr;
+    }
+    auto decl = make_node<FunctionDeclaration>(func.location + return_type->location, name, params, return_type);
+    if (lexer.accept_keyword(ArwenKeyword::ExternLink)) {
+        if (auto res = lexer.expect_identifier(); res.is_error()) {
+            append(res.error(), "Expected extern function name");
+            return nullptr;
+        } else {
+            auto name = text_of(res.value());
+            if (name.length() <= 2) {
+                append(res.value(), "Invalid extern function name");
+            }
+            name = name.substr(0, name.size() - 1).substr(1);
+            return make_node<FunctionDefinition>(
+                decl->location + res.value().location,
+                decl, make_node<ExternLink>(res.value().location, std::wstring { name }));
         }
     }
-    std::wstring  return_type;
-    TokenLocation return_type_loc;
-    if (auto res = lexer.expect_identifier(); res.is_error()) {
-        append(res.error(), "Expected return type");
-        return nullptr;
-    } else {
-        return_type = text_of(res.value());
-        return_type_loc = res.value().location;
-    }
-    auto decl = make_node<FunctionDeclaration>(func.location + return_type_loc, name, params, return_type);
     if (auto impl = parse_statement(); impl != nullptr) {
         return make_node<FunctionDefinition>(decl->location + impl->location, decl, impl);
     }
@@ -535,7 +610,7 @@ pSyntaxNode Parser::parse_func()
 pSyntaxNode Parser::parse_if()
 {
     pending_id.reset();
-    auto const &if_token = lexer.lex();
+    auto if_token = lexer.lex();
     assert(if_token.matches_keyword(ArwenKeyword::If));
     auto condition = parse_top_expression();
     if (condition == nullptr) {
@@ -556,7 +631,9 @@ pSyntaxNode Parser::parse_if()
             return nullptr;
         }
     }
-    return make_node<IfStatement>(if_token.location + (else_branch != nullptr ? else_branch->location : if_branch->location), condition, if_branch, else_branch);
+    return make_node<IfStatement>(
+        if_token.location + (else_branch != nullptr ? else_branch->location : if_branch->location),
+        condition, if_branch, else_branch);
 }
 
 pSyntaxNode Parser::parse_include()
@@ -618,14 +695,17 @@ pSyntaxNode Parser::parse_return()
 pSyntaxNode Parser::parse_var_decl()
 {
     assert(pending_id.has_value());
-    auto                        name = pending_id.value();
-    Token                       token = lexer.peek();
-    std::optional<std::wstring> type_name {};
-    auto                        end_location = token.location;
+    auto               name = pending_id.value();
+    Token              token = lexer.peek();
+    pTypeSpecification type_name { nullptr };
+    auto               end_location = token.location;
     if (token.matches(TokenKind::Identifier)) {
-        type_name = text_of(token);
-        end_location = token.location;
-        lexer.lex();
+        type_name = parse_type();
+        if (type_name == nullptr) {
+            append(lexer.peek(), "Expected variable type specification");
+            return nullptr;
+        }
+        end_location = type_name->location;
     }
     token = lexer.peek();
     pSyntaxNode initializer = nullptr;

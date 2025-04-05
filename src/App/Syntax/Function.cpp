@@ -11,7 +11,7 @@
 
 namespace Arwen {
 
-FunctionDeclaration::FunctionDeclaration(std::wstring name, std::vector<pParameter> parameters, std::wstring return_type)
+FunctionDeclaration::FunctionDeclaration(std::wstring name, std::vector<pParameter> parameters, pTypeSpecification return_type)
     : SyntaxNode(SyntaxNodeType::FunctionDeclaration)
     , name(std::move(name))
     , parameters(std::move(parameters))
@@ -19,11 +19,11 @@ FunctionDeclaration::FunctionDeclaration(std::wstring name, std::vector<pParamet
 {
 }
 
-pSyntaxNode FunctionDeclaration::normalize()
+pSyntaxNode FunctionDeclaration::normalize(Parser &parser)
 {
     std::vector<pParameter> normalized;
     for (auto const &param : parameters) {
-        auto p = std::dynamic_pointer_cast<Parameter>(param->normalize());
+        auto p = std::dynamic_pointer_cast<Parameter>(param->normalize(parser));
         assert(p != nullptr);
         normalized.push_back(p);
     }
@@ -41,7 +41,7 @@ pBoundNode FunctionDeclaration::bind()
 
 void FunctionDeclaration::header()
 {
-    std::wcout << name << ": " << return_type;
+    std::wcout << name << ": " << return_type->to_string();
 }
 
 void FunctionDeclaration::dump_node(int indent)
@@ -59,12 +59,12 @@ FunctionDefinition::FunctionDefinition(pFunctionDeclaration declaration, pSyntax
     assert(this->declaration != nullptr);
 }
 
-pSyntaxNode FunctionDefinition::normalize()
+pSyntaxNode FunctionDefinition::normalize(Parser &parser)
 {
     return make_node<FunctionDefinition>(
         location,
-        std::dynamic_pointer_cast<FunctionDeclaration>(declaration->normalize()),
-        implementation->normalize());
+        std::dynamic_pointer_cast<FunctionDeclaration>(declaration->normalize(parser)),
+        implementation->normalize(parser));
 }
 
 pBoundNode FunctionDefinition::bind()
@@ -78,7 +78,7 @@ void FunctionDefinition::dump_node(int indent)
     implementation->dump(indent + 4);
 }
 
-Parameter::Parameter(std::wstring name, std::wstring type_name)
+Parameter::Parameter(std::wstring name, pTypeSpecification type_name)
     : SyntaxNode(SyntaxNodeType::Parameter)
     , name(std::move(name))
     , type_name(std::move(type_name))
@@ -92,7 +92,7 @@ pBoundNode Parameter::bind()
 
 void Parameter::header()
 {
-    std::wcout << name << ": " << type_name;
+    std::wcout << name << ": " << type_name->to_string();
 }
 
 }

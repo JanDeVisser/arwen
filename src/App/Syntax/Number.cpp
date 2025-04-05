@@ -96,7 +96,7 @@ void Number::header()
     std::cout << NumberType_name(number_type);
 }
 
-pSyntaxNode Number::normalize()
+pSyntaxNode Number::normalize(struct Parser &)
 {
     if (number_type == NumberType::Decimal) {
         return make_node<Decimal>(location, number);

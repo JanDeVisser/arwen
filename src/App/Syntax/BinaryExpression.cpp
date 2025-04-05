@@ -5,9 +5,9 @@
  */
 
 #include <functional>
-
-#include <App/SyntaxNode.h>
 #include <memory>
+
+#include <App/Parser.h>
 
 namespace Arwen {
 
@@ -19,9 +19,9 @@ BinaryExpression::BinaryExpression(pSyntaxNode lhs, Operator op, pSyntaxNode rhs
 {
 }
 
-pSyntaxNode BinaryExpression::normalize()
+pSyntaxNode BinaryExpression::normalize(Parser &parser)
 {
-    auto make_expression_list = [this]() -> pSyntaxNode {
+    auto make_expression_list = [this, &parser]() -> pSyntaxNode {
         SyntaxNodes                      nodes;
         std::function<void(pSyntaxNode)> flatten;
         flatten = [&nodes, &flatten](pSyntaxNode n) {
@@ -37,7 +37,7 @@ pSyntaxNode BinaryExpression::normalize()
             }
         };
         flatten(shared_from_this());
-        return make_node<ExpressionList>(nodes, nodes)->normalize();
+        return make_node<ExpressionList>(nodes, nodes)->normalize(parser);
     };
 
     auto evaluate = [this](pSyntaxNode const &lhs, Operator op, pSyntaxNode const &rhs) -> pSyntaxNode {
@@ -54,7 +54,7 @@ pSyntaxNode BinaryExpression::normalize()
     if (op == Operator::Sequence) {
         return make_expression_list();
     }
-    return evaluate(lhs->normalize(), op, rhs->normalize());
+    return evaluate(lhs->normalize(parser), op, rhs->normalize(parser));
 }
 
 pBoundNode BinaryExpression::bind()

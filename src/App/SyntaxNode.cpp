@@ -57,7 +57,7 @@ void SyntaxNode::dump_node(int indent)
 {
 }
 
-pSyntaxNode SyntaxNode::normalize()
+pSyntaxNode SyntaxNode::normalize(Parser &parser)
 {
     return this->shared_from_this();
 }
@@ -87,11 +87,11 @@ Block::Block(SyntaxNodes statements)
 {
 }
 
-pSyntaxNode Block::normalize()
+pSyntaxNode Block::normalize(Parser &parser)
 {
     SyntaxNodes normalized;
     for (auto const &stmt : statements) {
-        normalized.emplace_back(stmt->normalize());
+        normalized.emplace_back(stmt->normalize(parser));
     }
     return make_node<Block>(location, normalized);
 }
@@ -165,11 +165,11 @@ DeferStatement::DeferStatement(pSyntaxNode stmt)
 {
 }
 
-pSyntaxNode DeferStatement::normalize()
+pSyntaxNode DeferStatement::normalize(Parser &parser)
 {
     return make_node<DeferStatement>(
         location,
-        stmt->normalize());
+        stmt->normalize(parser));
 }
 
 pBoundNode DeferStatement::bind()
@@ -222,11 +222,11 @@ ExpressionList::ExpressionList(SyntaxNodes expressions)
 {
 }
 
-pSyntaxNode ExpressionList::normalize()
+pSyntaxNode ExpressionList::normalize(Parser &parser)
 {
     SyntaxNodes normalized;
     for (auto const &expr : expressions) {
-        normalized.emplace_back(expr->normalize());
+        normalized.emplace_back(expr->normalize(parser));
     }
     return make_node<ExpressionList>(location, normalized);
 }
@@ -241,6 +241,22 @@ void ExpressionList::dump_node(int indent)
     for (auto const &stmt : expressions) {
         stmt->dump(indent + 4);
     }
+}
+
+ExternLink::ExternLink(std::wstring link_name)
+    : SyntaxNode(SyntaxNodeType::ExternLink)
+    , link_name(std::move(link_name))
+{
+}
+
+pBoundNode ExternLink::bind()
+{
+    return nullptr;
+}
+
+void ExternLink::header()
+{
+    std::wcout << link_name;
 }
 
 Identifier::Identifier(std::wstring_view identifier)
@@ -268,13 +284,13 @@ IfStatement::IfStatement(pSyntaxNode condition, pSyntaxNode if_branch, pSyntaxNo
     assert(condition != nullptr && if_branch != nullptr);
 }
 
-pSyntaxNode IfStatement::normalize()
+pSyntaxNode IfStatement::normalize(Parser &parser)
 {
     return make_node<IfStatement>(
         location,
-        condition->normalize(),
-        if_branch->normalize(),
-        (else_branch != nullptr) ? else_branch->normalize() : nullptr);
+        condition->normalize(parser),
+        if_branch->normalize(parser),
+        (else_branch != nullptr) ? else_branch->normalize(parser) : nullptr);
 }
 
 pBoundNode IfStatement::bind()
@@ -299,12 +315,12 @@ LoopStatement::LoopStatement(Label label, pSyntaxNode statement)
     assert(statement != nullptr);
 }
 
-pSyntaxNode LoopStatement::normalize()
+pSyntaxNode LoopStatement::normalize(Parser &parser)
 {
     return make_node<LoopStatement>(
         location,
         label,
-        statement->normalize());
+        statement->normalize(parser));
 }
 
 pBoundNode LoopStatement::bind()
@@ -350,9 +366,9 @@ Module::Module(std::string_view name, std::wstring_view source, pSyntaxNode stat
 {
 }
 
-pSyntaxNode Module::normalize()
+pSyntaxNode Module::normalize(Parser &parser)
 {
-    return make_node<Module>(location, name, source, statements->normalize());
+    return make_node<Module>(location, name, source, statements->normalize(parser));
 }
 
 pBoundNode Module::bind()
@@ -387,7 +403,7 @@ void QuotedString::header()
     std::wcout << string;
 }
 
-pSyntaxNode QuotedString::normalize()
+pSyntaxNode QuotedString::normalize(Parser &parser)
 {
     switch (quote_type) {
     case QuoteType::DoubleQuote:
@@ -422,9 +438,9 @@ UnaryExpression::UnaryExpression(Operator op, pSyntaxNode operand)
 {
 }
 
-pSyntaxNode UnaryExpression::normalize()
+pSyntaxNode UnaryExpression::normalize(Parser &parser)
 {
-    return make_node<UnaryExpression>(location, op, operand->normalize());
+    return make_node<UnaryExpression>(location, op, operand->normalize(parser));
 }
 
 pBoundNode UnaryExpression::bind()
@@ -442,7 +458,7 @@ void UnaryExpression::dump_node(int indent)
     operand->dump_node(indent + 4);
 }
 
-VariableDeclaration::VariableDeclaration(std::wstring name, std::optional<std::wstring> type_name, pSyntaxNode initializer)
+VariableDeclaration::VariableDeclaration(std::wstring name, pTypeSpecification type_name, pSyntaxNode initializer)
     : SyntaxNode(SyntaxNodeType::VariableDeclaration)
     , name(std::move(name))
     , type_name(type_name)
@@ -455,13 +471,13 @@ pBoundNode VariableDeclaration::bind()
     return nullptr;
 }
 
-pSyntaxNode VariableDeclaration::normalize()
+pSyntaxNode VariableDeclaration::normalize(Parser &parser)
 {
     return make_node<VariableDeclaration>(
         location,
         name,
         type_name,
-        initializer->normalize());
+        initializer->normalize(parser));
 }
 
 void VariableDeclaration::dump_node(int indent)
@@ -474,7 +490,7 @@ void VariableDeclaration::dump_node(int indent)
 void VariableDeclaration::header()
 {
     if (type_name) {
-        std::wcout << *type_name << ' ';
+        std::wcout << type_name->to_string() << ' ';
     }
     std::wcout << name;
 }
@@ -498,13 +514,13 @@ WhileStatement::WhileStatement(Label label, pSyntaxNode condition, pSyntaxNode s
     assert(condition != nullptr && statement != nullptr);
 }
 
-pSyntaxNode WhileStatement::normalize()
+pSyntaxNode WhileStatement::normalize(Parser &parser)
 {
     return make_node<WhileStatement>(
         location,
         label,
-        condition->normalize(),
-        statement->normalize());
+        condition->normalize(parser),
+        statement->normalize(parser));
 }
 
 pBoundNode WhileStatement::bind()
@@ -532,12 +548,12 @@ Yield::Yield(Label label, pSyntaxNode statement)
 {
 }
 
-pSyntaxNode Yield::normalize()
+pSyntaxNode Yield::normalize(Parser &parser)
 {
     return make_node<Yield>(
         location,
         label,
-        statement->normalize());
+        statement->normalize(parser));
 }
 
 pBoundNode Yield::bind()

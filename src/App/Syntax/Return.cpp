@@ -14,6 +14,11 @@ Return::Return(pSyntaxNode expression)
 {
 }
 
+pSyntaxNode Return::normalize(Parser &parser)
+{
+    return make_node<Return>(location, expression->normalize(parser));
+}
+
 pBoundNode Return::bind()
 {
     return nullptr;

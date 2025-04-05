@@ -20,7 +20,7 @@ Embed::Embed(std::wstring_view file_name)
 {
 }
 
-pSyntaxNode Embed::normalize()
+pSyntaxNode Embed::normalize(Parser &parser)
 {
     auto fname = as_utf8(file_name);
     if (auto contents_maybe = read_file_by_name<wchar_t>(fname); contents_maybe.has_value()) {

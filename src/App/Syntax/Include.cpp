@@ -9,6 +9,7 @@
 #include <App/Parser.h>
 #include <Util/IO.h>
 #include <Util/Logging.h>
+#include <cstddef>
 
 namespace Arwen {
 
@@ -20,23 +21,30 @@ Include::Include(std::wstring_view file_name)
 {
 }
 
-pSyntaxNode Include::normalize()
+pSyntaxNode Include::normalize(Parser &parser)
 {
     auto fname = as_utf8(file_name);
     if (auto contents_maybe = read_file_by_name<wchar_t>(fname); contents_maybe.has_value()) {
         auto const &contents = contents_maybe.value();
-        Parser      parser;
-        auto        node = parser.parse_file(contents);
+        Parser      include_parser;
+        include_parser.level = parser.level;
+        auto        node = include_parser.parse_file(contents);
+        if (include_parser.level != parser.level) {
+            parser.append(location, "Unbalanced block(s) in @include");
+            return nullptr;
+        }
         if (node) {
-            node = node->normalize();
+            node = node->normalize(parser);
             if (node) {
                 node->location = location;
             }
             return node;
         }
-        std::cerr << "Syntax error" << std::endl;
+        for (auto &err : include_parser.errors) {
+            parser.errors.push_back(err);
+        }
     } else {
-        std::cerr << "Could not open '" << fname << "': " << contents_maybe.error().to_string() << std::endl;
+        parser.append(location, "Could not open include file `{}`", fname);
     }
     return nullptr;
 }

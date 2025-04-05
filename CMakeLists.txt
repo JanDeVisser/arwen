@@ -83,6 +83,7 @@ add_executable(
         src/App/Syntax/Include.cpp
         src/App/Syntax/Number.cpp
         src/App/Syntax/Return.cpp
+        src/App/Syntax/Type.cpp
         src/App/Type.cpp
 )
 
