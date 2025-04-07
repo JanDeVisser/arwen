@@ -26,8 +26,10 @@ using namespace Util;
     S(DoubleQuotedString)  \
     S(Dummy)               \
     S(Embed)               \
+    S(Error)               \
     S(ExpressionList)      \
     S(ExternLink)          \
+    S(ForStatement)        \
     S(FunctionDeclaration) \
     S(FunctionDefinition)  \
     S(Identifier)          \
@@ -241,6 +243,15 @@ struct Embed : SyntaxNode {
     void        header() override;
 };
 
+struct Error : SyntaxNode {
+    pSyntaxNode expression;
+
+    Error(pSyntaxNode expression);
+    pSyntaxNode normalize(Parser &parser) override;
+    pBoundNode  bind() override;
+    void        dump_node(int indent) override;
+};
+
 struct ExpressionList : SyntaxNode {
     SyntaxNodes expressions;
 
@@ -256,6 +267,18 @@ struct ExternLink : SyntaxNode {
     ExternLink(std::wstring link_name);
     pBoundNode bind() override;
     void       header() override;
+};
+
+struct ForStatement : SyntaxNode {
+    std::wstring range_variable;
+    pSyntaxNode  range_expr;
+    pSyntaxNode  statement;
+
+    ForStatement(std::wstring var, pSyntaxNode expr, pSyntaxNode stmt);
+    pSyntaxNode normalize(Parser &parser) override;
+    pBoundNode  bind() override;
+    void        header() override;
+    void        dump_node(int indent) override;
 };
 
 using pParameter = std::shared_ptr<struct Parameter>;
@@ -404,7 +427,7 @@ struct SingleQuotedString : ConstantExpression {
 };
 
 #define TypeFlags(S)             \
-    S(None, 0x00)               \
+    S(None, 0x00)                \
     S(Optional, 0x01)            \
     S(Slice, 0x02)               \
     S(NullTerminatedArray, 0x04) \
@@ -437,7 +460,7 @@ inline TypeFlag operator&(TypeFlag f1, uint8_t f2)
     return static_cast<TypeFlag>(static_cast<uint8_t>(f1) & f2);
 }
 
-inline TypeFlag& operator|=(TypeFlag &f1, TypeFlag f2)
+inline TypeFlag &operator|=(TypeFlag &f1, TypeFlag f2)
 {
     f1 = f1 | f2;
     return f1;
@@ -474,8 +497,9 @@ struct VariableDeclaration : SyntaxNode {
     std::wstring       name;
     pTypeSpecification type_name {};
     pSyntaxNode        initializer;
+    bool               is_const;
 
-    VariableDeclaration(std::wstring name, pTypeSpecification type_name, pSyntaxNode initializer);
+    VariableDeclaration(std::wstring name, pTypeSpecification type_name, pSyntaxNode initializer, bool is_const);
     pBoundNode  bind() override;
     pSyntaxNode normalize(Parser &parser) override;
     void        header() override;

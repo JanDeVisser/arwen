@@ -742,7 +742,19 @@ public:
             m_sources.back().lex();
         }
         m_current.reset();
+        m_lookback.push_back(ret);
         return ret;
+    }
+
+    Token const& lookback(size_t pos)
+    {
+        assert(pos < m_lookback.size());
+        return m_lookback[m_lookback.size() - pos - 1];
+    }
+
+    bool has_lookback(size_t count)
+    {
+        return m_lookback.size() > count;
     }
 
     LexerResult expect(TokenKind kind)
@@ -834,6 +846,7 @@ public:
         }
         pushed_back.emplace_back(std::move(token));
         m_current.reset();
+        m_lookback.pop_back();
     }
 
 private:
@@ -972,7 +985,8 @@ private:
         std::tuple<Scanners...> m_scanners {};
     };
 
-    std::deque<Token>   pushed_back;
+    std::deque<Token>   m_lookback {};
+    std::deque<Token>   pushed_back {};
     std::vector<Source> m_sources {};
 };
 }

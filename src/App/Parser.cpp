@@ -13,6 +13,7 @@
 #include <App/Operator.h>
 #include <App/Parser.h>
 #include <string>
+#include <sys/socket.h>
 
 namespace Arwen {
 
@@ -44,6 +45,7 @@ std::vector<OperatorDef> Parser::operators {
     { Operator::Multiply, '*', 12 },
     { Operator::Negate, '-', 14, Position::Prefix, Associativity::Right },
     { Operator::NotEqual, ArwenKeyword::NotEqual, 8 },
+    { Operator::Range, ArwenKeyword::Range, 2 },
     { Operator::Sequence, ',', 0 },
     { Operator::ShiftLeft, ArwenKeyword::ShiftLeft, 10 },
     { Operator::ShiftRight, ArwenKeyword::ShiftRight, 10 },
@@ -114,11 +116,12 @@ pSyntaxNode Parser::parse_module_level_statement()
             append(err.error(), "Expected variable declaration");
             break;
         }
-        pending_id = t;
-        lexer.lex();
         return parse_statement();
     case TokenKind::Keyword: {
         switch (t.keyword()) {
+        case ArwenKeyword::Const:
+            lexer.lex();
+            return parse_module_level_statement();
         case ArwenKeyword::Func:
             return parse_func();
         case ArwenKeyword::Include:
@@ -137,19 +140,18 @@ pSyntaxNode Parser::parse_module_level_statement()
 
 pSyntaxNode Parser::parse_statement()
 {
-    auto const t = lexer.peek();
+    auto t = lexer.peek();
     switch (t.kind) {
     case TokenKind::EndOfFile:
         append(t, "Unexpected end of file");
         return nullptr;
     case TokenKind::Identifier:
-        if (pending_id) {
+        if (lexer.has_lookback(1) && lexer.lookback(0).matches_symbol(':') && lexer.lookback(1).matches(TokenKind::Identifier)) {
             // This is the type of a variable decl:
             return parse_var_decl();
         }
         lexer.lex();
         if (lexer.peek().matches_symbol(':')) {
-            pending_id = t;
             lexer.lex();
             return parse_statement();
         }
@@ -163,10 +165,17 @@ pSyntaxNode Parser::parse_statement()
         case ArwenKeyword::Break:
         case ArwenKeyword::Continue:
             return parse_break_continue();
+        case ArwenKeyword::Const:
+            lexer.lex();
+            return parse_statement();
         case ArwenKeyword::Defer:
             return parse_defer();
         case ArwenKeyword::Embed:
             return parse_embed();
+        case ArwenKeyword::Error:
+            return parse_return_error();
+        case ArwenKeyword::For:
+            return parse_for();
         case ArwenKeyword::Func:
             return parse_func();
         case ArwenKeyword::If:
@@ -174,7 +183,7 @@ pSyntaxNode Parser::parse_statement()
         case ArwenKeyword::Include:
             return parse_include();
         case ArwenKeyword::Return:
-            return parse_return();
+            return parse_return_error();
         case ArwenKeyword::Loop:
             return parse_loop();
         case ArwenKeyword::While:
@@ -190,11 +199,8 @@ pSyntaxNode Parser::parse_statement()
     case TokenKind::Symbol:
         switch (t.symbol_code()) {
         case ';':
-            pending_id.reset();
-            lexer.lex();
             return make_node<Dummy>(lexer.lex().location);
         case '{': {
-            pending_id.reset();
             lexer.lex();
             SyntaxNodes block;
             auto        old_level = level;
@@ -211,7 +217,9 @@ pSyntaxNode Parser::parse_statement()
             }
         }
         case '=':
-            if (pending_id) {
+            if (lexer.has_lookback(1)
+                && lexer.lookback(0).matches_symbol(':')
+                && lexer.lookback(1).matches(TokenKind::Identifier)) {
                 // This is the '=' of a variable decl with implied type:
                 return parse_var_decl();
             }
@@ -264,7 +272,6 @@ std::wstring_view Parser::text_of(TokenLocation const &location) const
 
 pSyntaxNode Parser::parse_top_expression()
 {
-    pending_id.reset();
     auto lhs = parse_primary();
     return (lhs) ? parse_expr(lhs, 0) : nullptr;
 }
@@ -477,7 +484,6 @@ pTypeSpecification Parser::parse_type()
 
 pSyntaxNode Parser::parse_break_continue()
 {
-    pending_id.reset();
     auto kw = lexer.lex();
     assert(kw.matches_keyword(ArwenKeyword::Break) || kw.matches_keyword(ArwenKeyword::Continue));
     Label label {};
@@ -497,7 +503,6 @@ pSyntaxNode Parser::parse_break_continue()
 
 pSyntaxNode Parser::parse_embed()
 {
-    pending_id.reset();
     auto kw = lexer.lex();
     auto token = lexer.peek();
     if (auto res = lexer.expect_symbol('('); res.is_error()) {
@@ -522,7 +527,6 @@ pSyntaxNode Parser::parse_embed()
 
 pSyntaxNode Parser::parse_defer()
 {
-    pending_id.reset();
     auto kw = lexer.lex();
     if (auto stmt = parse_statement(); stmt == nullptr) {
         append(kw, "Could not parse defer statement");
@@ -532,9 +536,49 @@ pSyntaxNode Parser::parse_defer()
     }
 }
 
+pSyntaxNode Parser::parse_for()
+{
+    Label         label;
+    TokenLocation location;
+    if (lexer.has_lookback(1)
+        && lexer.lookback(0).matches_symbol(':')
+        && lexer.lookback(1).matches(TokenKind::Identifier)) {
+        label = text_of(lexer.lookback(1));
+        location = lexer.lookback(1).location;
+    }
+    auto for_token = lexer.lex();
+    assert(for_token.matches_keyword(ArwenKeyword::For));
+    if (!label.has_value()) {
+        location = for_token.location;
+    }
+
+    auto var_name = lexer.peek();
+    if (auto res = lexer.expect_identifier(); res.is_error()) {
+        append(res.error(), "Expected `for` range variable name");
+        return nullptr;
+    }
+    auto token = lexer.peek();
+    if (token.matches(TokenKind::Identifier) && text_of(token) == L"in") {
+        lexer.lex();
+    }
+    token = lexer.peek();
+    auto condition = parse_top_expression();
+    if (condition == nullptr) {
+        append(token, "Error parsing `for` range");
+        return nullptr;
+    }
+    token = lexer.peek();
+    auto stmt = parse_statement();
+    if (stmt == nullptr) {
+        append(token, "Error parsing `for` block");
+        return nullptr;
+    }
+    auto ret = make_node<ForStatement>(location + stmt->location, std::wstring { text_of(var_name) }, condition, stmt);
+    return ret;
+}
+
 pSyntaxNode Parser::parse_func()
 {
-    pending_id.reset();
     auto func = lexer.lex();
     level = ParseLevel::Function;
     Defer        defer { [this]() { level = ParseLevel::Module; } };
@@ -609,7 +653,6 @@ pSyntaxNode Parser::parse_func()
 
 pSyntaxNode Parser::parse_if()
 {
-    pending_id.reset();
     auto if_token = lexer.lex();
     assert(if_token.matches_keyword(ArwenKeyword::If));
     auto condition = parse_top_expression();
@@ -638,7 +681,6 @@ pSyntaxNode Parser::parse_if()
 
 pSyntaxNode Parser::parse_include()
 {
-    pending_id.reset();
     auto kw = lexer.lex();
     if (auto res = lexer.expect_symbol('('); res.is_error()) {
         append(res.error(), "Malformed '@include' statement: expected '('");
@@ -661,14 +703,18 @@ pSyntaxNode Parser::parse_include()
 
 pSyntaxNode Parser::parse_loop()
 {
+    Label         label;
+    TokenLocation location;
+    if (lexer.has_lookback(1)
+        && lexer.lookback(0).matches_symbol(':')
+        && lexer.lookback(1).matches(TokenKind::Identifier)) {
+        label = text_of(lexer.lookback(1));
+        location = lexer.lookback(1).location;
+    }
     auto loop_token = lexer.lex();
     assert(loop_token.matches_keyword(ArwenKeyword::Loop));
-    TokenLocation location = loop_token.location;
-    Label         label;
-    if (pending_id) {
-        label = text_of(*pending_id);
-        location = pending_id->location;
-        pending_id.reset();
+    if (!label.has_value()) {
+        location = loop_token.location;
     }
     auto stmt = parse_statement();
     if (stmt == nullptr) {
@@ -679,25 +725,31 @@ pSyntaxNode Parser::parse_loop()
     return ret;
 }
 
-pSyntaxNode Parser::parse_return()
+pSyntaxNode Parser::parse_return_error()
 {
-    pending_id.reset();
-    auto const &kw = lexer.lex();
-    assert(kw.matches_keyword(ArwenKeyword::Return));
+    auto kw = lexer.lex();
+    assert(kw.matches_keyword(ArwenKeyword::Return) || kw.matches_keyword(ArwenKeyword::Error));
     auto expr = parse_top_expression();
     if (expr == nullptr) {
         append(kw.location, "Error parsing return expression");
         return nullptr;
     }
-    return make_node<Return>(kw.location + expr->location, expr);
+    if (kw.matches_keyword(ArwenKeyword::Return)) {
+        return make_node<Return>(kw.location + expr->location, expr);
+    }
+    return make_node<Error>(kw.location + expr->location, expr);
 }
 
 pSyntaxNode Parser::parse_var_decl()
 {
-    assert(pending_id.has_value());
-    auto               name = pending_id.value();
+    assert(lexer.has_lookback(1)
+        && lexer.lookback(0).matches_symbol(':')
+        && lexer.lookback(1).matches(TokenKind::Identifier));
+    bool               is_const = lexer.has_lookback(2) && lexer.lookback(2).matches_keyword(ArwenKeyword::Const);
+    auto               name = lexer.lookback(1);
     Token              token = lexer.peek();
     pTypeSpecification type_name { nullptr };
+    auto               location = lexer.lookback(is_const ? 2 : 1).location;
     auto               end_location = token.location;
     if (token.matches(TokenKind::Identifier)) {
         type_name = parse_type();
@@ -724,24 +776,28 @@ pSyntaxNode Parser::parse_var_decl()
         end_location = token.location;
     }
     auto ret = make_node<VariableDeclaration>(
-        name.location + end_location,
+        location + end_location,
         std::wstring { text_of(name) },
         type_name,
-        initializer);
-    pending_id.reset();
+        initializer,
+        is_const);
     return ret;
 }
 
 pSyntaxNode Parser::parse_while()
 {
+    Label         label;
+    TokenLocation location;
+    if (lexer.has_lookback(1)
+        && lexer.lookback(0).matches_symbol(':')
+        && lexer.lookback(1).matches(TokenKind::Identifier)) {
+        label = text_of(lexer.lookback(1));
+        location = lexer.lookback(1).location;
+    }
     auto while_token = lexer.lex();
     assert(while_token.matches_keyword(ArwenKeyword::While));
-    TokenLocation location = while_token.location;
-    Label         label;
-    if (pending_id) {
-        label = text_of(*pending_id);
-        location = pending_id->location;
-        pending_id.reset();
+    if (!label.has_value()) {
+        location = while_token.location;
     }
     auto condition = parse_top_expression();
     if (condition == nullptr) {
@@ -759,7 +815,6 @@ pSyntaxNode Parser::parse_while()
 
 pSyntaxNode Parser::parse_yield()
 {
-    pending_id.reset();
     auto kw = lexer.lex();
     assert(kw.matches_keyword(ArwenKeyword::Yield));
     Label label {};

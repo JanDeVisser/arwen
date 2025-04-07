@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "Util/Lexer.h"
 #include <iostream>
 #include <memory>
 
 #include <App/Operator.h>
 #include <App/SyntaxNode.h>
+#include <Util/Lexer.h>
 #include <Util/Logging.h>
 #include <Util/StringUtil.h>
 #include <string_view>
@@ -307,39 +307,6 @@ void IfStatement::dump_node(int indent)
     }
 }
 
-LoopStatement::LoopStatement(Label label, pSyntaxNode statement)
-    : SyntaxNode(SyntaxNodeType::LoopStatement)
-    , label(std::move(label))
-    , statement(statement)
-{
-    assert(statement != nullptr);
-}
-
-pSyntaxNode LoopStatement::normalize(Parser &parser)
-{
-    return make_node<LoopStatement>(
-        location,
-        label,
-        statement->normalize(parser));
-}
-
-pBoundNode LoopStatement::bind()
-{
-    return nullptr;
-}
-
-void LoopStatement::dump_node(int indent)
-{
-    statement->dump(indent + 4);
-}
-
-void LoopStatement::header()
-{
-    if (label) {
-        std::wcout << *label;
-    }
-}
-
 Module::Module(std::string_view name, std::wstring_view source, SyntaxNodes statements)
     : SyntaxNode(SyntaxNodeType::Module)
     , name(name)
@@ -347,7 +314,7 @@ Module::Module(std::string_view name, std::wstring_view source, SyntaxNodes stat
 {
     switch (statements.size()) {
     case 0:
-        this->statements = make_node<Dummy>({0,0,0,0});
+        this->statements = make_node<Dummy>({ 0, 0, 0, 0 });
         break;
     case 1:
         this->statements = statements[0];
@@ -458,11 +425,12 @@ void UnaryExpression::dump_node(int indent)
     operand->dump_node(indent + 4);
 }
 
-VariableDeclaration::VariableDeclaration(std::wstring name, pTypeSpecification type_name, pSyntaxNode initializer)
+VariableDeclaration::VariableDeclaration(std::wstring name, pTypeSpecification type_name, pSyntaxNode initializer, bool is_const)
     : SyntaxNode(SyntaxNodeType::VariableDeclaration)
     , name(std::move(name))
     , type_name(type_name)
     , initializer(std::move(initializer))
+    , is_const(is_const)
 {
 }
 
@@ -477,7 +445,8 @@ pSyntaxNode VariableDeclaration::normalize(Parser &parser)
         location,
         name,
         type_name,
-        initializer->normalize(parser));
+        (initializer) ? initializer->normalize(parser) : nullptr,
+        is_const);
 }
 
 void VariableDeclaration::dump_node(int indent)
@@ -489,10 +458,13 @@ void VariableDeclaration::dump_node(int indent)
 
 void VariableDeclaration::header()
 {
-    if (type_name) {
-        std::wcout << type_name->to_string() << ' ';
+    if (is_const) {
+        std::wcout << "const ";
     }
     std::wcout << name;
+    if (type_name) {
+        std::wcout << ": " << type_name->to_string();
+    }
 }
 
 Void::Void()
@@ -503,42 +475,6 @@ Void::Void()
 pBoundNode Void::bind()
 {
     return nullptr;
-}
-
-WhileStatement::WhileStatement(Label label, pSyntaxNode condition, pSyntaxNode statement)
-    : SyntaxNode(SyntaxNodeType::WhileStatement)
-    , label(std::move(label))
-    , condition(condition)
-    , statement(statement)
-{
-    assert(condition != nullptr && statement != nullptr);
-}
-
-pSyntaxNode WhileStatement::normalize(Parser &parser)
-{
-    return make_node<WhileStatement>(
-        location,
-        label,
-        condition->normalize(parser),
-        statement->normalize(parser));
-}
-
-pBoundNode WhileStatement::bind()
-{
-    return nullptr;
-}
-
-void WhileStatement::dump_node(int indent)
-{
-    condition->dump(indent + 4);
-    statement->dump(indent + 4);
-}
-
-void WhileStatement::header()
-{
-    if (label) {
-        std::wcout << *label;
-    }
 }
 
 Yield::Yield(Label label, pSyntaxNode statement)

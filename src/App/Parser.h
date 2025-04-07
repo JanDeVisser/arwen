@@ -47,7 +47,6 @@ struct Parser {
     ArwenLexer                      lexer {};
     std::shared_ptr<Module>         module;
     ParseLevel                      level { ParseLevel::Module };
-    std::optional<Token>            pending_id {};
     std::vector<ArwenError>         errors;
 
     Parser() = default;
@@ -71,11 +70,12 @@ struct Parser {
     pSyntaxNode                parse_break_continue();
     pSyntaxNode                parse_defer();
     pSyntaxNode                parse_embed();
+    pSyntaxNode                parse_for();
     pSyntaxNode                parse_func();
     pSyntaxNode                parse_if();
     pSyntaxNode                parse_include();
     pSyntaxNode                parse_loop();
-    pSyntaxNode                parse_return();
+    pSyntaxNode                parse_return_error();
     pSyntaxNode                parse_var_decl();
     pSyntaxNode                parse_while();
     pSyntaxNode                parse_yield();

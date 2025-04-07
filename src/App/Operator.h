@@ -30,12 +30,15 @@ using Precedence = uint16_t;
     S(AssignShiftRight, ">>=") \
     S(AssignXor, "^=")         \
     S(Break, "break")          \
+    S(Const, "const")          \
     S(Continue, "continue")    \
     S(Defer, "defer")          \
     S(Else, "else")            \
     S(Embed, "@embed")         \
     S(Equals, "==")            \
+    S(Error, "error")          \
     S(ExternLink, "->")        \
+    S(For, "for")              \
     S(Func, "func")            \
     S(GreaterEqual, ">=")      \
     S(If, "if")                \
@@ -45,6 +48,7 @@ using Precedence = uint16_t;
     S(LogicalOr, "||")         \
     S(Loop, "loop")            \
     S(NotEqual, "!=")          \
+    S(Range, "..")             \
     S(Return, "return")        \
     S(ShiftLeft, "<<")         \
     S(ShiftRight, ">>")        \
@@ -100,6 +104,7 @@ enum class Associativity {
     S(Multiply)         \
     S(Negate)           \
     S(NotEqual)         \
+    S(Range)            \
     S(Sequence)         \
     S(ShiftLeft)        \
     S(ShiftRight)       \

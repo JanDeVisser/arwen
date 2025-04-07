@@ -8,6 +8,29 @@
 
 namespace Arwen {
 
+Error::Error(pSyntaxNode expression)
+    : SyntaxNode(SyntaxNodeType::Error)
+    , expression(std::move(expression))
+{
+}
+
+pSyntaxNode Error::normalize(Parser &parser)
+{
+    return make_node<Error>(location, expression->normalize(parser));
+}
+
+pBoundNode Error::bind()
+{
+    return nullptr;
+}
+
+void Error::dump_node(int indent)
+{
+    if (expression) {
+        expression->dump(indent + 4);
+    }
+}
+
 Return::Return(pSyntaxNode expression)
     : SyntaxNode(SyntaxNodeType::Return)
     , expression(std::move(expression))
