@@ -53,6 +53,7 @@ using Precedence = uint16_t;
     S(Return, "return")        \
     S(ShiftLeft, "<<")         \
     S(ShiftRight, ">>")        \
+    S(Struct, "struct")        \
     S(While, "while")          \
     S(Yield, "yield")
 

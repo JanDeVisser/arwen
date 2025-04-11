@@ -1,0 +1,5 @@
+struct Foo {
+   a: i64,
+   b: string,
+   c: []u8,
+}

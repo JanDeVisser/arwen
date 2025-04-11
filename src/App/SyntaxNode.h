@@ -47,6 +47,8 @@ using namespace Util;
     S(QuotedString)        \
     S(Return)              \
     S(SingleQuotedString)  \
+    S(Struct)              \
+    S(StructMember)        \
     S(TypeSpecification)   \
     S(UnaryExpression)     \
     S(VariableDeclaration) \
@@ -67,6 +69,8 @@ extern void        print_indent(int indent);
 using pSyntaxNode = std::shared_ptr<struct SyntaxNode>;
 using SyntaxNodes = std::vector<pSyntaxNode>;
 using pBoundNode = std::shared_ptr<struct BoundNode>;
+using pInteger = std::shared_ptr<struct Integer>;
+using pNumber = std::shared_ptr<struct Number>;
 using Label = std::optional<std::wstring>;
 using pTypeSpecification = std::shared_ptr<struct TypeSpecification>;
 using TypeSpecifications = std::vector<pTypeSpecification>;
@@ -264,9 +268,6 @@ struct Embed : SyntaxNode {
     pBoundNode  bind() override;
     void        header() override;
 };
-
-using pInteger = std::shared_ptr<struct Integer>;
-using pNumber = std::shared_ptr<struct Number>;
 
 struct EnumValue : SyntaxNode {
     std::wstring        label;
@@ -475,6 +476,30 @@ struct SingleQuotedString : ConstantExpression {
     SingleQuotedString(std::wstring_view str, bool strip_quotes);
     pBoundNode bind() override;
     void       header() override;
+};
+
+struct StructMember : SyntaxNode {
+    std::wstring       label;
+    pTypeSpecification type;
+
+    StructMember(std::wstring label, pTypeSpecification payload);
+    pSyntaxNode normalize(Parser &parser) override;
+    pBoundNode  bind() override;
+    void        header() override;
+};
+
+using pStructMember = std::shared_ptr<StructMember>;
+using StructMembers = std::vector<pStructMember>;
+
+struct Struct : SyntaxNode {
+    std::wstring  name;
+    StructMembers members;
+
+    Struct(std::wstring name, StructMembers members);
+    pSyntaxNode normalize(Parser &parser) override;
+    pBoundNode  bind() override;
+    void        dump_node(int indent) override;
+    void        header() override;
 };
 
 struct TypeDescriptionNode {

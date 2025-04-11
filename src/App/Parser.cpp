@@ -4,19 +4,18 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "Util/StringUtil.h"
+#include <memory>
+#include <string>
+
 #include <Util/Defer.h>
 #include <Util/Lexer.h>
 #include <Util/Logging.h>
 #include <Util/Result.h>
+#include <Util/StringUtil.h>
 #include <Util/Utf8.h>
 
 #include <App/Operator.h>
 #include <App/Parser.h>
-#include <cstdint>
-#include <memory>
-#include <string>
-#include <sys/socket.h>
 
 namespace Arwen {
 
@@ -131,6 +130,8 @@ pSyntaxNode Parser::parse_module_level_statement()
             return parse_func();
         case ArwenKeyword::Include:
             return parse_include();
+        case ArwenKeyword::Struct:
+            return parse_struct();
         default:
             break;
         }
@@ -139,7 +140,7 @@ pSyntaxNode Parser::parse_module_level_statement()
         break;
     }
     lexer.lex();
-    append(t, L"Unexpected token '{}'", text_of(t));
+    append(t, L"Unexpected token `{}`", text_of(t));
     return nullptr;
 }
 
@@ -189,16 +190,18 @@ pSyntaxNode Parser::parse_statement()
             return parse_if();
         case ArwenKeyword::Include:
             return parse_include();
-        case ArwenKeyword::Return:
-            return parse_return_error();
         case ArwenKeyword::Loop:
             return parse_loop();
+        case ArwenKeyword::Return:
+            return parse_return_error();
+        case ArwenKeyword::Struct:
+            return parse_struct();
         case ArwenKeyword::While:
             return parse_while();
         case ArwenKeyword::Yield:
             return parse_yield();
         default:
-            append(t, "Unexpected keyword '{}'", as_utf8(text_of(t)));
+            append(t, "Unexpected keyword `{}`", as_utf8(text_of(t)));
             lexer.lex();
             return nullptr;
         }
@@ -235,13 +238,13 @@ pSyntaxNode Parser::parse_statement()
             if (auto expr = parse_top_expression(); expr) {
                 return expr;
             }
-            append(t, "Unexpected symbol '{:c}'", static_cast<char>(t.symbol_code()));
+            append(t, "Unexpected symbol `{:c}`", static_cast<char>(t.symbol_code()));
             lexer.lex();
             return nullptr;
         }
     default:
         lexer.lex();
-        append(t, L"Unexpected token '{}'", text_of(t));
+        append(t, L"Unexpected token `{}`", text_of(t));
         return nullptr;
     }
 }
@@ -601,7 +604,6 @@ pSyntaxNode Parser::parse_enum()
                 return nullptr;
             }
         }
-        auto    v = values.size();
         pNumber value_node { nullptr };
         if (lexer.accept_symbol('=')) {
             auto value = lexer.peek();
@@ -833,6 +835,51 @@ pSyntaxNode Parser::parse_return_error()
     return make_node<Error>(kw.location + expr->location, expr);
 }
 
+pSyntaxNode Parser::parse_struct()
+{
+    auto struct_token = lexer.lex();
+    assert(struct_token.matches_keyword(ArwenKeyword::Struct));
+
+    auto name = lexer.expect_identifier();
+    if (name.is_error()) {
+        append(lexer.last_location, "Expected struct name");
+        return nullptr;
+    }
+    if (auto res = lexer.expect_symbol('{'); res.is_error()) {
+        append(res.error().location, res.error().message);
+        return nullptr;
+    }
+    StructMembers members;
+    while (!lexer.accept_symbol('}')) {
+        auto label = lexer.expect_identifier();
+        if (label.is_error()) {
+            append(label.error().location, label.error().message);
+            return nullptr;
+        }
+        if (auto err = lexer.expect_symbol(':'); err.is_error()) {
+            append(err.error().location, "Expected `:`");
+            return nullptr;
+        }
+        auto type = parse_type();
+        if (type == nullptr) {
+            append(lexer.last_location, "Expected struct member type");
+            return nullptr;
+        }
+        members.emplace_back(make_node<StructMember>(
+            label.value().location + lexer.last_location,
+            std::wstring { text_of(label) },
+            type));
+        if (!lexer.accept_symbol(',') && !lexer.next_matches('}')) {
+            append(lexer.last_location, "Expected `,` or `}`");
+            return nullptr;
+        }
+    }
+    return make_node<Struct>(
+        struct_token.location + lexer.last_location,
+        std::wstring { text_of(name) },
+        members);
+}
+
 pSyntaxNode Parser::parse_var_decl()
 {
     assert(lexer.has_lookback(1)
@@ -954,7 +1001,6 @@ void Parser::append(Token const &token, char const *message)
 
 void Parser::append(TokenLocation location, std::wstring message)
 {
-    std::wcerr << location.line + 1 << ":" << location.column + 1 << " " << message << std::endl;
     errors.emplace_back(std::move(location), std::move(message));
 }
 

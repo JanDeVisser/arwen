@@ -77,6 +77,7 @@ struct Parser {
     pSyntaxNode                parse_include();
     pSyntaxNode                parse_loop();
     pSyntaxNode                parse_return_error();
+    pSyntaxNode                parse_struct();
     pSyntaxNode                parse_var_decl();
     pSyntaxNode                parse_while();
     pSyntaxNode                parse_yield();
