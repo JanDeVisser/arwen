@@ -7,6 +7,7 @@
 #pragma once
 
 #include <Util/Result.h>
+#include <string>
 
 namespace Util {
 
@@ -49,6 +50,42 @@ template<>
 inline std::string as_utf8(std::wstring const &s)
 {
     return MUST_EVAL(to_utf8(s));
+}
+
+template<class T>
+std::wstring as_wstring(std::basic_string_view<T> const &)
+{
+    UNREACHABLE();
+}
+
+template<>
+inline std::wstring as_wstring(std::string_view const &s)
+{
+    return MUST_EVAL(to_wstring(s));
+}
+
+template<>
+inline std::wstring as_wstring(std::wstring_view const &s)
+{
+    return { std::wstring { s } };
+}
+
+template<class T>
+std::wstring as_wstring(std::basic_string<T> const &)
+{
+    UNREACHABLE();
+}
+
+template<>
+inline std::wstring as_wstring(std::string const &s)
+{
+    return MUST_EVAL(to_wstring(s));
+}
+
+template<>
+inline std::wstring as_wstring(std::wstring const &s)
+{
+    return s;
 }
 
 }

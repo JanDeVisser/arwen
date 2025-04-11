@@ -42,10 +42,23 @@ struct BoolType {
     static BoolType boolean;
 };
 
+struct VoidType {
+    static VoidType void_type;
+};
+
 using pType = std::shared_ptr<struct Type>;
 
 struct SliceType {
     pType slice_of;
+};
+
+struct ZeroTerminatedArray {
+    pType array_of;
+};
+
+struct Array {
+    pType  array_of;
+    size_t size;
 };
 
 struct TypeAlias {
@@ -59,7 +72,6 @@ struct EnumType {
         pType        payload;
     };
 
-    std::wstring       name;
     pType              underlying_type;
     std::vector<Value> values;
 };
@@ -69,11 +81,17 @@ struct StructType {
         std::wstring name;
         pType        type;
     };
-    std::wstring       name;
     std::vector<Field> fields;
 };
 
-using VoidType = std::monostate;
+struct OptionalType {
+    pType type;
+};
+
+struct ErrorType {
+    pType success;
+    pType error;
+};
 
 using TypeDescription = std::variant<
     VoidType,
@@ -81,8 +99,12 @@ using TypeDescription = std::variant<
     FloatType,
     BoolType,
     SliceType,
+    ZeroTerminatedArray,
+    Array,
     TypeAlias,
     EnumType,
+    OptionalType,
+    ErrorType,
     StructType>;
 
 struct Type : std::enable_shared_from_this<Type> {
@@ -107,6 +129,11 @@ struct TypeRegistry {
     std::map<std::wstring, pType> types;
 
     static TypeRegistry &the();
+    pType slice_of(pType type);
+    pType zero_terminated_array_of(pType type);
+    pType array_of(pType type, size_t size);
+    pType optional_of(pType type);
+    pType error_of(pType success, pType error);
 
 private:
     TypeRegistry();

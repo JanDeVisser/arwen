@@ -35,6 +35,7 @@ using Precedence = uint16_t;
     S(Defer, "defer")          \
     S(Else, "else")            \
     S(Embed, "@embed")         \
+    S(Enum, "enum")            \
     S(Equals, "==")            \
     S(Error, "error")          \
     S(ExternLink, "->")        \

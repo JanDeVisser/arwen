@@ -70,6 +70,7 @@ struct Parser {
     pSyntaxNode                parse_break_continue();
     pSyntaxNode                parse_defer();
     pSyntaxNode                parse_embed();
+    pSyntaxNode                parse_enum();
     pSyntaxNode                parse_for();
     pSyntaxNode                parse_func();
     pSyntaxNode                parse_if();

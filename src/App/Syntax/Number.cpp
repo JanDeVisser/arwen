@@ -79,7 +79,7 @@ bool check_zero(pConstantExpression const &expr)
 }
 
 Number::Number(std::wstring_view number, NumberType type)
-    : SyntaxNode(SyntaxNodeType::Number)
+    : ConstantExpression(SyntaxNodeType::Number)
     , number(number)
     , number_type(type)
 {

@@ -4,12 +4,14 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "App/Type.h"
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include <App/Operator.h>
+#include <App/Type.h>
 
 namespace Arwen {
 
@@ -26,6 +28,8 @@ using namespace Util;
     S(DoubleQuotedString)  \
     S(Dummy)               \
     S(Embed)               \
+    S(Enum)                \
+    S(EnumValue)           \
     S(Error)               \
     S(ExpressionList)      \
     S(ExternLink)          \
@@ -120,6 +124,24 @@ static std::shared_ptr<Node> make_node(std::vector<pSyntaxNode> const &children,
     auto ret = std::make_shared<Node>(args...);
     ret->location = children[0]->location + children.back()->location;
     return ret;
+}
+
+template<class Node, class Normalized = Node>
+    requires std::derived_from<Node, SyntaxNode>
+static std::shared_ptr<Node> normalize_node(std::shared_ptr<Node> node, Parser &parser)
+{
+    return (node) ? std::dynamic_pointer_cast<Normalized>(node->normalize(parser)) : nullptr;
+}
+
+template<class Node>
+    requires std::derived_from<Node, SyntaxNode>
+static std::vector<std::shared_ptr<Node>> normalize_nodes(std::vector<std::shared_ptr<Node>> nodes, Parser &parser)
+{
+    std::vector<std::shared_ptr<Node>> normalized;
+    for (auto const &n : nodes) {
+        normalized.emplace_back(std::dynamic_pointer_cast<Node>(n->normalize(parser)));
+    }
+    return normalized;
 }
 
 struct BinaryExpression : SyntaxNode {
@@ -240,6 +262,35 @@ struct Embed : SyntaxNode {
     Embed(std::wstring_view file_name);
     pSyntaxNode normalize(Parser &parser) override;
     pBoundNode  bind() override;
+    void        header() override;
+};
+
+using pInteger = std::shared_ptr<struct Integer>;
+using pNumber = std::shared_ptr<struct Number>;
+
+struct EnumValue : SyntaxNode {
+    std::wstring        label;
+    pConstantExpression value;
+    pTypeSpecification  payload;
+
+    EnumValue(std::wstring label, pConstantExpression value, pTypeSpecification payload);
+    pSyntaxNode normalize(Parser &parser) override;
+    pBoundNode  bind() override;
+    void        header() override;
+};
+
+using pEnumValue = std::shared_ptr<EnumValue>;
+using EnumValues = std::vector<pEnumValue>;
+
+struct Enum : SyntaxNode {
+    std::wstring       name;
+    pTypeSpecification underlying_type;
+    EnumValues         values;
+
+    Enum(std::wstring name, pTypeSpecification underlying_type, EnumValues values);
+    pSyntaxNode normalize(Parser &parser) override;
+    pBoundNode  bind() override;
+    void        dump_node(int indent) override;
     void        header() override;
 };
 
@@ -380,7 +431,7 @@ struct Module : SyntaxNode {
     void        dump_node(int indent) override;
 };
 
-struct Number : SyntaxNode {
+struct Number : ConstantExpression {
     std::wstring number;
     NumberType   number_type;
 
@@ -426,60 +477,58 @@ struct SingleQuotedString : ConstantExpression {
     void       header() override;
 };
 
-#define TypeFlags(S)             \
-    S(None, 0x00)                \
-    S(Optional, 0x01)            \
-    S(Slice, 0x02)               \
-    S(NullTerminatedArray, 0x04) \
-    S(Array, 0x08)
-
-enum class TypeFlag : uint8_t {
-#undef S
-#define S(F, V) F = V,
-    TypeFlags(S)
-#undef S
+struct TypeDescriptionNode {
+    std::wstring       name;
+    TypeSpecifications arguments {};
 };
 
-inline TypeFlag operator|(TypeFlag f1, TypeFlag f2)
-{
-    return static_cast<TypeFlag>(static_cast<uint8_t>(f1) | static_cast<uint8_t>(f2));
-}
+struct SliceDescriptionNode {
+    pTypeSpecification slice_of;
+};
 
-inline TypeFlag operator|(TypeFlag f1, uint8_t f2)
-{
-    return static_cast<TypeFlag>(static_cast<uint8_t>(f1) | f2);
-}
+struct ZeroTerminatedArrayDescriptionNode {
+    pTypeSpecification array_of;
+};
 
-inline TypeFlag operator&(TypeFlag f1, TypeFlag f2)
-{
-    return static_cast<TypeFlag>(static_cast<uint8_t>(f1) & static_cast<uint8_t>(f2));
-}
+struct ArrayDescriptionNode {
+    pTypeSpecification array_of;
+    size_t             size;
+};
 
-inline TypeFlag operator&(TypeFlag f1, uint8_t f2)
-{
-    return static_cast<TypeFlag>(static_cast<uint8_t>(f1) & f2);
-}
+struct OptionalDescriptionNode {
+    pTypeSpecification optional_of;
+};
 
-inline TypeFlag &operator|=(TypeFlag &f1, TypeFlag f2)
-{
-    f1 = f1 | f2;
-    return f1;
-}
+struct ErrorDescriptionNode {
+    pTypeSpecification success;
+    pTypeSpecification error;
+};
+
+using TypeSpecificationDescription = std::variant<
+    TypeDescriptionNode,
+    SliceDescriptionNode,
+    ZeroTerminatedArrayDescriptionNode,
+    ArrayDescriptionNode,
+    OptionalDescriptionNode,
+    ErrorDescriptionNode>;
 
 struct TypeSpecification : SyntaxNode {
 
-    std::wstring       name;
-    TypeSpecifications arguments {};
-    pTypeSpecification error_type { nullptr };
-    TypeFlag           flags;
+    TypeSpecificationDescription description;
 
-    TypeSpecification(std::wstring name, TypeSpecifications arguments, pTypeSpecification error_type = nullptr, TypeFlag flags = TypeFlag::None);
-    TypeSpecification(std::wstring name, pTypeSpecification error_type = nullptr, TypeFlag flags = TypeFlag::None);
-    TypeSpecification(std::wstring name, TypeFlag flags, pTypeSpecification = nullptr);
+    TypeSpecification(TypeSpecificationDescription description);
+    TypeSpecification(TypeDescriptionNode type);
+    TypeSpecification(SliceDescriptionNode slice);
+    TypeSpecification(ZeroTerminatedArrayDescriptionNode array);
+    TypeSpecification(ArrayDescriptionNode array);
+    TypeSpecification(OptionalDescriptionNode optional);
+    TypeSpecification(ErrorDescriptionNode error);
+
     pSyntaxNode  normalize(Parser &parser) override;
     pBoundNode   bind() override;
     void         header() override;
     std::wstring to_string();
+    pType        resolve();
 };
 
 struct UnaryExpression : SyntaxNode {

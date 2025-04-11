@@ -140,7 +140,7 @@ struct TokenLocation {
     size_t line { 0 };
     size_t column { 0 };
 
-    TokenLocation merge(TokenLocation const& other) const
+    TokenLocation merge(TokenLocation const &other) const
     {
         return TokenLocation { *this, other };
     }
@@ -743,10 +743,11 @@ public:
         }
         m_current.reset();
         m_lookback.push_back(ret);
+        last_location = ret.location;
         return ret;
     }
 
-    Token const& lookback(size_t pos)
+    Token const &lookback(size_t pos)
     {
         assert(pos < m_lookback.size());
         return m_lookback[m_lookback.size() - pos - 1];
@@ -822,6 +823,14 @@ public:
         return lex();
     }
 
+    std::optional<Token> accept_identifier()
+    {
+        if (auto ret = peek(); !ret.is_identifier()) {
+            return {};
+        }
+        return lex();
+    }
+
     bool next_matches(TokenKind kind)
     {
         auto n = peek();
@@ -849,14 +858,16 @@ public:
         m_lookback.pop_back();
     }
 
-private:
-    std::optional<Token> m_current {};
-
     [[nodiscard]] TokenLocation const &location() const
     {
         assert(!m_sources.empty());
         return m_sources.back().location();
     }
+
+    TokenLocation last_location;
+
+private:
+    std::optional<Token> m_current {};
 
     class Source {
     public:

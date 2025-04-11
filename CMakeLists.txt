@@ -74,11 +74,13 @@ include_directories(. src)
 add_executable(
         arwen
         src/App/arwen.cpp
+        src/App/BoundNode.cpp
         src/App/Parser.cpp
         src/App/Operator.cpp
         src/App/SyntaxNode.cpp
         src/App/Syntax/BinaryExpression.cpp
         src/App/Syntax/Embed.cpp
+        src/App/Syntax/Enum.cpp
         src/App/Syntax/Function.cpp
         src/App/Syntax/Include.cpp
         src/App/Syntax/Loop.cpp

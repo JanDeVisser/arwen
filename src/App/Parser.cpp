@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "Util/StringUtil.h"
 #include <Util/Defer.h>
 #include <Util/Lexer.h>
 #include <Util/Logging.h>
@@ -12,6 +13,8 @@
 
 #include <App/Operator.h>
 #include <App/Parser.h>
+#include <cstdint>
+#include <memory>
 #include <string>
 #include <sys/socket.h>
 
@@ -122,6 +125,8 @@ pSyntaxNode Parser::parse_module_level_statement()
         case ArwenKeyword::Const:
             lexer.lex();
             return parse_module_level_statement();
+        case ArwenKeyword::Enum:
+            return parse_enum();
         case ArwenKeyword::Func:
             return parse_func();
         case ArwenKeyword::Include:
@@ -172,6 +177,8 @@ pSyntaxNode Parser::parse_statement()
             return parse_defer();
         case ArwenKeyword::Embed:
             return parse_embed();
+        case ArwenKeyword::Enum:
+            return parse_enum();
         case ArwenKeyword::Error:
             return parse_return_error();
         case ArwenKeyword::For:
@@ -418,68 +425,88 @@ std::optional<OperatorDef> Parser::check_prefix_op()
 
 pTypeSpecification Parser::parse_type()
 {
-    TypeFlag flags { TypeFlag::None };
-    auto     t = lexer.peek();
-    auto     start_location = t.location;
+    auto t = lexer.peek();
     if (lexer.accept_symbol('[')) {
-        if (auto err = lexer.expect_symbol(']'); err.is_error()) {
-            append(t, "Expected `]' to close slice type specification");
+        if (lexer.accept_symbol(']')) {
+            if (auto type = parse_type(); type != nullptr) {
+                return make_node<TypeSpecification>(t.location + type->location, SliceDescriptionNode { type });
+            }
             return nullptr;
         }
-        flags |= TypeFlag::Slice;
+        if (lexer.accept_symbol('0')) {
+            if (auto err = lexer.expect_symbol(']'); err.is_error()) {
+                append(err.error(), "Expected `]` to close `[0`");
+                return nullptr;
+            }
+            if (auto type = parse_type(); type != nullptr) {
+                return make_node<TypeSpecification>(t.location + type->location, ZeroTerminatedArrayDescriptionNode { type });
+            }
+            return nullptr;
+        }
+        if (auto res = lexer.expect(TokenKind::Number); res.is_error()) {
+            append(res.error(), "Expected array size, `0`, or `]`");
+            return nullptr;
+        } else if (res.value().number_type() == NumberType::Decimal) {
+            append(res.error(), "Array size must be integer");
+            return nullptr;
+        } else {
+            if (auto err = lexer.expect_symbol(']'); err.is_error()) {
+                append(err.error(), "Expected `]` to close array descriptor");
+                return nullptr;
+            }
+            auto size = string_to_integer<size_t>(text_of(res.value()));
+            assert(size.has_value());
+            if (auto type = parse_type(); type != nullptr) {
+                return make_node<TypeSpecification>(t.location + type->location, ArrayDescriptionNode { type, size.value() });
+            }
+            return nullptr;
+        }
     }
-    auto name = lexer.expect_identifier();
-    if (name.is_error()) {
-        append(name.error(), "Expected type name");
+
+    auto name = lexer.accept_identifier();
+    if (!name) {
+        append(lexer.peek(), "Expected type name");
         return nullptr;
     }
-    auto               end_location = name.value().location;
     TypeSpecifications arguments;
     if (lexer.accept_symbol('<')) {
         while (true) {
+            if (lexer.accept_symbol('>')) {
+                break;
+            }
             auto arg = parse_type();
             if (arg == nullptr) {
-                append(lexer.peek(), "Expected type specification");
+                append(lexer.peek(), "Expected template type specification");
                 return nullptr;
             }
-            end_location = arg->location;
             arguments.push_back(arg);
             auto t = lexer.peek();
-            if (t.matches_symbol('>')) {
-                lexer.lex();
-                end_location = t.location;
+            if (lexer.accept_symbol('>')) {
                 break;
             }
             if (auto err = lexer.expect_symbol(','); err.is_error()) {
                 append(err.error(), "Expected `,` or `>`");
                 return nullptr;
             }
-            t = lexer.peek();
-            if (t.matches_symbol('>')) {
-                lexer.lex();
-                end_location = t.location;
-                break;
-            }
         }
     }
-    pTypeSpecification error_type { nullptr };
+    auto type = make_node<TypeSpecification>(
+        name->location + lexer.last_location,
+        TypeDescriptionNode { std::wstring { text_of(name.value()) }, arguments });
+    if (lexer.accept_symbol('?')) {
+        type = make_node<TypeSpecification>(
+            name->location + lexer.last_location,
+            OptionalDescriptionNode { type });
+    }
     if (lexer.accept_symbol('/')) {
-        error_type = parse_type();
-        if (error_type == nullptr) {
-            append(lexer.peek(), "Expected error type");
-            return nullptr;
+        if (auto error_type = parse_type(); error_type != nullptr) {
+            return make_node<TypeSpecification>(
+                name->location + lexer.last_location,
+                ErrorDescriptionNode { type, error_type });
         }
-        end_location = error_type->location;
+        return nullptr;
     }
-    bool optional { false };
-    t = lexer.peek();
-    if (t.matches_symbol('?')) {
-        lexer.lex();
-        flags |= TypeFlag::Optional;
-        end_location = t.location;
-    }
-    return make_node<TypeSpecification>(
-        start_location + end_location, std::wstring { text_of(name) }, arguments, error_type, flags);
+    return type;
 }
 
 pSyntaxNode Parser::parse_break_continue()
@@ -509,7 +536,6 @@ pSyntaxNode Parser::parse_embed()
         append(res.error());
         return nullptr;
     }
-    lexer.lex();
     auto file_name = lexer.expect(TokenKind::QuotedString);
     if (file_name.is_error()) {
         append(file_name.error());
@@ -517,12 +543,11 @@ pSyntaxNode Parser::parse_embed()
     }
     auto fname = text_of(file_name.value());
     fname = fname.substr(0, fname.length() - 1).substr(1);
-    auto close_paren = lexer.peek();
     if (auto res = lexer.expect_symbol(')'); res.is_error()) {
-        append(res.error());
+        append(lexer.location(), "Expected `)`");
         return nullptr;
     }
-    return make_node<Embed>(kw.location + close_paren.location, fname);
+    return make_node<Embed>(kw.location + lexer.location(), fname);
 }
 
 pSyntaxNode Parser::parse_defer()
@@ -534,6 +559,74 @@ pSyntaxNode Parser::parse_defer()
     } else {
         return make_node<DeferStatement>(kw.location + stmt->location, stmt);
     }
+}
+
+pSyntaxNode Parser::parse_enum()
+{
+    auto enum_token = lexer.lex();
+    assert(enum_token.matches_keyword(ArwenKeyword::Enum));
+
+    auto name = lexer.expect_identifier();
+    if (name.is_error()) {
+        append(lexer.last_location, "Expected enum name");
+        return nullptr;
+    }
+    pTypeSpecification underlying { nullptr };
+    if (lexer.accept_symbol(':')) {
+        if (underlying = parse_type(); underlying == nullptr) {
+            append(lexer.last_location, "Expected underlying type after `:`");
+            return nullptr;
+        }
+    }
+    if (auto res = lexer.expect_symbol('{'); res.is_error()) {
+        append(res.error().location, res.error().message);
+        return nullptr;
+    }
+    EnumValues values;
+    while (!lexer.accept_symbol('}')) {
+        auto label = lexer.expect_identifier();
+        if (label.is_error()) {
+            append(label.error().location, label.error().message);
+            return nullptr;
+        }
+        pTypeSpecification payload { nullptr };
+        if (lexer.accept_symbol('(')) {
+            payload = parse_type();
+            if (payload == nullptr) {
+                append(lexer.last_location, "Expected enum value payload type");
+                return nullptr;
+            }
+            if (auto err = lexer.expect_symbol(')'); err.is_error()) {
+                append(lexer.last_location, "Expected `)` to close enum value payload type");
+                return nullptr;
+            }
+        }
+        auto    v = values.size();
+        pNumber value_node { nullptr };
+        if (lexer.accept_symbol('=')) {
+            auto value = lexer.peek();
+            if (!value.matches(TokenKind::Number) || value.number_type() == NumberType::Decimal) {
+                append(value.location, "Expected enum value"); // Make better
+                return nullptr;
+            }
+            lexer.lex();
+            value_node = make_node<Number>(value.location, text_of(value), value.number_type());
+        }
+        values.emplace_back(make_node<EnumValue>(
+            label.value().location + lexer.last_location,
+            std::wstring { text_of(label) },
+            value_node,
+            payload));
+        if (!lexer.accept_symbol(',') && !lexer.next_matches('}')) {
+            append(lexer.last_location, "Expected `,` or `}`");
+            return nullptr;
+        }
+    }
+    return make_node<Enum>(
+        enum_token.location + lexer.last_location,
+        std::wstring { text_of(name) },
+        underlying,
+        values);
 }
 
 pSyntaxNode Parser::parse_for()
