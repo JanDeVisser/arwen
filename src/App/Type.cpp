@@ -4,12 +4,16 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "Util/TokenLocation.h"
 #include <cstdint>
 #include <format>
 #include <limits>
 
-#include <App/Type.h>
 #include <Util/Logging.h>
+#include <Util/StringUtil.h>
+
+#include <App/Type.h>
+#include <string_view>
 
 namespace Arwen {
 
@@ -25,28 +29,52 @@ IntType   IntType::i32 { true, 32, std::numeric_limits<int32_t>::max(), std::num
 IntType   IntType::i64 { true, 64, std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::min() };
 FloatType FloatType::f32 { 32 };
 FloatType FloatType::f64 { 64 };
-BoolType  BoolType::boolean {};
-VoidType  VoidType::void_type {};
 
 TypeRegistry TypeRegistry::s_registry {};
 
+pType TypeRegistry::u8 { make_type(L"u8", IntType::u8) };
+pType TypeRegistry::u16 { make_type(L"u16", IntType::u16) };
+pType TypeRegistry::u32 { make_type(L"u32", IntType::u32) };
+pType TypeRegistry::u64 { make_type(L"u64", IntType::u64) };
+pType TypeRegistry::i8 { make_type(L"i8", IntType::i8) };
+pType TypeRegistry::i16 { make_type(L"i16", IntType::i16) };
+pType TypeRegistry::i32 { make_type(L"i32", IntType::i32) };
+pType TypeRegistry::i64 { make_type(L"i64", IntType::i64) };
+pType TypeRegistry::f32 { make_type(L"f32", FloatType::f32) };
+pType TypeRegistry::f64 { make_type(L"f64", FloatType::f64) };
+pType TypeRegistry::boolean { make_type(L"bool", BoolType {}) };
+pType TypeRegistry::string { make_type(L"string", SliceType { TypeRegistry::u32 }) };
+pType TypeRegistry::cstring { make_type(L"string", ZeroTerminatedArray { TypeRegistry::u8 }) };
+pType TypeRegistry::character { make_type(L"char", TypeAlias { TypeRegistry::u32 }) };
+pType TypeRegistry::void_ { make_type(L"void", VoidType {}) };
+pType TypeRegistry::ambiguous { make_type(L"%ambiguous", Undetermined {}) };
+pType TypeRegistry::undetermined { make_type(L"%undetermined", Undetermined {}) };
+
 TypeRegistry::TypeRegistry()
 {
-    types.emplace(L"u8", make_type(L"u8", IntType::u8));
-    types.emplace(L"u16", make_type(L"u16", IntType::u16));
-    types.emplace(L"u32", make_type(L"u32", IntType::u32));
-    types.emplace(L"u64", make_type(L"u64", IntType::u64));
-    types.emplace(L"i8", make_type(L"i8", IntType::i8));
-    types.emplace(L"i16", make_type(L"i16", IntType::i16));
-    types.emplace(L"i32", make_type(L"i32", IntType::i32));
-    types.emplace(L"i64", make_type(L"i64", IntType::i64));
-    types.emplace(L"f32", make_type(L"f32", FloatType::f32));
-    types.emplace(L"f64", make_type(L"f64", FloatType::f64));
-    types.emplace(L"bool", make_type(L"bool", BoolType::boolean));
-    types.emplace(L"string", make_type(L"string", SliceType { types[L"u32"] }));
-    types.emplace(L"cstring", make_type(L"string", ZeroTerminatedArray { types[L"u8"] }));
-    types.emplace(L"char", make_type(L"char", TypeAlias { types[L"u32"] }));
-    types.emplace(L"void", make_type(L"void", VoidType {}));
+    types.emplace(L"u8", u8);
+    types.emplace(L"u16", u16);
+    types.emplace(L"u32", u32);
+    types.emplace(L"u64", u64);
+    types.emplace(L"i8", i8);
+    types.emplace(L"i16", i16);
+    types.emplace(L"i32", i32);
+    types.emplace(L"i64", i64);
+    types.emplace(L"f32", f32);
+    types.emplace(L"f64", f64);
+    types.emplace(L"bool", boolean);
+    types.emplace(L"string", string);
+    types.emplace(L"cstring", cstring);
+    types.emplace(L"char", character);
+    types.emplace(L"void", void_);
+    types.emplace(L"%ambiguous", ambiguous);
+    types.emplace(L"%undetermined", undetermined);
+    types.emplace(L"byte", make_type(L"byte", TypeAlias { i8 }));
+    types.emplace(L"short", make_type(L"short", TypeAlias { i16 }));
+    types.emplace(L"int", make_type(L"int", TypeAlias { i32 }));
+    types.emplace(L"long", make_type(L"long", TypeAlias { i64 }));
+    types.emplace(L"float", make_type(L"float", TypeAlias { f32 }));
+    types.emplace(L"double", make_type(L"double", TypeAlias { f64 }));
 }
 
 TypeRegistry &TypeRegistry::the()
@@ -147,6 +175,70 @@ pType TypeRegistry::error_of(pType success, pType error)
     auto ret = make_type(std::format(L"{}/{}", success->name, error->name), ErrorType { success, error });
     types.emplace(ret->name, ret);
     return ret;
+}
+
+pType TypeRegistry::function_of(std::vector<pType> parameters, pType result)
+{
+    for (auto const &[name, t] : types) {
+        if (std::visit(overloads {
+                           [&parameters, &result](FunctionType const descr) -> bool {
+                               return descr.parameters == parameters && descr.result == result;
+                           },
+                           [](auto const &) -> bool {
+                               return false;
+                           } },
+                t->description)) {
+            return t;
+        }
+    }
+
+    auto ret = make_type(
+        std::format(
+            L"func({}) {}",
+            join(
+                parameters,
+                std::wstring_view { L"," },
+                [](pType const &t) -> std::wstring_view { return std::wstring_view { t->name }; }),
+            result->name),
+        FunctionType { parameters, result });
+    types.emplace(ret->name, ret);
+    return ret;
+}
+
+pType TypeRegistry::typelist_of(std::vector<pType> typelist)
+{
+    for (auto const &[name, t] : types) {
+        if (std::visit(overloads {
+                           [&typelist](TypeList const descr) -> bool {
+                               return descr.types == typelist;
+                           },
+                           [](auto const &) -> bool {
+                               return false;
+                           } },
+                t->description)) {
+            return t;
+        }
+    }
+
+    auto ret = make_type(
+        std::format(
+            L"({})",
+            join(
+                typelist,
+                std::wstring_view { L"," },
+                [](pType const &t) -> std::wstring_view { return std::wstring_view { t->name }; })),
+        TypeList { typelist });
+    types.emplace(ret->name, ret);
+    return ret;
+}
+
+pType make_error(TokenLocation location, std::wstring msg)
+{
+    return make_type(
+        BindErrors { { {
+            std::move(location),
+            std::move(msg),
+            } } } );
 }
 
 }

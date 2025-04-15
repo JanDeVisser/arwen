@@ -7,7 +7,9 @@
 #include <iostream>
 #include <memory>
 
+#include <App/Parser.h>
 #include <App/SyntaxNode.h>
+#include <App/Type.h>
 
 namespace Arwen {
 
@@ -27,7 +29,7 @@ pSyntaxNode StructMember::normalize(Parser &parser)
         normalize_node(type, parser));
 }
 
-pBoundNode StructMember::bind()
+pType StructMember::bind(Parser &parser)
 {
     return nullptr;
 }
@@ -52,9 +54,18 @@ pSyntaxNode Struct::normalize(Parser &parser)
         normalize_nodes(members, parser));
 }
 
-pBoundNode Struct::bind()
+pType Struct::bind(Parser &parser)
 {
-    return nullptr;
+    StructType strukt;
+    for (auto const& m : members) {
+        if (auto type = m->type->resolve(); type == nullptr) {
+            parser.append(m->type->location, L"Could not resolve type `{}`", m->type->to_string());
+            return nullptr;
+        } else {
+            strukt.fields.emplace_back(m->label, type);
+        }
+    }
+    return make_type(name, strukt);
 }
 
 void Struct::dump_node(int indent)

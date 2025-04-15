@@ -27,15 +27,14 @@ pSyntaxNode Embed::normalize(Parser &parser)
         auto const &contents = contents_maybe.value();
         return make_node<DoubleQuotedString>(location, contents, false);
     } else {
-        std::cerr << "Could not open '" << fname << "': " << contents_maybe.error().to_string() << std::endl;
+        parser.append(location, "Could not open `{}`: {}", fname, contents_maybe.error().to_string());
         return nullptr;
     }
 }
 
-pBoundNode Embed::bind()
+pType Embed::bind(Parser &parser)
 {
-    std::cerr << "Cannot bind '@embed' statements; these should be eliminated during normalizing" << std::endl;
-    return nullptr;
+    return make_error(location, L"`@embed` statement have been elided");
 }
 
 void Embed::header()

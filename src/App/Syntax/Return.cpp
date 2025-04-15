@@ -8,6 +8,42 @@
 
 namespace Arwen {
 
+Break::Break(Label label)
+    : SyntaxNode(SyntaxNodeType::Break)
+    , label(std::move(label))
+{
+}
+
+pType Break::bind(Parser &parser)
+{
+    return TypeRegistry::void_;
+}
+
+void Break::header()
+{
+    if (label) {
+        std::wcout << *label;
+    }
+}
+
+Continue::Continue(Label label)
+    : SyntaxNode(SyntaxNodeType::Continue)
+    , label(std::move(label))
+{
+}
+
+pType Continue::bind(Parser &parser)
+{
+    return TypeRegistry::void_;
+}
+
+void Continue::header()
+{
+    if (label) {
+        std::wcout << *label;
+    }
+}
+
 Error::Error(pSyntaxNode expression)
     : SyntaxNode(SyntaxNodeType::Error)
     , expression(std::move(expression))
@@ -19,9 +55,9 @@ pSyntaxNode Error::normalize(Parser &parser)
     return make_node<Error>(location, expression->normalize(parser));
 }
 
-pBoundNode Error::bind()
+pType Error::bind(Parser &parser)
 {
-    return nullptr;
+    return bind_node(expression, parser);
 }
 
 void Error::dump_node(int indent)
@@ -42,15 +78,47 @@ pSyntaxNode Return::normalize(Parser &parser)
     return make_node<Return>(location, expression->normalize(parser));
 }
 
-pBoundNode Return::bind()
+pType Return::bind(Parser &parser)
 {
-    return nullptr;
+    return bind_node(expression, parser);
 }
 
 void Return::dump_node(int indent)
 {
     if (expression) {
         expression->dump(indent + 4);
+    }
+}
+
+Yield::Yield(Label label, pSyntaxNode statement)
+    : SyntaxNode(SyntaxNodeType::Yield)
+    , label(std::move(label))
+    , statement(std::move(statement))
+{
+}
+
+pSyntaxNode Yield::normalize(Parser &parser)
+{
+    return make_node<Yield>(
+        location,
+        label,
+        statement->normalize(parser));
+}
+
+pType Yield::bind(Parser &parser)
+{
+    return bind_node(statement, parser);
+}
+
+void Yield::dump_node(int indent)
+{
+    statement->dump(indent + 4);
+}
+
+void Yield::header()
+{
+    if (label) {
+        std::wcout << *label;
     }
 }
 

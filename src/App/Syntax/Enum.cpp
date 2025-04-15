@@ -4,10 +4,12 @@
  * SPDX-License-Identifier: MIT
  */
 
- #include <iostream>
- #include <memory>
+#include "Util/Logging.h"
+#include <iostream>
+#include <memory>
 
- #include <App/SyntaxNode.h>
+#include <App/SyntaxNode.h>
+#include <App/Parser.h>
 
 namespace Arwen {
 
@@ -28,9 +30,9 @@ pSyntaxNode EnumValue::normalize(Parser &parser)
         normalize_node(payload, parser));
 }
 
-pBoundNode EnumValue::bind()
+pType EnumValue::bind(Parser &parser)
 {
-    return nullptr;
+    UNREACHABLE();
 }
 
 void EnumValue::header()
@@ -53,31 +55,50 @@ Enum::Enum(std::wstring name, pTypeSpecification underlying_type, EnumValues val
     , underlying_type(std::move(underlying_type))
     , values(std::move(values))
 {
-
 }
 
 pSyntaxNode Enum::normalize(Parser &parser)
 {
     EnumValues vals {};
-    for (auto const& v : values) {
+    for (auto const &v : values) {
         vals.emplace_back(std::dynamic_pointer_cast<EnumValue>(v->normalize(parser)));
     }
     return make_node<Enum>(
         location,
         name,
         normalize_node(underlying_type, parser),
-        normalize_nodes(values, parser)
-    );
+        normalize_nodes(values, parser));
 }
 
-pBoundNode Enum::bind()
+pType Enum::bind(Parser &parser)
 {
-    return nullptr;
+    EnumType enoom;
+    size_t   ix = 0;
+    for (auto const &v : values) {
+        pType payload { nullptr };
+        if (v->payload != nullptr) {
+            payload = v->payload->resolve();
+            if (payload == nullptr) {
+                return make_error(v->payload->location, L"Could not resolve type `{}`", v->payload->to_string());
+            }
+        }
+        size_t value = (v->value != nullptr) ? std::dynamic_pointer_cast<Integer>(v->value)->value : ix;
+        enoom.values.emplace_back(v->label, value, payload);
+        ++ix;
+    }
+    enoom.underlying_type = nullptr;
+    if (underlying_type != nullptr) {
+        enoom.underlying_type = underlying_type->resolve();
+        if (enoom.underlying_type == nullptr) {
+            return make_error(underlying_type->location, L"Could not resolve type `{}`", underlying_type->to_string());
+        }
+    }
+    return make_type(name, enoom);
 }
 
 void Enum::dump_node(int indent)
 {
-    for (auto const& v : values) {
+    for (auto const &v : values) {
         v->dump(indent + 4);
     }
 }

@@ -52,6 +52,16 @@ inline std::string as_utf8(std::wstring const &s)
     return MUST_EVAL(to_utf8(s));
 }
 
+inline std::string as_utf8(const char *s)
+{
+    return as_utf8(std::string_view { s });
+}
+
+inline std::string as_utf8(const wchar_t *s)
+{
+    return as_utf8(std::wstring_view { s });
+}
+
 template<class T>
 std::wstring as_wstring(std::basic_string_view<T> const &)
 {
@@ -86,6 +96,16 @@ template<>
 inline std::wstring as_wstring(std::wstring const &s)
 {
     return s;
+}
+
+inline std::wstring as_wstring(const char *s)
+{
+    return as_wstring(std::string_view { s });
+}
+
+inline std::wstring as_wstring(const wchar_t *s)
+{
+    return as_wstring(std::wstring_view { s });
 }
 
 }

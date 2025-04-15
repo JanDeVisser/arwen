@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "App/SyntaxNode.h"
 #include <memory>
 #include <string>
 
@@ -21,7 +22,7 @@ namespace Arwen {
 
 using namespace Util;
 
-std::vector<OperatorDef> Parser::operators {
+std::vector<Parser::OperatorDef> Parser::operators {
     { Operator::Add, '+', 11 },
     { Operator::Assign, '=', 1, Position::Infix, Associativity::Right },
     { Operator::AssignAnd, ArwenKeyword::AssignAnd, 1, Position::Infix, Associativity::Right },
@@ -297,8 +298,12 @@ pSyntaxNode Parser::parse_primary()
         break;
     }
     case TokenKind::QuotedString: {
-        ret = make_node<QuotedString>(token.location, text_of(token), token.quoted_string().quote_type);
         lexer.lex();
+        if (token.quoted_string().quote_type == QuoteType::SingleQuote && token.location.length != 1) {
+            append(token, "Single quoted string should contain exactly one character");
+            return nullptr;
+        }
+        ret = make_node<QuotedString>(token.location, text_of(token), token.quoted_string().quote_type);
         break;
     }
     case TokenKind::Identifier: {
@@ -378,7 +383,7 @@ pSyntaxNode Parser::parse_expr(pSyntaxNode lhs, Precedence min_prec)
     return lhs;
 }
 
-std::optional<OperatorDef> Parser::check_binop(Precedence min_prec)
+std::optional<Parser::OperatorDef> Parser::check_binop(Precedence min_prec)
 {
     auto const &token = lexer.peek();
     if (token.kind != TokenKind::Symbol && token.kind != TokenKind::Keyword) {
@@ -405,7 +410,7 @@ std::optional<OperatorDef> Parser::check_binop(Precedence min_prec)
     return {};
 }
 
-std::optional<OperatorDef> Parser::check_prefix_op()
+std::optional<Parser::OperatorDef> Parser::check_prefix_op()
 {
     auto const &token = lexer.peek();
     if (token.kind != TokenKind::Symbol && token.kind != TokenKind::Keyword) {
@@ -972,6 +977,34 @@ pSyntaxNode Parser::parse_yield()
     } else {
         return make_node<Yield>(kw.location, label, stmt);
     }
+}
+
+pType Parser::find_name(std::wstring const &name)
+{
+    for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
+        auto &scope = *it;
+        if (scope.names.contains(name)) {
+            return scope.names[name];
+        }
+    }
+    return nullptr;
+}
+
+void Parser::register_name(std::wstring name, pType type)
+{
+    assert(!scopes.empty());
+    scopes.back().names[std::move(name)] = std::move(type);
+}
+
+void Parser::push_scope(pSyntaxNode const &owner)
+{
+    scopes.emplace_back(owner);
+}
+
+void Parser::pop_scope()
+{
+    assert(!scopes.empty());
+    scopes.pop_back();
 }
 
 void Parser::append(LexerErrorMessage const &lexer_error)

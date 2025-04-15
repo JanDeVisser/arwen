@@ -88,9 +88,9 @@ pSyntaxNode TypeSpecification::normalize(Parser &parser)
     return make_node<TypeSpecification>(location, description);
 }
 
-pBoundNode TypeSpecification::bind()
+pType TypeSpecification::bind(Parser &parser)
 {
-    return nullptr;
+    return resolve();
 }
 
 void TypeSpecification::header()
@@ -137,7 +137,14 @@ pType TypeSpecification::resolve()
 {
     return std::visit(overloads {
                           [this](TypeDescriptionNode const &d) -> pType {
-                              return TypeRegistry::the().types.contains(d.name) ? TypeRegistry::the().types[d.name] : nullptr;
+                              auto t = TypeRegistry::the().types.contains(d.name) ? TypeRegistry::the().types[d.name] : nullptr;
+                              if (t == nullptr) {
+                                  return nullptr;
+                              }
+                              while (t->is<TypeAlias>()) {
+                                t = std::get<TypeAlias>(t->description).alias_of;
+                              }
+                              return t;
                           },
                           [this](SliceDescriptionNode const &d) -> pType {
                               return TypeRegistry::the().slice_of(d.slice_of->resolve());
@@ -156,6 +163,16 @@ pType TypeSpecification::resolve()
                           },
                       },
         this->description);
+}
+
+Void::Void()
+    : ConstantExpression(SyntaxNodeType::Void)
+{
+}
+
+pType Void::bind(Parser &parser)
+{
+    return TypeRegistry::void_;
 }
 
 }

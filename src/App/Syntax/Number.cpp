@@ -4,15 +4,17 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "App/Type.h"
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <limits>
 #include <memory>
 #include <string_view>
 #include <type_traits>
 
-#include <Util/Utf8.h>
 #include <App/SyntaxNode.h>
+#include <Util/Utf8.h>
 
 namespace Arwen {
 
@@ -78,6 +80,22 @@ bool check_zero(pConstantExpression const &expr)
     }
 }
 
+BoolConstant::BoolConstant(bool value)
+    : ConstantExpression(SyntaxNodeType::BoolConstant)
+    , value(value)
+{
+}
+
+pType BoolConstant::bind(Parser &parser)
+{
+    return TypeRegistry::boolean;
+}
+
+void BoolConstant::header()
+{
+    std::wcout << ((value) ? L"True" : L"False");
+}
+
 Number::Number(std::wstring_view number, NumberType type)
     : ConstantExpression(SyntaxNodeType::Number)
     , number(number)
@@ -85,7 +103,7 @@ Number::Number(std::wstring_view number, NumberType type)
 {
 }
 
-pBoundNode Number::bind()
+pType Number::bind(Parser &parser)
 {
     return nullptr;
 }
@@ -104,12 +122,12 @@ pSyntaxNode Number::normalize(struct Parser &)
     return make_node<Integer>(location, number);
 }
 
-Decimal::Decimal(std::wstring const& number)
+Decimal::Decimal(std::wstring const &number)
     : ConstantExpression(SyntaxNodeType::Decimal)
 {
-    char * end_ptr;
-    auto narrow_string = as_utf8(number);
-    value = strtod(as_utf8(narrow_string).data(), &end_ptr);
+    char *end_ptr;
+    auto  narrow_string = as_utf8(number);
+    value = strtod(narrow_string.data(), &end_ptr);
     assert(end_ptr != narrow_string.data());
 }
 
@@ -119,9 +137,9 @@ Decimal::Decimal(double number)
 {
 }
 
-pBoundNode Decimal::bind()
+pType Decimal::bind(Parser &parser)
 {
-    return nullptr;
+    return TypeRegistry::f64;
 }
 
 void Decimal::header()
@@ -241,9 +259,15 @@ Integer::Integer(uint64_t number)
 {
 }
 
-pBoundNode Integer::bind()
+pType Integer::bind(Parser &parser)
 {
-    return nullptr;
+    if (value > std::numeric_limits<int64_t>::max()) {
+        return TypeRegistry::u64;
+    } else if (value > std::numeric_limits<int32_t>::max()) {
+        return TypeRegistry::i64;
+    } else {
+        return TypeRegistry::i32;
+    }
 }
 
 void Integer::header()
@@ -268,7 +292,7 @@ pSyntaxNode Integer::evaluate_Subtract(pConstantExpression const &rhs)
 pSyntaxNode Integer::evaluate_Multiply(pConstantExpression const &rhs)
 {
     if (auto rhs_string = std::dynamic_pointer_cast<DoubleQuotedString>(rhs); rhs_string != nullptr) {
-        std::wstring      s;
+        std::wstring s;
         for (auto ix = 0; ix < value; ++value) {
             s += rhs_string->string;
         }

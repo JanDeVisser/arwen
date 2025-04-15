@@ -4,7 +4,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "App/Type.h"
+#pragma once
+
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -80,6 +81,7 @@ struct Parser;
 struct SyntaxNode : std::enable_shared_from_this<SyntaxNode> {
     TokenLocation  location;
     SyntaxNodeType type;
+    pType          bound_type;
 
     virtual ~SyntaxNode() = default;
     SyntaxNode() = delete;
@@ -90,7 +92,7 @@ struct SyntaxNode : std::enable_shared_from_this<SyntaxNode> {
     virtual void dump_node(int indent);
 
     virtual pSyntaxNode normalize(Parser &parser);
-    virtual pBoundNode  bind() = 0;
+    virtual pType       bind(Parser &parser) = 0;
 };
 
 template<class Node, typename... Args>
@@ -155,7 +157,7 @@ struct BinaryExpression : SyntaxNode {
 
     BinaryExpression(pSyntaxNode lhs, Operator op, pSyntaxNode rhs);
 
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     pSyntaxNode normalize(Parser &parser) override;
     void        header() override;
     void        dump_node(int indent) override;
@@ -186,7 +188,7 @@ struct Block : SyntaxNode {
     Block(SyntaxNodes statements);
 
     pSyntaxNode normalize(Parser &parser) override;
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        dump_node(int indent) override;
 };
 
@@ -194,8 +196,8 @@ struct BoolConstant : ConstantExpression {
     bool value;
 
     BoolConstant(bool value);
-    pBoundNode bind() override;
-    void       header() override;
+    pType bind(Parser &parser) override;
+    void  header() override;
 };
 
 struct Break : SyntaxNode {
@@ -203,8 +205,8 @@ struct Break : SyntaxNode {
 
     Break(Label label);
 
-    pBoundNode bind() override;
-    void       header() override;
+    pType bind(Parser &parser) override;
+    void  header() override;
 };
 
 struct Continue : SyntaxNode {
@@ -212,8 +214,8 @@ struct Continue : SyntaxNode {
 
     Continue(Label label);
 
-    pBoundNode bind() override;
-    void       header() override;
+    pType bind(Parser &parser) override;
+    void  header() override;
 };
 
 struct Decimal : ConstantExpression {
@@ -221,8 +223,8 @@ struct Decimal : ConstantExpression {
 
     Decimal(std::wstring const &number);
     Decimal(double number);
-    pBoundNode bind() override;
-    void       header() override;
+    pType bind(Parser &parser) override;
+    void  header() override;
 
     pSyntaxNode evaluate_Add(pConstantExpression const &rhs) override;
     pSyntaxNode evaluate_Subtract(pConstantExpression const &rhs) override;
@@ -242,7 +244,7 @@ struct DeferStatement : SyntaxNode {
 
     DeferStatement(pSyntaxNode stmt);
     pSyntaxNode normalize(Parser &parser) override;
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        dump_node(int indent) override;
 };
 
@@ -250,14 +252,14 @@ struct DoubleQuotedString : ConstantExpression {
     std::wstring string;
 
     DoubleQuotedString(std::wstring_view str, bool strip_quotes);
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        header() override;
     pSyntaxNode evaluate_Add(pConstantExpression const &rhs) override;
 };
 
 struct Dummy : SyntaxNode {
     Dummy();
-    pBoundNode bind() override;
+    pType bind(Parser &parser) override;
 };
 
 struct Embed : SyntaxNode {
@@ -265,7 +267,7 @@ struct Embed : SyntaxNode {
 
     Embed(std::wstring_view file_name);
     pSyntaxNode normalize(Parser &parser) override;
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        header() override;
 };
 
@@ -276,7 +278,7 @@ struct EnumValue : SyntaxNode {
 
     EnumValue(std::wstring label, pConstantExpression value, pTypeSpecification payload);
     pSyntaxNode normalize(Parser &parser) override;
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        header() override;
 };
 
@@ -290,7 +292,7 @@ struct Enum : SyntaxNode {
 
     Enum(std::wstring name, pTypeSpecification underlying_type, EnumValues values);
     pSyntaxNode normalize(Parser &parser) override;
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        dump_node(int indent) override;
     void        header() override;
 };
@@ -300,7 +302,7 @@ struct Error : SyntaxNode {
 
     Error(pSyntaxNode expression);
     pSyntaxNode normalize(Parser &parser) override;
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        dump_node(int indent) override;
 };
 
@@ -309,7 +311,7 @@ struct ExpressionList : SyntaxNode {
 
     ExpressionList(SyntaxNodes expressions);
     pSyntaxNode normalize(Parser &parser) override;
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        dump_node(int indent) override;
 };
 
@@ -317,8 +319,8 @@ struct ExternLink : SyntaxNode {
     std::wstring link_name;
 
     ExternLink(std::wstring link_name);
-    pBoundNode bind() override;
-    void       header() override;
+    pType bind(Parser &parser) override;
+    void  header() override;
 };
 
 struct ForStatement : SyntaxNode {
@@ -328,7 +330,7 @@ struct ForStatement : SyntaxNode {
 
     ForStatement(std::wstring var, pSyntaxNode expr, pSyntaxNode stmt);
     pSyntaxNode normalize(Parser &parser) override;
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        header() override;
     void        dump_node(int indent) override;
 };
@@ -342,7 +344,7 @@ struct FunctionDeclaration : SyntaxNode {
 
     FunctionDeclaration(std::wstring name, std::vector<pParameter> parameters, pTypeSpecification return_type);
     pSyntaxNode normalize(Parser &parser) override;
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        header() override;
     void        dump_node(int indent) override;
 };
@@ -355,7 +357,7 @@ struct FunctionDefinition : SyntaxNode {
 
     FunctionDefinition(pFunctionDeclaration declaration, pSyntaxNode implementation);
     pSyntaxNode normalize(Parser &parser) override;
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        dump_node(int indent) override;
 };
 
@@ -363,8 +365,8 @@ struct Identifier : SyntaxNode {
     std::wstring identifier;
 
     Identifier(std::wstring_view identifier);
-    pBoundNode bind() override;
-    void       header() override;
+    pType bind(Parser &parser) override;
+    void  header() override;
 };
 
 struct IfStatement : SyntaxNode {
@@ -374,7 +376,7 @@ struct IfStatement : SyntaxNode {
 
     IfStatement(pSyntaxNode condition, pSyntaxNode if_branch, pSyntaxNode else_branch);
     pSyntaxNode normalize(Parser &parser) override;
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        dump_node(int indent) override;
 };
 
@@ -383,7 +385,7 @@ struct Include : SyntaxNode {
 
     Include(std::wstring_view file_name);
     pSyntaxNode normalize(Parser &parser) override;
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        header() override;
 };
 
@@ -392,8 +394,8 @@ struct Integer : ConstantExpression {
 
     Integer(std::wstring_view number);
     Integer(uint64_t number);
-    pBoundNode bind() override;
-    void       header() override;
+    pType bind(Parser &parser) override;
+    void  header() override;
 
     pSyntaxNode evaluate_Add(pConstantExpression const &rhs) override;
     pSyntaxNode evaluate_Subtract(pConstantExpression const &rhs) override;
@@ -414,7 +416,7 @@ struct LoopStatement : SyntaxNode {
 
     LoopStatement(Label label, pSyntaxNode statement);
     pSyntaxNode normalize(Parser &parser) override;
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        header() override;
     void        dump_node(int indent) override;
 };
@@ -427,7 +429,7 @@ struct Module : SyntaxNode {
     Module(std::string_view name, std::wstring_view source, SyntaxNodes statements);
     Module(std::string_view name, std::wstring_view source, pSyntaxNode statement);
     pSyntaxNode normalize(Parser &parser) override;
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        header() override;
     void        dump_node(int indent) override;
 };
@@ -438,7 +440,7 @@ struct Number : ConstantExpression {
 
     Number(std::wstring_view number, NumberType type);
     pSyntaxNode normalize(Parser &parser) override;
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        header() override;
 };
 
@@ -447,8 +449,8 @@ struct Parameter : SyntaxNode {
     pTypeSpecification type_name;
 
     Parameter(std::wstring name, pTypeSpecification type_name);
-    pBoundNode bind() override;
-    void       header() override;
+    pType bind(Parser &parser) override;
+    void  header() override;
 };
 
 struct QuotedString : SyntaxNode {
@@ -456,7 +458,7 @@ struct QuotedString : SyntaxNode {
     QuoteType    quote_type;
 
     QuotedString(std::wstring_view str, QuoteType type);
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        header() override;
     pSyntaxNode normalize(Parser &parser) override;
 };
@@ -466,7 +468,7 @@ struct Return : SyntaxNode {
 
     Return(pSyntaxNode expression);
     pSyntaxNode normalize(Parser &parser) override;
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        dump_node(int indent) override;
 };
 
@@ -474,8 +476,8 @@ struct SingleQuotedString : ConstantExpression {
     std::wstring string;
 
     SingleQuotedString(std::wstring_view str, bool strip_quotes);
-    pBoundNode bind() override;
-    void       header() override;
+    pType bind(Parser &parser) override;
+    void  header() override;
 };
 
 struct StructMember : SyntaxNode {
@@ -484,7 +486,7 @@ struct StructMember : SyntaxNode {
 
     StructMember(std::wstring label, pTypeSpecification payload);
     pSyntaxNode normalize(Parser &parser) override;
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        header() override;
 };
 
@@ -497,7 +499,7 @@ struct Struct : SyntaxNode {
 
     Struct(std::wstring name, StructMembers members);
     pSyntaxNode normalize(Parser &parser) override;
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        dump_node(int indent) override;
     void        header() override;
 };
@@ -550,7 +552,7 @@ struct TypeSpecification : SyntaxNode {
     TypeSpecification(ErrorDescriptionNode error);
 
     pSyntaxNode  normalize(Parser &parser) override;
-    pBoundNode   bind() override;
+    pType        bind(Parser &parser) override;
     void         header() override;
     std::wstring to_string();
     pType        resolve();
@@ -562,7 +564,7 @@ struct UnaryExpression : SyntaxNode {
 
     UnaryExpression(Operator op, pSyntaxNode operand);
     pSyntaxNode normalize(Parser &parser) override;
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        header() override;
     void        dump_node(int indent) override;
 };
@@ -574,7 +576,7 @@ struct VariableDeclaration : SyntaxNode {
     bool               is_const;
 
     VariableDeclaration(std::wstring name, pTypeSpecification type_name, pSyntaxNode initializer, bool is_const);
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     pSyntaxNode normalize(Parser &parser) override;
     void        header() override;
     void        dump_node(int indent) override;
@@ -582,7 +584,7 @@ struct VariableDeclaration : SyntaxNode {
 
 struct Void : ConstantExpression {
     Void();
-    pBoundNode bind() override;
+    pType bind(Parser &parser) override;
 };
 
 struct WhileStatement : SyntaxNode {
@@ -592,7 +594,7 @@ struct WhileStatement : SyntaxNode {
 
     WhileStatement(Label label, pSyntaxNode condition, pSyntaxNode statement);
     pSyntaxNode normalize(Parser &parser) override;
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        header() override;
     void        dump_node(int indent) override;
 };
@@ -603,8 +605,11 @@ struct Yield : SyntaxNode {
 
     Yield(Label label, pSyntaxNode statement);
     pSyntaxNode normalize(Parser &parser) override;
-    pBoundNode  bind() override;
+    pType       bind(Parser &parser) override;
     void        header() override;
     void        dump_node(int indent) override;
 };
+
+pType bind_node(pSyntaxNode node, Parser &parser);
+
 }

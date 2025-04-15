@@ -11,23 +11,21 @@
 #include <string>
 #include <string_view>
 
-#include <App/Operator.h>
-#include <App/SyntaxNode.h>
 #include <Util/IO.h>
 #include <Util/Lexer.h>
 #include <Util/Logging.h>
 #include <Util/Options.h>
 #include <Util/Result.h>
+#include <Util/TokenLocation.h>
 #include <Util/Utf8.h>
+
+#include <App/Operator.h>
+#include <App/SyntaxNode.h>
+#include <App/Type.h>
 
 namespace Arwen {
 
 using namespace Util;
-
-struct ArwenError {
-    TokenLocation location;
-    std::wstring  message;
-};
 
 struct Parser {
     using ArwenLexerTypes = LexerTypes<std::wstring_view, wchar_t, ArwenKeyword>;
@@ -35,11 +33,25 @@ struct Parser {
     using Token = ArwenLexer::Token;
     using LexerError = ArwenLexer::LexerError;
     using LexerResult = ArwenLexer::LexerResult;
+    using OperatorSymbol = std::variant<wchar_t, ArwenKeyword>;
+
+    struct OperatorDef {
+        Operator       op;
+        OperatorSymbol sym;
+        Precedence     precedence;
+        Position       position { Position::Infix };
+        Associativity  associativity { Associativity::Left };
+    };
 
     enum class ParseLevel {
         Module,
         Function,
         Block,
+    };
+
+    struct Scope {
+        pSyntaxNode                   owner;
+        std::map<std::wstring, pType> names {};
     };
 
     static std::vector<OperatorDef> operators;
@@ -48,6 +60,7 @@ struct Parser {
     std::shared_ptr<Module>         module;
     ParseLevel                      level { ParseLevel::Module };
     std::vector<ArwenError>         errors;
+    std::vector<Scope>              scopes;
 
     Parser() = default;
 
@@ -81,6 +94,11 @@ struct Parser {
     pSyntaxNode                parse_var_decl();
     pSyntaxNode                parse_while();
     pSyntaxNode                parse_yield();
+
+    pType find_name(std::wstring const &name);
+    void  register_name(std::wstring name, pType node);
+    void  push_scope(pSyntaxNode const &owner);
+    void  pop_scope();
 
     void append(LexerErrorMessage const &lexer_error);
     void append(LexerErrorMessage const &lexer_error, char const *message);

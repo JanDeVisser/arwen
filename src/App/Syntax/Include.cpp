@@ -49,10 +49,9 @@ pSyntaxNode Include::normalize(Parser &parser)
     return nullptr;
 }
 
-pBoundNode Include::bind()
+pType Include::bind(Parser &parser)
 {
-    std::cerr << "Cannot bind '@include' statements; these should be eliminated during normalizing" << std::endl;
-    return nullptr;
+    return make_error(location, L"`@include` statement should have been elided");
 }
 
 void Include::header()

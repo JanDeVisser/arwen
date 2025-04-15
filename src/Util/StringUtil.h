@@ -8,12 +8,9 @@
 
 #include <algorithm>
 #include <cxxabi.h>
-#include <map>
 #include <memory>
 #include <optional>
 #include <string>
-#include <unordered_map>
-#include <variant>
 #include <vector>
 
 #include <Util/Logging.h>
@@ -51,11 +48,11 @@ inline bool string_compare_ic(std::string_view const &s1, std::string_view const
     return std::ranges::equal(s1, s2, [](unsigned char ch1, unsigned char ch2) { return std::tolower(ch1) == std::tolower(ch2); });
 }
 
-template<typename ElementType, typename ToString>
-inline std::string join(std::vector<ElementType> const &collection, std::string_view const &sep, ToString const &tostring)
+template<typename T, typename ElementType, typename ToString>
+inline std::basic_string<T> join(std::vector<ElementType> const &collection, std::basic_string_view<T> const &sep, ToString const &tostring)
 {
-    std::string ret;
-    auto        first = true;
+    std::basic_string<T> ret;
+    auto                 first = true;
     for (auto &elem : collection) {
         if (!first) {
             ret += sep;
@@ -66,21 +63,23 @@ inline std::string join(std::vector<ElementType> const &collection, std::string_
     return ret;
 }
 
-inline std::string join(StringList const &collection, std::string_view const &sep)
+template<typename T>
+inline std::basic_string<T> join(std::vector<std::basic_string<T>> const &collection, std::basic_string_view<T> const &sep)
 {
-    return join(collection, sep, [](std::string const &s) { return s; });
+    return join(collection, sep, [](std::basic_string<T> const &s) { return s; });
 }
 
-template<typename ElementType, typename ToString>
-inline std::string join(std::vector<ElementType> const &collection, char sep, ToString const &tostring)
+template<typename ElementType, typename ToString, typename Char = char>
+inline std::string join(std::vector<ElementType> const &collection, Char sep, ToString const &tostring)
 {
-    std::string_view s { &sep, 1 };
+    std::basic_string_view<Char> s { &sep, 1 };
     return join(collection, s, tostring);
 }
 
-inline std::string join(StringList const &collection, char sep)
+template<typename Char>
+inline std::basic_string<Char> join(std::vector<std::basic_string<Char>> const &collection, Char sep)
 {
-    std::string_view s { &sep, 1 };
+    std::basic_string_view<Char> s { &sep, 1 };
     return join(collection, s);
 }
 

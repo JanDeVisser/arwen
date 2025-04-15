@@ -60,6 +60,7 @@ add_library(
         src/Util/StringScanner.h
         src/Util/StringUtil.cpp
         src/Util/Token.cpp
+        src/Util/TokenLocation.h
         src/Util/Utf8.cpp
 )
 
@@ -74,20 +75,22 @@ include_directories(. src)
 add_executable(
         arwen
         src/App/arwen.cpp
-        src/App/BoundNode.cpp
         src/App/Parser.cpp
         src/App/Operator.cpp
         src/App/SyntaxNode.cpp
-        src/App/Syntax/BinaryExpression.cpp
+        src/App/Syntax/Branch.cpp
         src/App/Syntax/Embed.cpp
         src/App/Syntax/Enum.cpp
+        src/App/Syntax/Expression.cpp
         src/App/Syntax/Function.cpp
         src/App/Syntax/Include.cpp
         src/App/Syntax/Loop.cpp
         src/App/Syntax/Number.cpp
         src/App/Syntax/Return.cpp
+        src/App/Syntax/String.cpp
         src/App/Syntax/Struct.cpp
         src/App/Syntax/Type.cpp
+        src/App/Syntax/Variable.cpp
         src/App/Type.cpp
 )
 

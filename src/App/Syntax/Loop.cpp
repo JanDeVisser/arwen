@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <App/Parser.h>
 #include <App/SyntaxNode.h>
 
 namespace Arwen {
@@ -27,9 +28,20 @@ pSyntaxNode ForStatement::normalize(Parser &parser)
         statement->normalize(parser));
 }
 
-pBoundNode ForStatement::bind()
+pType ForStatement::bind(Parser &parser)
 {
-    return nullptr;
+    auto range_type = bind_node(range_expr, parser);
+    if (!range_type->is<RangeType>()) {
+        return make_error(
+            location,
+            L"`for` loop range expression is a `{}`, not a range",
+            range_type->name
+        );
+    }
+    parser.push_scope(shared_from_this());
+    parser.register_name(range_variable, std::get<RangeType>(range_type->description).range_of);
+    auto block_type = bind_node(statement, parser);
+    return block_type;
 }
 
 void ForStatement::dump_node(int indent)
@@ -59,7 +71,7 @@ pSyntaxNode LoopStatement::normalize(Parser &parser)
         statement->normalize(parser));
 }
 
-pBoundNode LoopStatement::bind()
+pType LoopStatement::bind(Parser &parser)
 {
     return nullptr;
 }
@@ -94,7 +106,7 @@ pSyntaxNode WhileStatement::normalize(Parser &parser)
         statement->normalize(parser));
 }
 
-pBoundNode WhileStatement::bind()
+pType WhileStatement::bind(Parser &parser)
 {
     return nullptr;
 }

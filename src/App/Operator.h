@@ -119,14 +119,9 @@ enum class Operator : int {
 #undef S
 };
 
-using OperatorSymbol = std::variant<wchar_t, ArwenKeyword>;
-
-struct OperatorDef {
-    Operator       op;
-    OperatorSymbol sym;
-    Precedence     precedence;
-    Position       position { Position::Infix };
-    Associativity  associativity { Associativity::Left };
+struct ArwenError {
+    TokenLocation location;
+    std::wstring  message;
 };
 
 extern char const *ArwenKeyword_name(ArwenKeyword kw);
