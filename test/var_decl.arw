@@ -3,8 +3,10 @@ const c: i32 = 32
 
 func main() i32
 {
-    x := 1
+    x: i64 = 1
     y: i64 = 2
-    z: i32
+    z: i64
     z = x + y
+    y += 2
 }
+

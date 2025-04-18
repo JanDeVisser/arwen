@@ -55,19 +55,25 @@ pType VariableDeclaration::bind(Parser &parser)
         if (init_type == TypeRegistry::undetermined || my_type->is<BindErrors>()) {
             return init_type;
         } else if (init_type == TypeRegistry::ambiguous) {
-            return make_error(initializer->location, L"Type ambiguity");
+            return parser.bind_error(initializer->location, L"Type ambiguity");
+        }
+        if (my_type != init_type) {
+            auto coerced = initializer->coerce(my_type, parser);
+            if (coerced == nullptr) {
+                return parser.bind_error(
+                    location,
+                    std::format(L"Type mismatch between declared type `{}` of `{}` and type of initializer value `{}`",
+                        my_type->name,
+                        name,
+                        init_type->name));
+            }
+            initializer = coerced;
+            init_type = initializer->bound_type;
+            assert(my_type == init_type);
         }
     }
-    if (my_type != init_type) {
-        return make_error(
-            location,
-            std::format(L"Type mismatch between declared type `{}` of `{}` and type of initializer value `{}`",
-                my_type->name,
-                name,
-                init_type->name));
-    }
     if (parser.find_name(name) != nullptr) {
-        return make_error(location, std::format(L"Duplicate variable name `{}`", name));
+        return parser.bind_error(location, std::format(L"Duplicate variable name `{}`", name));
     }
     parser.register_name(name, my_type);
     return my_type;

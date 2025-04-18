@@ -79,7 +79,7 @@ pType Enum::bind(Parser &parser)
         if (v->payload != nullptr) {
             payload = v->payload->resolve();
             if (payload == nullptr) {
-                return make_error(v->payload->location, L"Could not resolve type `{}`", v->payload->to_string());
+                return parser.bind_error(v->payload->location, L"Could not resolve type `{}`", v->payload->to_string());
             }
         }
         size_t value = (v->value != nullptr) ? std::dynamic_pointer_cast<Integer>(v->value)->value : ix;
@@ -90,7 +90,7 @@ pType Enum::bind(Parser &parser)
     if (underlying_type != nullptr) {
         enoom.underlying_type = underlying_type->resolve();
         if (enoom.underlying_type == nullptr) {
-            return make_error(underlying_type->location, L"Could not resolve type `{}`", underlying_type->to_string());
+            return parser.bind_error(underlying_type->location, L"Could not resolve type `{}`", underlying_type->to_string());
         }
     }
     return make_type(name, enoom);

@@ -5,6 +5,7 @@
  */
 
 #include <iostream>
+#include <ostream>
 #include <string_view>
 
 #include <Util/IO.h>
@@ -44,16 +45,40 @@ void compile_file(std::string_view file_name)
             return;
         }
         parser.errors.clear();
+
         std::wcout << "STAGE 2 - Folding" << std::endl;
         auto normalized = mod->normalize(parser);
-        for (auto const &err : parser.errors) {
-            std::wcerr << err.location.line << ':' << err.location.column << " " << err.message << std::endl;
-        }
         if (!normalized) {
             std::cerr << "Internal error(s) encountered" << std::endl;
             return;
         }
+        for (auto const &err : parser.errors) {
+            std::wcerr << err.location.line << ':' << err.location.column << " " << err.message << std::endl;
+            return;
+        }
         normalized->dump();
+
+        std::wcout << "STAGE 3 - Binding. Pass ";
+        for (auto ix = 0; ix < 2; ++ix) {
+            std::wcout << ix << " ";
+            std::flush(std::wcout);
+            auto bound_type = bind_node(normalized, parser);
+            if (!bound_type) {
+                std::wcout << std::endl;
+                std::cerr << "Internal error(s) encountered" << std::endl;
+                return;
+            }
+            if (!parser.errors.empty()) {
+                std::wcout << std::endl;
+                for (auto const &err : parser.errors) {
+                    std::wcerr << err.location.line << ':' << err.location.column << " " << err.message << std::endl;
+                    return;
+                }
+            }
+        }
+        std::wcout << std::endl;
+        normalized->dump();
+
     } else {
         std::cerr << "Could not open '" << file_name << "': " << contents_maybe.error().to_string() << std::endl;
     }

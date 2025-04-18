@@ -50,6 +50,9 @@ void SyntaxNode::dump(int indent)
     print_indent(indent);
     std::cout << SyntaxNodeType_name(type) << " (" << location.index << ".." << location.index + location.length << ") ";
     header();
+    if (bound_type != nullptr) {
+        std::wcout << " -> " << bound_type->name;
+    }
     std::cout << std::endl;
     dump_node(indent);
 }
@@ -67,12 +70,21 @@ pSyntaxNode SyntaxNode::normalize(Parser &parser)
     return this->shared_from_this();
 }
 
+pSyntaxNode SyntaxNode::coerce(pType const &target, Parser &)
+{
+    assert(bound_type != nullptr);
+    if (target == bound_type) {
+        return shared_from_this();
+    }
+    return nullptr;
+}
+
 ConstantExpression::ConstantExpression(SyntaxNodeType type)
     : SyntaxNode(type)
 {
 }
 
-pSyntaxNode ConstantExpression::evaluate_binop(Operator op, pConstantExpression const &rhs)
+pSyntaxNode ConstantExpression::evaluate(Operator op, pConstantExpression const &rhs)
 {
     switch (op) {
 #undef S
@@ -86,7 +98,24 @@ pSyntaxNode ConstantExpression::evaluate_binop(Operator op, pConstantExpression 
     }
 }
 
-Block::Block(SyntaxNodes statements)
+#undef S
+#undef S
+#define S(O)                                                                     \
+    pSyntaxNode ConstantExpression::evaluate_##O(pConstantExpression const &rhs) \
+    {                                                                            \
+        if (rhs != nullptr) {                                                    \
+            return make_node<BinaryExpression>(                                  \
+                this->location + rhs->location,                                  \
+                this->shared_from_this(), Operator::O, rhs);                     \
+        }                                                                        \
+        return make_node<UnaryExpression>(                                       \
+            this->location + rhs->location,                                      \
+            Operator::O, this->shared_from_this());                              \
+    }
+Operators(S)
+#undef S
+
+    Block::Block(SyntaxNodes statements)
     : SyntaxNode(SyntaxNodeType::Block)
     , statements(std::move(statements))
 {

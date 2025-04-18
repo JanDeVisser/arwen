@@ -35,13 +35,14 @@ std::vector<Parser::OperatorDef> Parser::operators {
     { Operator::AssignShiftLeft, ArwenKeyword::AssignShiftLeft, 1, Position::Infix, Associativity::Right },
     { Operator::AssignShiftRight, ArwenKeyword::AssignShiftRight, 1, Position::Infix, Associativity::Right },
     { Operator::AssignXor, ArwenKeyword::AssignXor, 1, Position::Infix, Associativity::Right },
+    { Operator::BinaryInvert, '~', 14, Position::Prefix, Associativity::Right },
     { Operator::Call, '(', 15 },
     { Operator::Divide, '/', 12 },
     { Operator::Equals, ArwenKeyword::Equals, 8 },
     { Operator::Greater, '>', 8 },
     { Operator::GreaterEqual, ArwenKeyword::GreaterEqual, 8 },
     { Operator::Idempotent, '+', 14, Position::Prefix, Associativity::Right },
-    { Operator::Invert, '!', 14, Position::Prefix, Associativity::Right },
+    { Operator::LogicalInvert, '!', 14, Position::Prefix, Associativity::Right },
     { Operator::Less, '<', 8 },
     { Operator::LessEqual, ArwenKeyword::LessEqual, 8 },
     { Operator::Modulo, '%', 12 },
@@ -1051,5 +1052,12 @@ void Parser::append(TokenLocation location, char const *message)
 {
     append(std::move(location), MUST_EVAL(to_wstring(message)));
 }
+
+pType Parser::bind_error(TokenLocation location, std::wstring msg)
+{
+    append(location, msg);
+    return make_error(location, msg);
+}
+
 
 }

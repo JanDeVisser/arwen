@@ -6,7 +6,6 @@
 
 #pragma once
 
-#include "Util/Utf8.h"
 #include <cstdint>
 #include <format>
 #include <map>
@@ -14,6 +13,8 @@
 #include <string>
 #include <variant>
 #include <vector>
+
+#include <Util/Utf8.h>
 
 #include <App/Operator.h>
 
@@ -35,6 +36,11 @@ struct IntType {
     static IntType i16;
     static IntType i32;
     static IntType i64;
+
+    std::wstring to_string() const
+    {
+        return std::format(L"{:c}{}", (is_signed) ? 'i' : 'u', width_bits);
+    }
 };
 
 struct FloatType {
@@ -42,55 +48,93 @@ struct FloatType {
 
     static FloatType f32;
     static FloatType f64;
+
+    std::wstring to_string() const
+    {
+        return std::format(L"f{}", width_bits);
+    }
 };
 
 struct BoolType {
+    std::wstring to_string() const
+    {
+        return L"Bool";
+    }
 };
 
 struct VoidType {
+    std::wstring to_string() const
+    {
+        return L"Void";
+    }
 };
 
 struct NamespaceType {
+    std::wstring to_string() const
+    {
+        return L"Namespace";
+    }
 };
 
 struct FunctionType {
     std::vector<pType> parameters;
     pType              result;
+
+    std::wstring to_string() const;
 };
 
 struct TypeList {
     std::vector<pType> types;
+
+    std::wstring to_string() const;
 };
 
 struct Undetermined {
+    std::wstring to_string() const
+    {
+        return L"Undetermined";
+    }
 };
 
 struct Ambiguous {
+    std::wstring to_string() const
+    {
+        return L"Ambiguous";
+    }
 };
 
 struct BindErrors {
     std::vector<ArwenError> errors;
+    std::wstring to_string() const
+    {
+        return L"BindErrors";
+    }
 };
 
 struct SliceType {
     pType slice_of;
+    std::wstring to_string() const;
 };
 
 struct ZeroTerminatedArray {
     pType array_of;
+    std::wstring to_string() const;
 };
 
 struct Array {
     pType  array_of;
     size_t size;
+    std::wstring to_string() const;
 };
 
 struct RangeType {
     pType range_of;
+    std::wstring to_string() const;
 };
 
 struct TypeAlias {
     pType alias_of;
+    std::wstring to_string() const;
 };
 
 struct EnumType {
@@ -103,6 +147,7 @@ struct EnumType {
 
     pType  underlying_type;
     Values values;
+    std::wstring to_string() const;
 };
 
 struct StructType {
@@ -114,15 +159,18 @@ struct StructType {
     using Fields = std::vector<Field>;
 
     Fields fields;
+    std::wstring to_string() const;
 };
 
 struct OptionalType {
     pType type;
+    std::wstring to_string() const;
 };
 
 struct ErrorType {
     pType success;
     pType error;
+    std::wstring to_string() const;
 };
 
 using TypeDescription = std::variant<
@@ -163,6 +211,12 @@ struct Type : std::enable_shared_from_this<Type> {
     {
         return std::holds_alternative<DescrType>(description);
     }
+
+    std::wstring to_string() const {
+        return std::format(L"{}: {}", name, std::visit([](auto const &descr) -> std::wstring {
+            return descr.to_string();
+        }, description));
+    }
 };
 
 struct TypeRegistry {
@@ -174,8 +228,8 @@ struct TypeRegistry {
     pType                array_of(pType type, size_t size);
     pType                optional_of(pType type);
     pType                error_of(pType success, pType error);
-    pType                function_of(std::vector<pType> parameters, pType result);
-    pType                typelist_of(std::vector<pType> typelist);
+    pType                function_of(std::vector<pType> const &parameters, pType result);
+    pType                typelist_of(std::vector<pType> const &typelist);
 
     static pType u8;
     static pType u16;
@@ -203,6 +257,7 @@ private:
 template<typename DescrType>
 pType make_type(std::wstring n, DescrType descr)
 {
+    // std::wcout << "Registering type " << n << ' ' << descr.to_string() << std::endl;
     auto ret = std::make_shared<Type>(std::move(n), std::move(descr));
     TypeRegistry::the().types[ret->name] = ret;
     return ret;
@@ -211,9 +266,7 @@ pType make_type(std::wstring n, DescrType descr)
 template<typename DescrType>
 pType make_type(DescrType descr)
 {
-    auto ret = std::make_shared<Type>(std::format(L"anon-{}", TypeRegistry::the().types.size()), std::move(descr));
-    TypeRegistry::the().types[ret->name] = ret;
-    return ret;
+    return make_type(std::format(L"anon-{}", TypeRegistry::the().types.size()), std::move(descr));
 }
 
 pType make_error(TokenLocation location, std::wstring msg);

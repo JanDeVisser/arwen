@@ -67,7 +67,7 @@ pType FunctionDeclaration::bind(Parser &parser)
         return result_type;
     }
     if (parser.find_name(name) != nullptr) {
-        return make_error(location, L"Duplicate variable name `{}`", name);
+        return parser.bind_error(location, L"Duplicate variable name `{}`", name);
     }
     auto ret = TypeRegistry::the().function_of(parameter_types, result_type);
     parser.register_name(name, ret);
@@ -105,6 +105,7 @@ pSyntaxNode FunctionDefinition::normalize(Parser &parser)
 pType FunctionDefinition::bind(Parser &parser)
 {
     bind_node(declaration, parser);
+    bind_node(implementation, parser);
     return declaration->bound_type;
 }
 
@@ -123,7 +124,7 @@ Parameter::Parameter(std::wstring name, pTypeSpecification type_name)
 
 pType Parameter::bind(Parser &parser)
 {
-    return nullptr;
+    return bind_node(type_name, parser);
 }
 
 void Parameter::header()

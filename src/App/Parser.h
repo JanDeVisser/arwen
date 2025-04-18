@@ -145,6 +145,20 @@ struct Parser {
     {
         append(lexer_error.location, std::vformat(message.get(), std::make_wformat_args(args...)));
     }
+
+    pType bind_error(TokenLocation location, std::wstring msg);
+
+    template<typename... Args>
+    pType bind_error(TokenLocation location, std::format_string<Args...> const message, Args &&...args)
+    {
+        return bind_error(std::move(location), as_wstring(std::vformat(message.get(), std::make_format_args(args...))));
+    }
+
+    template<typename... Args>
+    pType bind_error(TokenLocation location, std::wformat_string<Args...> const message, Args &&...args)
+    {
+        return bind_error(std::move(location), std::vformat(message.get(), std::make_wformat_args(args...)));
+    }
 };
 
 }

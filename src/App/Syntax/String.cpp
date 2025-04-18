@@ -22,7 +22,7 @@ QuotedString::QuotedString(std::wstring_view str, QuoteType type)
 
 pType QuotedString::bind(Parser &parser)
 {
-    return make_error(location, L"QuotedString node should have been elided");
+    return parser.bind_error(location, L"QuotedString node should have been elided");
 }
 
 void QuotedString::header()

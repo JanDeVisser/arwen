@@ -72,7 +72,8 @@ inline std::basic_string<T> join(std::vector<std::basic_string<T>> const &collec
 template<typename ElementType, typename ToString, typename Char = char>
 inline std::string join(std::vector<ElementType> const &collection, Char sep, ToString const &tostring)
 {
-    std::basic_string_view<Char> s { &sep, 1 };
+    std::basic_string<Char> s;
+    s += sep;
     return join(collection, s, tostring);
 }
 

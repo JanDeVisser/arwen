@@ -34,7 +34,7 @@ pSyntaxNode Embed::normalize(Parser &parser)
 
 pType Embed::bind(Parser &parser)
 {
-    return make_error(location, L"`@embed` statement have been elided");
+    return parser.bind_error(location, L"`@embed` statement have been elided");
 }
 
 void Embed::header()

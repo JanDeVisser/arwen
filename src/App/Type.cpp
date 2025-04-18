@@ -4,16 +4,18 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "Util/TokenLocation.h"
 #include <cstdint>
 #include <format>
 #include <limits>
+#include <ostream>
+#include <string_view>
+#include <variant>
 
 #include <Util/Logging.h>
 #include <Util/StringUtil.h>
+#include <Util/TokenLocation.h>
 
 #include <App/Type.h>
-#include <string_view>
 
 namespace Arwen {
 
@@ -30,45 +32,126 @@ IntType   IntType::i64 { true, 64, std::numeric_limits<int64_t>::max(), std::num
 FloatType FloatType::f32 { 32 };
 FloatType FloatType::f64 { 64 };
 
+pType TypeRegistry::u8 { nullptr };
+pType TypeRegistry::u16 { nullptr };
+pType TypeRegistry::u32 { nullptr };
+pType TypeRegistry::u64 { nullptr };
+pType TypeRegistry::i8 { nullptr };
+pType TypeRegistry::i16 { nullptr };
+pType TypeRegistry::i32 { nullptr };
+pType TypeRegistry::i64 { nullptr };
+pType TypeRegistry::f32 { nullptr };
+pType TypeRegistry::f64 { nullptr };
+pType TypeRegistry::boolean { nullptr };
+pType TypeRegistry::string { nullptr };
+pType TypeRegistry::cstring { nullptr };
+pType TypeRegistry::character { nullptr };
+pType TypeRegistry::void_ { nullptr };
+pType TypeRegistry::ambiguous { nullptr };
+pType TypeRegistry::undetermined { nullptr };
+
 TypeRegistry TypeRegistry::s_registry {};
 
-pType TypeRegistry::u8 { make_type(L"u8", IntType::u8) };
-pType TypeRegistry::u16 { make_type(L"u16", IntType::u16) };
-pType TypeRegistry::u32 { make_type(L"u32", IntType::u32) };
-pType TypeRegistry::u64 { make_type(L"u64", IntType::u64) };
-pType TypeRegistry::i8 { make_type(L"i8", IntType::i8) };
-pType TypeRegistry::i16 { make_type(L"i16", IntType::i16) };
-pType TypeRegistry::i32 { make_type(L"i32", IntType::i32) };
-pType TypeRegistry::i64 { make_type(L"i64", IntType::i64) };
-pType TypeRegistry::f32 { make_type(L"f32", FloatType::f32) };
-pType TypeRegistry::f64 { make_type(L"f64", FloatType::f64) };
-pType TypeRegistry::boolean { make_type(L"bool", BoolType {}) };
-pType TypeRegistry::string { make_type(L"string", SliceType { TypeRegistry::u32 }) };
-pType TypeRegistry::cstring { make_type(L"string", ZeroTerminatedArray { TypeRegistry::u8 }) };
-pType TypeRegistry::character { make_type(L"char", TypeAlias { TypeRegistry::u32 }) };
-pType TypeRegistry::void_ { make_type(L"void", VoidType {}) };
-pType TypeRegistry::ambiguous { make_type(L"%ambiguous", Undetermined {}) };
-pType TypeRegistry::undetermined { make_type(L"%undetermined", Undetermined {}) };
+std::wstring type_name(pType const &type)
+{
+    return (type != nullptr) ? type->name : L"nullptr";
+}
+
+std::wstring FunctionType::to_string() const
+{
+    return std::format(
+        L"Func({}) {}",
+        join(parameters, std::wstring_view { L", " }, [](pType const &t) { return type_name(t); }),
+        result->name);
+}
+
+std::wstring TypeList::to_string() const
+{
+    return std::format(L"({})", join(types, std::wstring_view { L", " }, [](pType const &t) { return type_name(t); }));
+}
+
+std::wstring SliceType::to_string() const
+{
+    return std::format(L"SliceOf({})", type_name(slice_of));
+}
+
+std::wstring ZeroTerminatedArray::to_string() const
+{
+    return std::format(L"ZeroTerminatedArrayOf({})", type_name(array_of));
+}
+
+std::wstring Array::to_string() const
+{
+    return std::format(L"ArrayOf({})", type_name(array_of));
+}
+
+std::wstring RangeType::to_string() const
+{
+    return std::format(L"RangeOf({})", type_name(range_of));
+}
+
+std::wstring TypeAlias::to_string() const
+{
+    return std::format(L"AliasOf({})", type_name(alias_of));
+}
+
+std::wstring EnumType::to_string() const
+{
+    return std::format(L"Enum({} values)", values.size());
+}
+
+std::wstring StructType::to_string() const
+{
+    return std::format(L"Struct({} fields)", fields.size());
+}
+
+std::wstring OptionalType::to_string() const
+{
+    return std::format(L"OptionalOf({})", type_name(type));
+}
+
+std::wstring ErrorType::to_string() const
+{
+    return std::format(L"Error({}/{})", type_name(success), type_name(error));
+}
 
 TypeRegistry::TypeRegistry()
 {
-    types.emplace(L"u8", u8);
-    types.emplace(L"u16", u16);
-    types.emplace(L"u32", u32);
-    types.emplace(L"u64", u64);
-    types.emplace(L"i8", i8);
+    u8 = make_type(L"u8", IntType::u8);
+    u16 = make_type(L"u16", IntType::u16);
+    u32 = make_type(L"u32", IntType::u32);
+    u64 = make_type(L"u64", IntType::u64);
+    i8 = make_type(L"i8", IntType::i8);
+    i16 = make_type(L"i16", IntType::i16);
+    i32 = make_type(L"i32", IntType::i32);
+    i64 = make_type(L"i64", IntType::i64);
+    f32 = make_type(L"f32", FloatType::f32);
+    f64 = make_type(L"f64", FloatType::f64);
+    boolean = make_type(L"bool", BoolType {});
+    string = make_type(L"string", SliceType { TypeRegistry::u32 });
+    cstring = make_type(L"cstring", ZeroTerminatedArray { TypeRegistry::u8 });
+    character = make_type(L"char", TypeAlias { TypeRegistry::u32 });
+    void_ = make_type(L"void", VoidType {});
+    ambiguous = make_type(L"%ambiguous", Ambiguous {});
+    undetermined = make_type(L"%undetermined", Undetermined {});
+
+    types.emplace(L"%ambiguous", ambiguous);
+    types.emplace(L"%undetermined", undetermined);
+    types.emplace(L"bool", boolean);
+    types.emplace(L"char", character);
+    types.emplace(L"cstring", cstring);
+    types.emplace(L"f32", f32);
+    types.emplace(L"f64", f64);
     types.emplace(L"i16", i16);
     types.emplace(L"i32", i32);
     types.emplace(L"i64", i64);
-    types.emplace(L"f32", f32);
-    types.emplace(L"f64", f64);
-    types.emplace(L"bool", boolean);
+    types.emplace(L"i8", i8);
     types.emplace(L"string", string);
-    types.emplace(L"cstring", cstring);
-    types.emplace(L"char", character);
+    types.emplace(L"u16", u16);
+    types.emplace(L"u32", u32);
+    types.emplace(L"u64", u64);
+    types.emplace(L"u8", u8);
     types.emplace(L"void", void_);
-    types.emplace(L"%ambiguous", ambiguous);
-    types.emplace(L"%undetermined", undetermined);
     types.emplace(L"byte", make_type(L"byte", TypeAlias { i8 }));
     types.emplace(L"short", make_type(L"short", TypeAlias { i16 }));
     types.emplace(L"int", make_type(L"int", TypeAlias { i32 }));
@@ -84,6 +167,8 @@ TypeRegistry &TypeRegistry::the()
 
 pType TypeRegistry::slice_of(pType type)
 {
+    assert(type != nullptr);
+    std::wcout << L"slice_of(" << type->name << L")\n";
     for (auto const &[name, t] : types) {
         if (std::visit(overloads {
                            [&type](SliceType const descr) -> bool {
@@ -177,14 +262,17 @@ pType TypeRegistry::error_of(pType success, pType error)
     return ret;
 }
 
-pType TypeRegistry::function_of(std::vector<pType> parameters, pType result)
+pType TypeRegistry::function_of(std::vector<pType> const &parameters, pType result)
 {
+    for (auto const &p : parameters) {
+        std::wcout << ((p == nullptr) ? std::wstring { L"nullptr" } : p->name) << std::endl;
+    }
     for (auto const &[name, t] : types) {
         if (std::visit(overloads {
-                           [&parameters, &result](FunctionType const descr) -> bool {
+                           [&parameters, &result](FunctionType const &descr) -> bool {
                                return descr.parameters == parameters && descr.result == result;
                            },
-                           [](auto const &) -> bool {
+                           [](auto const &x) -> bool {
                                return false;
                            } },
                 t->description)) {
@@ -198,14 +286,14 @@ pType TypeRegistry::function_of(std::vector<pType> parameters, pType result)
             join(
                 parameters,
                 std::wstring_view { L"," },
-                [](pType const &t) -> std::wstring_view { return std::wstring_view { t->name }; }),
+                [](pType const &t) -> std::wstring { return t->name; }),
             result->name),
         FunctionType { parameters, result });
     types.emplace(ret->name, ret);
     return ret;
 }
 
-pType TypeRegistry::typelist_of(std::vector<pType> typelist)
+pType TypeRegistry::typelist_of(std::vector<pType> const &typelist)
 {
     for (auto const &[name, t] : types) {
         if (std::visit(overloads {
@@ -238,7 +326,7 @@ pType make_error(TokenLocation location, std::wstring msg)
         BindErrors { { {
             std::move(location),
             std::move(msg),
-            } } } );
+        } } });
 }
 
 }

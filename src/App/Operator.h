@@ -8,7 +8,6 @@
 
 #include <cstdint>
 #include <optional>
-#include <variant>
 
 #include <Util/Lexer.h>
 
@@ -89,6 +88,7 @@ enum class Associativity {
     S(AssignShiftRight) \
     S(AssignXor)        \
     S(BinaryAnd)        \
+    S(BinaryInvert)     \
     S(BinaryOr)         \
     S(BinaryXor)        \
     S(Call)             \
@@ -101,6 +101,7 @@ enum class Associativity {
     S(Less)             \
     S(LessEqual)        \
     S(LogicalAnd)       \
+    S(LogicalInvert)    \
     S(LogicalOr)        \
     S(Modulo)           \
     S(Multiply)         \

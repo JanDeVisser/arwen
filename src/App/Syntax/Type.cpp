@@ -141,8 +141,8 @@ pType TypeSpecification::resolve()
                               if (t == nullptr) {
                                   return nullptr;
                               }
-                              while (t->is<TypeAlias>()) {
-                                t = std::get<TypeAlias>(t->description).alias_of;
+                              while (t != nullptr && t->is<TypeAlias>()) {
+                                  t = std::get<TypeAlias>(t->description).alias_of;
                               }
                               return t;
                           },

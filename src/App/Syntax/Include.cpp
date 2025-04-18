@@ -51,7 +51,7 @@ pSyntaxNode Include::normalize(Parser &parser)
 
 pType Include::bind(Parser &parser)
 {
-    return make_error(location, L"`@include` statement should have been elided");
+    return parser.bind_error(location, L"`@include` statement should have been elided");
 }
 
 void Include::header()

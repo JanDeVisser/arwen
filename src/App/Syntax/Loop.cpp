@@ -32,7 +32,7 @@ pType ForStatement::bind(Parser &parser)
 {
     auto range_type = bind_node(range_expr, parser);
     if (!range_type->is<RangeType>()) {
-        return make_error(
+        return parser.bind_error(
             location,
             L"`for` loop range expression is a `{}`, not a range",
             range_type->name

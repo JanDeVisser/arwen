@@ -209,5 +209,6 @@ public:
 #define assert_with_msg(condition, fmt, args...) Util::Logger::get_logger().assert_msg(__FILE__, __LINE__, __func__, condition, "Assertion error: " #condition ": " fmt, ##args)
 
 #define UNREACHABLE() fatal("Unreachable")
+#define NYI(msg) fatal("Not yet implemented: " msg)
 
 }
