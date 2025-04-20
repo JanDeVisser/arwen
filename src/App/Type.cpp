@@ -9,7 +9,6 @@
 #include <limits>
 #include <ostream>
 #include <string_view>
-#include <variant>
 
 #include <Util/Logging.h>
 #include <Util/StringUtil.h>
@@ -135,29 +134,29 @@ TypeRegistry::TypeRegistry()
     ambiguous = make_type(L"%ambiguous", Ambiguous {});
     undetermined = make_type(L"%undetermined", Undetermined {});
 
-    types.emplace(L"%ambiguous", ambiguous);
-    types.emplace(L"%undetermined", undetermined);
-    types.emplace(L"bool", boolean);
-    types.emplace(L"char", character);
-    types.emplace(L"cstring", cstring);
-    types.emplace(L"f32", f32);
-    types.emplace(L"f64", f64);
-    types.emplace(L"i16", i16);
-    types.emplace(L"i32", i32);
-    types.emplace(L"i64", i64);
-    types.emplace(L"i8", i8);
-    types.emplace(L"string", string);
-    types.emplace(L"u16", u16);
-    types.emplace(L"u32", u32);
-    types.emplace(L"u64", u64);
-    types.emplace(L"u8", u8);
-    types.emplace(L"void", void_);
-    types.emplace(L"byte", make_type(L"byte", TypeAlias { i8 }));
-    types.emplace(L"short", make_type(L"short", TypeAlias { i16 }));
-    types.emplace(L"int", make_type(L"int", TypeAlias { i32 }));
-    types.emplace(L"long", make_type(L"long", TypeAlias { i64 }));
-    types.emplace(L"float", make_type(L"float", TypeAlias { f32 }));
-    types.emplace(L"double", make_type(L"double", TypeAlias { f64 }));
+    types.emplace_back(ambiguous);
+    types.emplace_back(undetermined);
+    types.emplace_back(boolean);
+    types.emplace_back(character);
+    types.emplace_back(cstring);
+    types.emplace_back(f32);
+    types.emplace_back(f64);
+    types.emplace_back(i16);
+    types.emplace_back(i32);
+    types.emplace_back(i64);
+    types.emplace_back(i8);
+    types.emplace_back(string);
+    types.emplace_back(u16);
+    types.emplace_back(u32);
+    types.emplace_back(u64);
+    types.emplace_back(u8);
+    types.emplace_back(void_);
+    types.emplace_back(make_type(L"byte", TypeAlias { i8 }));
+    types.emplace_back(make_type(L"short", TypeAlias { i16 }));
+    types.emplace_back(make_type(L"int", TypeAlias { i32 }));
+    types.emplace_back(make_type(L"long", TypeAlias { i64 }));
+    types.emplace_back(make_type(L"float", TypeAlias { f32 }));
+    types.emplace_back(make_type(L"double", TypeAlias { f64 }));
 }
 
 TypeRegistry &TypeRegistry::the()
@@ -169,7 +168,7 @@ pType TypeRegistry::slice_of(pType type)
 {
     assert(type != nullptr);
     std::wcout << L"slice_of(" << type->name << L")\n";
-    for (auto const &[name, t] : types) {
+    for (auto const &t : types) {
         if (std::visit(overloads {
                            [&type](SliceType const descr) -> bool {
                                return descr.slice_of == type;
@@ -182,13 +181,13 @@ pType TypeRegistry::slice_of(pType type)
         }
     }
     auto ret = make_type(std::format(L"[]{}", type->name), SliceType { type });
-    types.emplace(ret->name, ret);
+    types.emplace_back(ret);
     return ret;
 }
 
 pType TypeRegistry::zero_terminated_array_of(pType type)
 {
-    for (auto const &[name, t] : types) {
+    for (auto const &t : types) {
         if (std::visit(overloads {
                            [&type](ZeroTerminatedArray const &descr) -> bool {
                                return descr.array_of == type;
@@ -201,13 +200,13 @@ pType TypeRegistry::zero_terminated_array_of(pType type)
         }
     }
     auto ret = make_type(std::format(L"[0]{}", type->name), ZeroTerminatedArray { type });
-    types.emplace(ret->name, ret);
+    types.emplace_back(ret);
     return ret;
 }
 
 pType TypeRegistry::array_of(pType type, size_t size)
 {
-    for (auto const &[name, t] : types) {
+    for (auto const &t : types) {
         if (std::visit(overloads {
                            [&type, &size](Array const &descr) -> bool {
                                return descr.array_of == type && descr.size == size;
@@ -220,13 +219,13 @@ pType TypeRegistry::array_of(pType type, size_t size)
         }
     }
     auto ret = make_type(std::format(L"[{}]{}", size, type->name), Array { type, size });
-    types.emplace(ret->name, ret);
+    types.emplace_back(ret);
     return ret;
 }
 
 pType TypeRegistry::optional_of(pType type)
 {
-    for (auto const &[name, t] : types) {
+    for (auto const &t : types) {
         if (std::visit(overloads {
                            [&type](OptionalType const descr) -> bool {
                                return descr.type == type;
@@ -239,13 +238,13 @@ pType TypeRegistry::optional_of(pType type)
         }
     }
     auto ret = make_type(std::format(L"{}?", type->name), OptionalType { type });
-    types.emplace(ret->name, ret);
+    types.emplace_back(ret);
     return ret;
 }
 
 pType TypeRegistry::error_of(pType success, pType error)
 {
-    for (auto const &[name, t] : types) {
+    for (auto const &t : types) {
         if (std::visit(overloads {
                            [&success, &error](ErrorType const descr) -> bool {
                                return descr.success == success && descr.error == error;
@@ -258,7 +257,7 @@ pType TypeRegistry::error_of(pType success, pType error)
         }
     }
     auto ret = make_type(std::format(L"{}/{}", success->name, error->name), ErrorType { success, error });
-    types.emplace(ret->name, ret);
+    types.emplace_back(ret);
     return ret;
 }
 
@@ -267,7 +266,7 @@ pType TypeRegistry::function_of(std::vector<pType> const &parameters, pType resu
     for (auto const &p : parameters) {
         std::wcout << ((p == nullptr) ? std::wstring { L"nullptr" } : p->name) << std::endl;
     }
-    for (auto const &[name, t] : types) {
+    for (auto const &t : types) {
         if (std::visit(overloads {
                            [&parameters, &result](FunctionType const &descr) -> bool {
                                return descr.parameters == parameters && descr.result == result;
@@ -289,13 +288,13 @@ pType TypeRegistry::function_of(std::vector<pType> const &parameters, pType resu
                 [](pType const &t) -> std::wstring { return t->name; }),
             result->name),
         FunctionType { parameters, result });
-    types.emplace(ret->name, ret);
+    types.emplace_back(ret);
     return ret;
 }
 
 pType TypeRegistry::typelist_of(std::vector<pType> const &typelist)
 {
-    for (auto const &[name, t] : types) {
+    for (auto const &t : types) {
         if (std::visit(overloads {
                            [&typelist](TypeList const descr) -> bool {
                                return descr.types == typelist;
@@ -316,7 +315,7 @@ pType TypeRegistry::typelist_of(std::vector<pType> const &typelist)
                 std::wstring_view { L"," },
                 [](pType const &t) -> std::wstring_view { return std::wstring_view { t->name }; })),
         TypeList { typelist });
-    types.emplace(ret->name, ret);
+    types.emplace_back(ret);
     return ret;
 }
 

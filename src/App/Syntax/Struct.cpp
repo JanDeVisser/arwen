@@ -58,14 +58,16 @@ pType Struct::bind(Parser &parser)
 {
     StructType strukt;
     for (auto const& m : members) {
-        if (auto type = m->type->resolve(); type == nullptr) {
+        if (auto type = m->type->resolve(parser); type == nullptr) {
             parser.append(m->type->location, L"Could not resolve type `{}`", m->type->to_string());
             return nullptr;
         } else {
             strukt.fields.emplace_back(m->label, type);
         }
     }
-    return make_type(name, strukt);
+    auto ret = make_type(name, strukt);
+    parser.register_type(name, ret);
+    return ret;
 }
 
 void Struct::dump_node(int indent)

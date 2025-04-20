@@ -86,6 +86,8 @@ add_executable(
         src/App/Syntax/Include.cpp
         src/App/Syntax/Loop.cpp
         src/App/Syntax/Number.cpp
+        src/App/Syntax/Program.cpp
+        src/App/Syntax/Public.cpp
         src/App/Syntax/Return.cpp
         src/App/Syntax/String.cpp
         src/App/Syntax/Struct.cpp

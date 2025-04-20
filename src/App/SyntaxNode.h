@@ -6,8 +6,6 @@
 
 #pragma once
 
-#include "Util/Logging.h"
-#include "Util/TokenLocation.h"
 #include <concepts>
 #include <cstdint>
 #include <limits>
@@ -15,6 +13,9 @@
 #include <string>
 #include <type_traits>
 #include <vector>
+
+#include <Util/Logging.h>
+#include <Util/TokenLocation.h>
 
 #include <App/Operator.h>
 #include <App/Type.h>
@@ -50,6 +51,8 @@ using namespace Util;
     S(Module)              \
     S(Number)              \
     S(Parameter)           \
+    S(Program)             \
+    S(PublicDeclaration)   \
     S(QuotedString)        \
     S(Return)              \
     S(SignedInteger)       \
@@ -331,10 +334,11 @@ struct FunctionDeclaration : SyntaxNode {
 using pFunctionDeclaration = std::shared_ptr<FunctionDeclaration>;
 
 struct FunctionDefinition : SyntaxNode {
+    std::wstring         name;
     pFunctionDeclaration declaration;
     pSyntaxNode          implementation;
 
-    FunctionDefinition(pFunctionDeclaration declaration, pSyntaxNode implementation);
+    FunctionDefinition(std::wstring name, pFunctionDeclaration declaration, pSyntaxNode implementation);
     pSyntaxNode normalize(Parser &parser) override;
     pType       bind(Parser &parser) override;
     void        dump_node(int indent) override;
@@ -751,17 +755,19 @@ struct LoopStatement : SyntaxNode {
 };
 
 struct Module : SyntaxNode {
-    std::string       name;
+    std::wstring      name;
     std::wstring_view source;
     pSyntaxNode       statements;
 
-    Module(std::string_view name, std::wstring_view source, SyntaxNodes statements);
-    Module(std::string_view name, std::wstring_view source, pSyntaxNode statement);
+    Module(std::wstring name, std::wstring_view source, SyntaxNodes statements);
+    Module(std::wstring name, std::wstring_view source, pSyntaxNode statement);
     pSyntaxNode normalize(Parser &parser) override;
     pType       bind(Parser &parser) override;
     void        header() override;
     void        dump_node(int indent) override;
 };
+
+using pModule = std::shared_ptr<struct Module>;
 
 struct Number : ConstantExpression {
     std::wstring number;
@@ -782,6 +788,27 @@ struct Parameter : SyntaxNode {
     Parameter(std::wstring name, pTypeSpecification type_name);
     pType bind(Parser &parser) override;
     void  header() override;
+};
+
+struct Program : SyntaxNode {
+    std::wstring                    name;
+    std::map<std::wstring, pModule> modules;
+
+    Program(std::wstring name);
+    pSyntaxNode normalize(Parser &parser) override;
+    pType       bind(Parser &parser) override;
+    void        header() override;
+    void        dump_node(int indent) override;
+};
+
+struct PublicDeclaration : SyntaxNode {
+    std::wstring name;
+    pSyntaxNode  declaration;
+
+    PublicDeclaration(std::wstring name, pSyntaxNode declaration);
+    pSyntaxNode normalize(Parser &parser) override;
+    pType       bind(Parser &parser) override;
+    void        dump_node(int indent) override;
 };
 
 struct QuotedString : SyntaxNode {
@@ -835,7 +862,7 @@ struct Struct : SyntaxNode {
     void        header() override;
 };
 
-struct TypeDescriptionNode {
+struct TypeNameNode {
     std::wstring       name;
     TypeSpecifications arguments {};
 };
@@ -863,7 +890,7 @@ struct ErrorDescriptionNode {
 };
 
 using TypeSpecificationDescription = std::variant<
-    TypeDescriptionNode,
+    TypeNameNode,
     SliceDescriptionNode,
     ZeroTerminatedArrayDescriptionNode,
     ArrayDescriptionNode,
@@ -875,7 +902,7 @@ struct TypeSpecification : SyntaxNode {
     TypeSpecificationDescription description;
 
     TypeSpecification(TypeSpecificationDescription description);
-    TypeSpecification(TypeDescriptionNode type);
+    TypeSpecification(TypeNameNode type);
     TypeSpecification(SliceDescriptionNode slice);
     TypeSpecification(ZeroTerminatedArrayDescriptionNode array);
     TypeSpecification(ArrayDescriptionNode array);
@@ -886,7 +913,7 @@ struct TypeSpecification : SyntaxNode {
     pType        bind(Parser &parser) override;
     void         header() override;
     std::wstring to_string();
-    pType        resolve();
+    pType        resolve(Parser &parser);
 };
 
 struct UnaryExpression : SyntaxNode {

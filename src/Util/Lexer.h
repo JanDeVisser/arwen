@@ -736,6 +736,22 @@ public:
         return m_lookback.size() > count;
     }
 
+    bool lookback_matches(size_t count, TokenKind kind)
+    {
+        if (!has_lookback(count)) {
+            return false;
+        }
+        return lookback(count).matches(kind);
+    }
+
+    bool lookback_matches(size_t count, Keyword code)
+    {
+        if (!has_lookback(count)) {
+            return false;
+        }
+        return lookback(count).matches_keyword(code);
+    }
+
     LexerResult expect(TokenKind kind)
     {
         if (auto ret = peek(); !ret.matches(kind)) {

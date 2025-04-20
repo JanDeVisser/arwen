@@ -76,7 +76,7 @@ pSyntaxNode Parser::parse_file(std::wstring const &text)
     }
 }
 
-pSyntaxNode Parser::parse_module(std::string_view name, std::wstring const &text)
+pModule Parser::parse_module(std::string_view name, std::wstring const &text)
 {
     this->text = text;
     lexer.push_source(text);
@@ -87,7 +87,7 @@ pSyntaxNode Parser::parse_module(std::string_view name, std::wstring const &text
         return nullptr;
     }
     if (!statements.empty()) {
-        return make_node<Module>(statements[0]->location + statements.back()->location, name, text, statements);
+        return make_node<Module>(statements[0]->location + statements.back()->location, as_wstring(name), text, statements);
     }
     return nullptr;
 }
@@ -108,7 +108,7 @@ Parser::Token Parser::parse_statements(SyntaxNodes &statements)
 
 pSyntaxNode Parser::parse_module_level_statement()
 {
-    auto const t = lexer.peek();
+    auto t = lexer.peek();
     // std::cerr << TokenKind_name(t.kind) << " " << std::endl;
     switch (t.kind) {
     case TokenKind::EndOfFile:
@@ -132,6 +132,8 @@ pSyntaxNode Parser::parse_module_level_statement()
             return parse_func();
         case ArwenKeyword::Include:
             return parse_include();
+        case ArwenKeyword::Public:
+            return parse_public();
         case ArwenKeyword::Struct:
             return parse_struct();
         default:
@@ -501,7 +503,7 @@ pTypeSpecification Parser::parse_type()
     }
     auto type = make_node<TypeSpecification>(
         name->location + lexer.last_location,
-        TypeDescriptionNode { std::wstring { text_of(name.value()) }, arguments });
+        TypeNameNode { std::wstring { text_of(name.value()) }, arguments });
     if (lexer.accept_symbol('?')) {
         type = make_node<TypeSpecification>(
             name->location + lexer.last_location,
@@ -743,11 +745,11 @@ pSyntaxNode Parser::parse_func()
             name = name.substr(0, name.size() - 1).substr(1);
             return make_node<FunctionDefinition>(
                 decl->location + res.value().location,
-                decl, make_node<ExternLink>(res.value().location, std::wstring { name }));
+                decl->name, decl, make_node<ExternLink>(res.value().location, std::wstring { name }));
         }
     }
     if (auto impl = parse_statement(); impl != nullptr) {
-        return make_node<FunctionDefinition>(decl->location + impl->location, decl, impl);
+        return make_node<FunctionDefinition>(decl->location + impl->location, decl->name, decl, impl);
     }
     return nullptr;
 }
@@ -824,6 +826,39 @@ pSyntaxNode Parser::parse_loop()
     }
     auto ret = make_node<LoopStatement>(location + stmt->location, label, stmt);
     return ret;
+}
+
+pSyntaxNode Parser::parse_public()
+{
+    auto t = lexer.peek();
+    assert(t.matches_keyword(ArwenKeyword::Public));
+    lexer.lex();
+    auto decl = parse_module_level_statement();
+    if (decl == nullptr) {
+        return nullptr;
+    }
+    std::wstring name;
+    switch (decl->type) {
+    case SyntaxNodeType::Enum:
+        name = std::dynamic_pointer_cast<Struct>(decl)->name;
+        break;
+    case SyntaxNodeType::FunctionDefinition:
+        name = std::dynamic_pointer_cast<FunctionDefinition>(decl)->name;
+        break;
+    case SyntaxNodeType::PublicDeclaration:
+        append(decl->location, L"Double public declaration");
+        return nullptr;
+    case SyntaxNodeType::Struct:
+        name = std::dynamic_pointer_cast<Struct>(decl)->name;
+        break;
+    case SyntaxNodeType::VariableDeclaration:
+        name = std::dynamic_pointer_cast<VariableDeclaration>(decl)->name;
+        break;
+    default:
+        append(decl->location, "Cannot declare statement of type `{}` public", SyntaxNodeType_name(decl->type));
+        return nullptr;
+    }
+    return make_node<PublicDeclaration>(t.location + decl->location, name, decl);
 }
 
 pSyntaxNode Parser::parse_return_error()
@@ -980,12 +1015,12 @@ pSyntaxNode Parser::parse_yield()
     }
 }
 
-pType Parser::find_name(std::wstring const &name)
+pType Parser::find_name(std::wstring const &name) const
 {
     for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
         auto &scope = *it;
         if (scope.names.contains(name)) {
-            return scope.names[name];
+            return scope.names.at(name);
         }
     }
     return nullptr;
@@ -995,6 +1030,23 @@ void Parser::register_name(std::wstring name, pType type)
 {
     assert(!scopes.empty());
     scopes.back().names[std::move(name)] = std::move(type);
+}
+
+pType Parser::find_type(std::wstring const &name) const
+{
+    for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
+        auto &scope = *it;
+        if (scope.types.contains(name)) {
+            return scope.types.at(name);
+        }
+    }
+    return nullptr;
+}
+
+void Parser::register_type(std::wstring name, pType type)
+{
+    assert(!scopes.empty());
+    scopes.back().types[std::move(name)] = std::move(type);
 }
 
 void Parser::push_scope(pSyntaxNode const &owner)
@@ -1058,6 +1110,5 @@ pType Parser::bind_error(TokenLocation location, std::wstring msg)
     append(location, msg);
     return make_error(location, msg);
 }
-
 
 }

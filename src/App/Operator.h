@@ -48,6 +48,7 @@ using Precedence = uint16_t;
     S(LogicalOr, "||")         \
     S(Loop, "loop")            \
     S(NotEqual, "!=")          \
+    S(Public, "public")        \
     S(Range, "..")             \
     S(Return, "return")        \
     S(ShiftLeft, "<<")         \

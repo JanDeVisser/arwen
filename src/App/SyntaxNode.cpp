@@ -181,9 +181,9 @@ pType Dummy::bind(Parser &parser)
     return TypeRegistry::void_;
 }
 
-Module::Module(std::string_view name, std::wstring_view source, SyntaxNodes statements)
+Module::Module(std::wstring name, std::wstring_view source, SyntaxNodes statements)
     : SyntaxNode(SyntaxNodeType::Module)
-    , name(name)
+    , name(std::move(name))
     , source(source)
 {
     switch (statements.size()) {
@@ -199,9 +199,9 @@ Module::Module(std::string_view name, std::wstring_view source, SyntaxNodes stat
     }
 }
 
-Module::Module(std::string_view name, std::wstring_view source, pSyntaxNode statement)
+Module::Module(std::wstring name, std::wstring_view source, pSyntaxNode statement)
     : SyntaxNode(SyntaxNodeType::Module)
-    , name(name)
+    , name(std::move(name))
     , source(source)
     , statements(statement)
 {
@@ -220,7 +220,7 @@ pType Module::bind(Parser &parser)
 
 void Module::header()
 {
-    std::cout << name;
+    std::wcout << name;
 }
 
 void Module::dump_node(int indent)

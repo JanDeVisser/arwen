@@ -86,8 +86,9 @@ void FunctionDeclaration::dump_node(int indent)
     }
 }
 
-FunctionDefinition::FunctionDefinition(pFunctionDeclaration declaration, pSyntaxNode implementation)
+FunctionDefinition::FunctionDefinition(std::wstring name, pFunctionDeclaration declaration, pSyntaxNode implementation)
     : SyntaxNode(SyntaxNodeType::FunctionDefinition)
+    , name(std::move(name))
     , declaration(std::move(declaration))
     , implementation(std::move(implementation))
 {
@@ -98,6 +99,7 @@ pSyntaxNode FunctionDefinition::normalize(Parser &parser)
 {
     return make_node<FunctionDefinition>(
         location,
+        name,
         std::dynamic_pointer_cast<FunctionDeclaration>(declaration->normalize(parser)),
         implementation->normalize(parser));
 }

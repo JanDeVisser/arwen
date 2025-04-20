@@ -105,35 +105,35 @@ struct Ambiguous {
 
 struct BindErrors {
     std::vector<ArwenError> errors;
-    std::wstring to_string() const
+    std::wstring            to_string() const
     {
         return L"BindErrors";
     }
 };
 
 struct SliceType {
-    pType slice_of;
+    pType        slice_of;
     std::wstring to_string() const;
 };
 
 struct ZeroTerminatedArray {
-    pType array_of;
+    pType        array_of;
     std::wstring to_string() const;
 };
 
 struct Array {
-    pType  array_of;
-    size_t size;
+    pType        array_of;
+    size_t       size;
     std::wstring to_string() const;
 };
 
 struct RangeType {
-    pType range_of;
+    pType        range_of;
     std::wstring to_string() const;
 };
 
 struct TypeAlias {
-    pType alias_of;
+    pType        alias_of;
     std::wstring to_string() const;
 };
 
@@ -145,8 +145,8 @@ struct EnumType {
     };
     using Values = std::vector<Value>;
 
-    pType  underlying_type;
-    Values values;
+    pType        underlying_type;
+    Values       values;
     std::wstring to_string() const;
 };
 
@@ -158,18 +158,18 @@ struct StructType {
 
     using Fields = std::vector<Field>;
 
-    Fields fields;
+    Fields       fields;
     std::wstring to_string() const;
 };
 
 struct OptionalType {
-    pType type;
+    pType        type;
     std::wstring to_string() const;
 };
 
 struct ErrorType {
-    pType success;
-    pType error;
+    pType        success;
+    pType        error;
     std::wstring to_string() const;
 };
 
@@ -212,15 +212,20 @@ struct Type : std::enable_shared_from_this<Type> {
         return std::holds_alternative<DescrType>(description);
     }
 
-    std::wstring to_string() const {
-        return std::format(L"{}: {}", name, std::visit([](auto const &descr) -> std::wstring {
-            return descr.to_string();
-        }, description));
+    std::wstring to_string() const
+    {
+        return std::format(
+            L"{}: {}",
+            name,
+            std::visit([](auto const &descr) -> std::wstring {
+                return descr.to_string();
+            },
+                description));
     }
 };
 
 struct TypeRegistry {
-    std::map<std::wstring, pType> types;
+    std::vector<pType> types;
 
     static TypeRegistry &the();
     pType                slice_of(pType type);
@@ -259,7 +264,7 @@ pType make_type(std::wstring n, DescrType descr)
 {
     // std::wcout << "Registering type " << n << ' ' << descr.to_string() << std::endl;
     auto ret = std::make_shared<Type>(std::move(n), std::move(descr));
-    TypeRegistry::the().types[ret->name] = ret;
+    TypeRegistry::the().types.push_back(ret);
     return ret;
 }
 

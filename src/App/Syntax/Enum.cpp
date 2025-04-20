@@ -77,7 +77,7 @@ pType Enum::bind(Parser &parser)
     for (auto const &v : values) {
         pType payload { nullptr };
         if (v->payload != nullptr) {
-            payload = v->payload->resolve();
+            payload = v->payload->resolve(parser);
             if (payload == nullptr) {
                 return parser.bind_error(v->payload->location, L"Could not resolve type `{}`", v->payload->to_string());
             }
@@ -88,12 +88,14 @@ pType Enum::bind(Parser &parser)
     }
     enoom.underlying_type = nullptr;
     if (underlying_type != nullptr) {
-        enoom.underlying_type = underlying_type->resolve();
+        enoom.underlying_type = underlying_type->resolve(parser);
         if (enoom.underlying_type == nullptr) {
             return parser.bind_error(underlying_type->location, L"Could not resolve type `{}`", underlying_type->to_string());
         }
     }
-    return make_type(name, enoom);
+    auto ret = make_type(name, enoom);
+    parser.register_type(name, ret);
+    return ret;
 }
 
 void Enum::dump_node(int indent)

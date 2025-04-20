@@ -4,16 +4,19 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "App/SyntaxNode.h"
+#include "Util/TokenLocation.h"
+#include "Util/Utf8.h"
 #include <iostream>
 #include <ostream>
 #include <string_view>
 
+#include <App/Parser.h>
 #include <Util/IO.h>
 #include <Util/Lexer.h>
 #include <Util/Logging.h>
 #include <Util/Options.h>
 #include <Util/Result.h>
-#include <App/Parser.h>
 
 namespace Arwen {
 
@@ -32,11 +35,13 @@ void usage()
 
 void compile_file(std::string_view file_name)
 {
+    Parser parser;
+    auto   program = make_node<Program>(TokenLocation {}, as_wstring(file_name));
     if (auto contents_maybe = read_file_by_name<wchar_t>(file_name); contents_maybe.has_value()) {
         auto const &contents = contents_maybe.value();
-        Parser parser;
         std::wcout << "STAGE 1 - Parsing" << std::endl;
-        auto   mod = parser.parse_module(file_name,contents);
+        auto mod = parser.parse_module(file_name, contents);
+        program->modules[mod->name] = mod;
         for (auto const &err : parser.errors) {
             std::wcerr << err.location.line + 1 << ':' << err.location.column + 1 << " " << err.message << std::endl;
         }
@@ -47,7 +52,7 @@ void compile_file(std::string_view file_name)
         parser.errors.clear();
 
         std::wcout << "STAGE 2 - Folding" << std::endl;
-        auto normalized = mod->normalize(parser);
+        auto normalized = program->normalize(parser);
         if (!normalized) {
             std::cerr << "Internal error(s) encountered" << std::endl;
             return;

@@ -51,6 +51,7 @@ struct Parser {
 
     struct Scope {
         pSyntaxNode                   owner;
+        std::map<std::wstring, pType> types {};
         std::map<std::wstring, pType> names {};
     };
 
@@ -65,7 +66,7 @@ struct Parser {
     Parser() = default;
 
     pSyntaxNode                parse_file(std::wstring const &text);
-    pSyntaxNode                parse_module(std::string_view name, std::wstring const &text);
+    pModule                    parse_module(std::string_view name, std::wstring const &text);
     Token                      parse_statements(SyntaxNodes &statements);
     pSyntaxNode                parse_statement();
     pSyntaxNode                parse_module_level_statement();
@@ -89,14 +90,17 @@ struct Parser {
     pSyntaxNode                parse_if();
     pSyntaxNode                parse_include();
     pSyntaxNode                parse_loop();
+    pSyntaxNode                parse_public();
     pSyntaxNode                parse_return_error();
     pSyntaxNode                parse_struct();
     pSyntaxNode                parse_var_decl();
     pSyntaxNode                parse_while();
     pSyntaxNode                parse_yield();
 
-    pType find_name(std::wstring const &name);
+    pType find_name(std::wstring const &name) const;
     void  register_name(std::wstring name, pType node);
+    pType find_type(std::wstring const &name) const;
+    void  register_type(std::wstring name, pType node);
     void  push_scope(pSyntaxNode const &owner);
     void  pop_scope();
 
