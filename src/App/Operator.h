@@ -42,6 +42,7 @@ using Precedence = uint16_t;
     S(Func, "func")            \
     S(GreaterEqual, ">=")      \
     S(If, "if")                \
+    S(Import, "import")        \
     S(Include, "@include")     \
     S(LessEqual, "<=")         \
     S(LogicalAnd, "&&")        \
@@ -104,6 +105,7 @@ enum class Associativity {
     S(LogicalAnd)       \
     S(LogicalInvert)    \
     S(LogicalOr)        \
+    S(MemberAccess)     \
     S(Modulo)           \
     S(Multiply)         \
     S(Negate)           \

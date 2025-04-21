@@ -36,12 +36,11 @@ void usage()
 void compile_file(std::string_view file_name)
 {
     Parser parser;
-    auto   program = make_node<Program>(TokenLocation {}, as_wstring(file_name));
+    parser.program = make_node<Program>(TokenLocation {}, as_wstring(file_name));
     if (auto contents_maybe = read_file_by_name<wchar_t>(file_name); contents_maybe.has_value()) {
         auto const &contents = contents_maybe.value();
         std::wcout << "STAGE 1 - Parsing" << std::endl;
-        auto mod = parser.parse_module(file_name, contents);
-        program->modules[mod->name] = mod;
+        auto mod = parser.parse_module(file_name, std::move(contents));
         for (auto const &err : parser.errors) {
             std::wcerr << err.location.line + 1 << ':' << err.location.column + 1 << " " << err.message << std::endl;
         }
@@ -49,10 +48,11 @@ void compile_file(std::string_view file_name)
             std::cerr << "Syntax error(s) found" << std::endl;
             return;
         }
+        parser.program->modules[mod->name] = mod;
         parser.errors.clear();
 
         std::wcout << "STAGE 2 - Folding" << std::endl;
-        auto normalized = program->normalize(parser);
+        auto normalized = parser.program->normalize(parser);
         if (!normalized) {
             std::cerr << "Internal error(s) encountered" << std::endl;
             return;

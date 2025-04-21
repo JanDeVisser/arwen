@@ -28,7 +28,7 @@ pSyntaxNode Include::normalize(Parser &parser)
         auto const &contents = contents_maybe.value();
         Parser      include_parser;
         include_parser.level = parser.level;
-        auto        node = include_parser.parse_file(contents);
+        auto        node = include_parser.parse_file(std::move(contents));
         if (include_parser.level != parser.level) {
             parser.append(location, "Unbalanced block(s) in @include");
             return nullptr;

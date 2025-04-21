@@ -16,6 +16,7 @@
 #include <App/Parser.h>
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
+#include <variant>
 
 namespace Arwen {
 
@@ -76,6 +77,44 @@ pSyntaxNode BinaryExpression::normalize(Parser &parser)
         return make_node<ExpressionList>(nodes, nodes)->normalize(parser);
     };
 
+    auto make_member_path = [this, &parser]() -> pSyntaxNode {
+        Identifiers path;
+        auto        add_identifier = [&parser, &path](pSyntaxNode n) -> bool {
+            if (auto ident = std::dynamic_pointer_cast<Identifier>(n); ident == nullptr) {
+                parser.append(n->location, "Member path segment must be identifier");
+                return false;
+            } else {
+                path.push_back(ident);
+                return true;
+            }
+        };
+
+        std::function<void(pSyntaxNode)> flatten;
+        flatten = [&parser, &path, &flatten, &add_identifier](pSyntaxNode n) {
+            if (auto binex = std::dynamic_pointer_cast<BinaryExpression>(n); binex) {
+                if (binex->op == Operator::MemberAccess) {
+                    if (!add_identifier(binex->lhs)) {
+                        path.clear();
+                        return;
+                    }
+                    flatten(binex->rhs);
+                } else {
+                    parser.append(n->location, "Member path segment must be identifier");
+                    path.clear();
+                }
+            } else {
+                if (!add_identifier(n)) {
+                    path.clear();
+                }
+            }
+        };
+        flatten(shared_from_this());
+        if (path.empty()) {
+            return nullptr;
+        }
+        return make_node<MemberPath>(path[0]->location + path.back()->location, path);
+    };
+
     auto evaluate = [this](pSyntaxNode const &lhs, Operator op, pSyntaxNode const &rhs) -> pSyntaxNode {
         auto lhs_const = std::dynamic_pointer_cast<ConstantExpression>(lhs);
         auto rhs_const = std::dynamic_pointer_cast<ConstantExpression>(rhs);
@@ -87,14 +126,39 @@ pSyntaxNode BinaryExpression::normalize(Parser &parser)
         return make_node<BinaryExpression>(lhs->location + rhs->location, lhs, op, rhs);
     };
 
-    if (op == Operator::Sequence) {
+    switch (op) {
+    case Operator::Assign: {
+        auto new_lhs = lhs->normalize(parser);
+        auto new_rhs = rhs->normalize(parser);
+        if (auto ident = std::dynamic_pointer_cast<Identifier>(new_lhs); ident != nullptr) {
+            Identifiers path { ident };
+            return make_node<BinaryExpression>(
+                location,
+                make_node<MemberPath>(new_lhs->location, path),
+                op,
+                new_rhs);
+        }
+        if (std::dynamic_pointer_cast<MemberPath>(new_lhs) == nullptr) {
+            parser.append(location, "Cannot assign to non-lvalues");
+            return nullptr;
+        }
+        return make_node<BinaryExpression>(
+            location,
+            new_lhs,
+            op,
+            new_rhs);
+    }
+    case Operator::Sequence:
         return make_expression_list();
+    case Operator::MemberAccess:
+        return make_member_path();
+    default:
+        if (assign_ops.contains(op)) {
+            auto bin_expr = make_node<BinaryExpression>(location, lhs->normalize(parser), assign_ops[op], rhs->normalize(parser));
+            return make_node<BinaryExpression>(location, lhs->normalize(parser), Operator::Assign, bin_expr->normalize(parser))->normalize(parser);
+        }
+        return evaluate(lhs->normalize(parser), op, rhs->normalize(parser));
     }
-    if (assign_ops.contains(op)) {
-        auto bin_expr = make_node<BinaryExpression>(location, lhs->normalize(parser), assign_ops[op], rhs->normalize(parser));
-        return make_node<BinaryExpression>(location, lhs->normalize(parser), Operator::Assign, bin_expr->normalize(parser));
-    }
-    return evaluate(lhs->normalize(parser), op, rhs->normalize(parser));
 }
 
 pType BinaryExpression::bind(Parser &parser)
@@ -275,16 +339,14 @@ pType BinaryExpression::bind(Parser &parser)
     }
 
     if (op == Operator::Assign) {
-        auto id = std::dynamic_pointer_cast<Identifier>(lhs);
-        if (id == nullptr) {
-            return parser.bind_error(location, L"Can only assign to variables");
+        if (auto member_path = std::dynamic_pointer_cast<MemberPath>(lhs); member_path == nullptr) {
+            return parser.bind_error(location, L"Cannot assign to non-lvalues");
         }
         if (lhs_type != rhs_type) {
             return parser.bind_error(
                 location,
-                L"Cannot assign a value of type `{}` to a variable `{}` of type `{}`",
+                L"Cannot assign a value of type `{}` to a variable of type `{}`",
                 rhs_type->name,
-                id->identifier,
                 lhs_type->name);
         }
         return lhs_type;
@@ -491,6 +553,59 @@ void ExpressionList::dump_node(int indent)
 {
     for (auto const &stmt : expressions) {
         stmt->dump(indent + 4);
+    }
+}
+
+MemberPath::MemberPath(Identifiers path)
+    : SyntaxNode(SyntaxNodeType::MemberPath)
+    , path(std::move(path))
+{
+}
+
+pSyntaxNode MemberPath::normalize(Parser &parser)
+{
+    return shared_from_this();
+}
+
+pType MemberPath::bind(Parser &parser)
+{
+    pType type = nullptr;
+    for (auto &segment : path) {
+        if (type == nullptr) {
+            type = bind_node(segment, parser);
+        } else {
+            if (!std::holds_alternative<StructType>(type->description)) {
+                return parser.bind_error(
+                    location,
+                    L"Value `{}` of type `{}` is not a struct",
+                    segment->identifier,
+                    type->name);
+            }
+            auto strukt = std::get<StructType>(type->description);
+            auto field_iter = strukt.field(segment->identifier);
+            if (field_iter == strukt.fields.end()) {
+                return parser.bind_error(
+                    location,
+                    L"Type `{}` has no field `{}`",
+                    type->name,
+                    segment->identifier);
+            }
+            type = (*field_iter).type;
+        }
+        segment->bound_type = type;
+    }
+    return type;
+}
+
+void MemberPath::header()
+{
+    bool first = true;
+    for (auto const &segment : path) {
+        if (!first) {
+            std::wcout << '.';
+        }
+        first = false;
+        std::wcout << segment->identifier;
     }
 }
 

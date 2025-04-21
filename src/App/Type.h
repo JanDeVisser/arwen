@@ -160,6 +160,13 @@ struct StructType {
 
     Fields       fields;
     std::wstring to_string() const;
+
+    auto field(std::wstring_view field_name)
+    {
+        return std::find_if(fields.begin(), fields.end(), [&field_name](StructType::Field const &fld) -> bool {
+            return fld.name == field_name;
+        });
+    }
 };
 
 struct OptionalType {

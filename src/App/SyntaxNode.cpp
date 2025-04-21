@@ -181,10 +181,10 @@ pType Dummy::bind(Parser &parser)
     return TypeRegistry::void_;
 }
 
-Module::Module(std::wstring name, std::wstring_view source, SyntaxNodes statements)
+Module::Module(std::wstring name, std::wstring source, SyntaxNodes statements)
     : SyntaxNode(SyntaxNodeType::Module)
     , name(std::move(name))
-    , source(source)
+    , source(std::move(source))
 {
     switch (statements.size()) {
     case 0:
@@ -199,17 +199,17 @@ Module::Module(std::wstring name, std::wstring_view source, SyntaxNodes statemen
     }
 }
 
-Module::Module(std::wstring name, std::wstring_view source, pSyntaxNode statement)
+Module::Module(std::wstring name, std::wstring source, pSyntaxNode statement)
     : SyntaxNode(SyntaxNodeType::Module)
     , name(std::move(name))
-    , source(source)
+    , source(std::move(source))
     , statements(statement)
 {
 }
 
 pSyntaxNode Module::normalize(Parser &parser)
 {
-    return make_node<Module>(location, name, source, statements->normalize(parser));
+    return make_node<Module>(location, name, std::move(source), statements->normalize(parser));
 }
 
 pType Module::bind(Parser &parser)

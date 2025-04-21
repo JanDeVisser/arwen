@@ -83,6 +83,7 @@ add_executable(
         src/App/Syntax/Enum.cpp
         src/App/Syntax/Expression.cpp
         src/App/Syntax/Function.cpp
+        src/App/Syntax/Import.cpp
         src/App/Syntax/Include.cpp
         src/App/Syntax/Loop.cpp
         src/App/Syntax/Number.cpp

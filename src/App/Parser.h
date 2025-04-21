@@ -58,15 +58,15 @@ struct Parser {
     static std::vector<OperatorDef> operators;
     std::wstring_view               text;
     ArwenLexer                      lexer {};
-    std::shared_ptr<Module>         module;
     ParseLevel                      level { ParseLevel::Module };
     std::vector<ArwenError>         errors;
     std::vector<Scope>              scopes;
+    std::shared_ptr<Program>        program;
 
     Parser() = default;
 
     pSyntaxNode                parse_file(std::wstring const &text);
-    pModule                    parse_module(std::string_view name, std::wstring const &text);
+    pModule                    parse_module(std::string_view name, std::wstring text);
     Token                      parse_statements(SyntaxNodes &statements);
     pSyntaxNode                parse_statement();
     pSyntaxNode                parse_module_level_statement();
@@ -88,6 +88,7 @@ struct Parser {
     pSyntaxNode                parse_for();
     pSyntaxNode                parse_func();
     pSyntaxNode                parse_if();
+    pSyntaxNode                parse_import();
     pSyntaxNode                parse_include();
     pSyntaxNode                parse_loop();
     pSyntaxNode                parse_public();

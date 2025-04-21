@@ -46,8 +46,10 @@ using namespace Util;
     S(Identifier)          \
     S(IfStatement)         \
     S(Include)             \
+    S(Import)              \
     S(Integer)             \
     S(LoopStatement)       \
+    S(MemberPath)          \
     S(Module)              \
     S(Number)              \
     S(Parameter)           \
@@ -297,6 +299,18 @@ struct ExpressionList : SyntaxNode {
     void        dump_node(int indent) override;
 };
 
+using pIdentifier = std::shared_ptr<struct Identifier>;
+using Identifiers = std::vector<pIdentifier>;
+
+struct MemberPath : SyntaxNode {
+    Identifiers path;
+
+    MemberPath(Identifiers path);
+    pSyntaxNode normalize(Parser &parser) override;
+    pType       bind(Parser &parser) override;
+    void        header() override;
+};
+
 struct ExternLink : SyntaxNode {
     std::wstring link_name;
 
@@ -367,6 +381,15 @@ struct Include : SyntaxNode {
     std::wstring file_name;
 
     Include(std::wstring_view file_name);
+    pSyntaxNode normalize(Parser &parser) override;
+    pType       bind(Parser &parser) override;
+    void        header() override;
+};
+
+struct Import : SyntaxNode {
+    std::wstring name;
+
+    Import(std::wstring name);
     pSyntaxNode normalize(Parser &parser) override;
     pType       bind(Parser &parser) override;
     void        header() override;
@@ -755,12 +778,12 @@ struct LoopStatement : SyntaxNode {
 };
 
 struct Module : SyntaxNode {
-    std::wstring      name;
-    std::wstring_view source;
-    pSyntaxNode       statements;
+    std::wstring name;
+    std::wstring source;
+    pSyntaxNode  statements;
 
-    Module(std::wstring name, std::wstring_view source, SyntaxNodes statements);
-    Module(std::wstring name, std::wstring_view source, pSyntaxNode statement);
+    Module(std::wstring name, std::wstring source, SyntaxNodes statements);
+    Module(std::wstring name, std::wstring source, pSyntaxNode statement);
     pSyntaxNode normalize(Parser &parser) override;
     pType       bind(Parser &parser) override;
     void        header() override;
@@ -792,7 +815,7 @@ struct Parameter : SyntaxNode {
 
 struct Program : SyntaxNode {
     std::wstring                    name;
-    std::map<std::wstring, pModule> modules;
+    std::map<std::wstring, pModule> modules {};
 
     Program(std::wstring name);
     pSyntaxNode normalize(Parser &parser) override;

@@ -4,12 +4,14 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "App/Type.h"
 #include <memory>
 #include <string>
 
+#include <Util/Defer.h>
+
 #include <App/Parser.h>
 #include <App/SyntaxNode.h>
+#include <App/Type.h>
 
 namespace Arwen {
 
@@ -107,6 +109,11 @@ pSyntaxNode FunctionDefinition::normalize(Parser &parser)
 pType FunctionDefinition::bind(Parser &parser)
 {
     bind_node(declaration, parser);
+    parser.push_scope(shared_from_this());
+    Defer pop_scope { [&parser]() { parser.pop_scope(); }};
+    for (auto const &param : declaration->parameters) {
+        parser.register_name(param->name, param->bound_type);
+    }
     bind_node(implementation, parser);
     return declaration->bound_type;
 }

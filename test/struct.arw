@@ -3,3 +3,8 @@ struct Foo {
    b: string,
    c: []u8,
 }
+
+func foo(x: i64) void {
+  a: Foo
+  a.a = x
+}

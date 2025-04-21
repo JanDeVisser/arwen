@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "App/SyntaxNode.h"
 #include <memory>
 #include <string>
 
@@ -17,6 +16,7 @@
 
 #include <App/Operator.h>
 #include <App/Parser.h>
+#include <App/SyntaxNode.h>
 
 namespace Arwen {
 
@@ -45,6 +45,7 @@ std::vector<Parser::OperatorDef> Parser::operators {
     { Operator::LogicalInvert, '!', 14, Position::Prefix, Associativity::Right },
     { Operator::Less, '<', 8 },
     { Operator::LessEqual, ArwenKeyword::LessEqual, 8 },
+    { Operator::MemberAccess, '.', 15 },
     { Operator::Modulo, '%', 12 },
     { Operator::Multiply, '*', 12 },
     { Operator::Negate, '-', 14, Position::Prefix, Associativity::Right },
@@ -76,7 +77,7 @@ pSyntaxNode Parser::parse_file(std::wstring const &text)
     }
 }
 
-pModule Parser::parse_module(std::string_view name, std::wstring const &text)
+pModule Parser::parse_module(std::string_view name, std::wstring text)
 {
     this->text = text;
     lexer.push_source(text);
@@ -87,7 +88,7 @@ pModule Parser::parse_module(std::string_view name, std::wstring const &text)
         return nullptr;
     }
     if (!statements.empty()) {
-        return make_node<Module>(statements[0]->location + statements.back()->location, as_wstring(name), text, statements);
+        return make_node<Module>(statements[0]->location + statements.back()->location, as_wstring(name), std::move(text), statements);
     }
     return nullptr;
 }
@@ -130,6 +131,8 @@ pSyntaxNode Parser::parse_module_level_statement()
             return parse_enum();
         case ArwenKeyword::Func:
             return parse_func();
+        case ArwenKeyword::Import:
+            return parse_import();
         case ArwenKeyword::Include:
             return parse_include();
         case ArwenKeyword::Public:
@@ -780,6 +783,27 @@ pSyntaxNode Parser::parse_if()
     return make_node<IfStatement>(
         if_token.location + (else_branch != nullptr ? else_branch->location : if_branch->location),
         condition, if_branch, else_branch);
+}
+
+pSyntaxNode Parser::parse_import()
+{
+    auto import_token = lexer.lex();
+    assert(import_token.matches_keyword(ArwenKeyword::Import));
+    std::wstring  path;
+    TokenLocation end_location = import_token.location;
+    do {
+        auto ident_maybe = lexer.expect_identifier();
+        if (ident_maybe.is_error()) {
+            append(ident_maybe.error(), "Expected import path component");
+        }
+        path += text_of(ident_maybe);
+        end_location = ident_maybe.value().location;
+        if (!lexer.accept_symbol('.')) {
+            break;
+        }
+        path += '.';
+    } while (true);
+    return make_node<Import>(import_token.location + end_location, path);
 }
 
 pSyntaxNode Parser::parse_include()
