@@ -381,6 +381,26 @@ pType BinaryExpression::bind(Parser &parser)
         }
     }
 
+    if (op == Operator::Cast) {
+        return std::visit(overloads {
+            [&rhs_type, this, &parser](IntType const& lhs_int_type, IntType const& rhs_int_type) {
+                if (lhs_int_type.width_bits > rhs_int_type.width_bits) {
+                    return parser.bind_error(
+                        location,
+                        L"Invalid argument type. Cannot narrow integers"
+                    );
+                }
+                return rhs_type;
+            },
+            [this, &parser](auto const&, auto const&) {
+                return parser.bind_error(
+                    location,
+                    L"Invalid argument type. Can only cast integers"
+                );
+            }
+        }, lhs_type->description, rhs_type->description);
+    }
+
     for (auto const &o : binary_ops) {
         if (o.op == op && o.lhs == lhs_type && o.rhs == rhs_type) {
             return o.result;
@@ -518,7 +538,7 @@ void UnaryExpression::header()
 
 void UnaryExpression::dump_node(int indent)
 {
-    operand->dump_node(indent + 4);
+    operand->dump(indent + 4);
 }
 
 ExpressionList::ExpressionList(SyntaxNodes expressions)

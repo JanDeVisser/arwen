@@ -1,0 +1,13 @@
+func foo() void {
+    a
+    a + b
+    a + b + c
+    a + b * c
+    a * b + c
+    z := (a + b) * c
+    a + b * c * d + e
+    x := - a
+    y := - - a ;
+    ((( 0 )))
+    q := a[2]
+}

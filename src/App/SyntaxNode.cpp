@@ -6,7 +6,6 @@
 
 #include <iostream>
 #include <memory>
-#include <string_view>
 #include <unistd.h>
 
 #include <Util/Defer.h>
@@ -135,8 +134,15 @@ pType Block::bind(Parser &parser)
     parser.push_scope(shared_from_this());
     Defer pop_scope { [&parser]() { parser.pop_scope(); } };
     pType type = TypeRegistry::void_;
+    pType undetermined { nullptr };
     for (auto &statement : statements) {
         type = bind_node(statement, parser);
+        if (type == TypeRegistry::undetermined) {
+            undetermined = TypeRegistry::undetermined;
+        }
+    }
+    if (undetermined != nullptr) {
+        return undetermined;
     }
     return type;
 }
@@ -163,6 +169,10 @@ pSyntaxNode DeferStatement::normalize(Parser &parser)
 
 pType DeferStatement::bind(Parser &parser)
 {
+    auto stmt_type = bind_node(stmt, parser);
+    if (stmt_type == TypeRegistry::undetermined) {
+        return stmt_type;
+    }
     return TypeRegistry::void_;
 }
 
@@ -214,8 +224,12 @@ pSyntaxNode Module::normalize(Parser &parser)
 
 pType Module::bind(Parser &parser)
 {
-    bind_node(statements, parser);
-    return make_type(as_wstring(name), NamespaceType {});
+    auto stmt_type = bind_node(statements, parser);
+    if (stmt_type == TypeRegistry::undetermined) {
+        return stmt_type;
+    }
+    auto ret = make_type(as_wstring(name), NamespaceType {});
+    return ret;
 }
 
 void Module::header()

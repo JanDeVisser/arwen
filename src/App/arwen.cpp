@@ -64,8 +64,8 @@ void compile_file(std::string_view file_name)
         normalized->dump();
 
         std::wcout << "STAGE 3 - Binding. Pass ";
-        for (auto ix = 0; ix < 2; ++ix) {
-            std::wcout << ix << " ";
+        for (parser.pass = 0; parser.pass < 2; ++parser.pass) {
+            std::wcout << parser.pass << " ";
             std::flush(std::wcout);
             auto bound_type = bind_node(normalized, parser);
             if (!bound_type) {

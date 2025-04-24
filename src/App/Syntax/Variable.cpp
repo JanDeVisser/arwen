@@ -20,7 +20,13 @@ pType Identifier::bind(Parser &parser)
 {
     auto const &type = parser.find_name(identifier);
     if (type == nullptr) {
-        return TypeRegistry::undetermined;
+        if (parser.pass == 0) {
+            return TypeRegistry::undetermined;
+        } else {
+            return parser.bind_error(
+                location,
+                std::format(L"Unresolved identifier `{}`", identifier));
+        }
     }
     return type;
 }

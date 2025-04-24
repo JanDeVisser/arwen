@@ -29,6 +29,7 @@ using Precedence = uint16_t;
     S(AssignShiftRight, ">>=") \
     S(AssignXor, "^=")         \
     S(Break, "break")          \
+    S(Cast, "::")              \
     S(Const, "const")          \
     S(Continue, "continue")    \
     S(Defer, "defer")          \
@@ -69,6 +70,7 @@ enum class Position {
     Prefix,
     Infix,
     Postfix,
+    Closing,
 };
 
 enum class Associativity {
@@ -94,6 +96,7 @@ enum class Associativity {
     S(BinaryOr)         \
     S(BinaryXor)        \
     S(Call)             \
+    S(Cast)             \
     S(Divide)           \
     S(Equals)           \
     S(Greater)          \
@@ -114,6 +117,7 @@ enum class Associativity {
     S(Sequence)         \
     S(ShiftLeft)        \
     S(ShiftRight)       \
+    S(Subscript)        \
     S(Subtract)
 
 enum class Operator : int {

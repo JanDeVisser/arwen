@@ -115,6 +115,9 @@ pType FunctionDefinition::bind(Parser &parser)
         parser.register_name(param->name, param->bound_type);
     }
     bind_node(implementation, parser);
+    if (declaration->bound_type == TypeRegistry::undetermined || implementation->bound_type == TypeRegistry::undetermined) {
+        return TypeRegistry::undetermined;
+    }
     return declaration->bound_type;
 }
 

@@ -62,6 +62,7 @@ struct Parser {
     std::vector<ArwenError>         errors;
     std::vector<Scope>              scopes;
     std::shared_ptr<Program>        program;
+    int                             pass {0};
 
     Parser() = default;
 
@@ -75,11 +76,12 @@ struct Parser {
     std::wstring_view          text_of(LexerError const &error) const;
     std::wstring_view          text_of(LexerResult const &res) const;
     std::wstring_view          text_of(TokenLocation const &location) const;
-    pSyntaxNode                parse_top_expression();
     pSyntaxNode                parse_primary();
-    pSyntaxNode                parse_expr(pSyntaxNode lhs, Precedence min_prec);
-    std::optional<OperatorDef> check_binop(Precedence min_prec);
+    pSyntaxNode                parse_expression(Precedence min_prec = 0);
+    bool                       check_op();
+    std::optional<OperatorDef> check_binop();
     std::optional<OperatorDef> check_prefix_op();
+    std::optional<OperatorDef> check_postfix_op();
     pTypeSpecification         parse_type();
     pSyntaxNode                parse_break_continue();
     pSyntaxNode                parse_defer();

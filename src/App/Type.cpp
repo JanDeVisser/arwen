@@ -4,11 +4,9 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <algorithm>
 #include <cstdint>
 #include <format>
 #include <limits>
-#include <ostream>
 #include <string_view>
 
 #include <Util/Logging.h>
@@ -168,7 +166,6 @@ TypeRegistry &TypeRegistry::the()
 pType TypeRegistry::slice_of(pType type)
 {
     assert(type != nullptr);
-    std::wcout << L"slice_of(" << type->name << L")\n";
     for (auto const &t : types) {
         if (std::visit(overloads {
                            [&type](SliceType const descr) -> bool {
@@ -264,9 +261,6 @@ pType TypeRegistry::error_of(pType success, pType error)
 
 pType TypeRegistry::function_of(std::vector<pType> const &parameters, pType result)
 {
-    for (auto const &p : parameters) {
-        std::wcout << ((p == nullptr) ? std::wstring { L"nullptr" } : p->name) << std::endl;
-    }
     for (auto const &t : types) {
         if (std::visit(overloads {
                            [&parameters, &result](FunctionType const &descr) -> bool {

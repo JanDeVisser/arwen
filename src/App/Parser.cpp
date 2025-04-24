@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <algorithm>
 #include <memory>
 #include <string>
 
@@ -37,6 +38,8 @@ std::vector<Parser::OperatorDef> Parser::operators {
     { Operator::AssignXor, ArwenKeyword::AssignXor, 1, Position::Infix, Associativity::Right },
     { Operator::BinaryInvert, '~', 14, Position::Prefix, Associativity::Right },
     { Operator::Call, '(', 15 },
+    { Operator::Call, ')', 15, Position::Closing },
+    { Operator::Cast, ArwenKeyword::Cast, 14 },
     { Operator::Divide, '/', 12 },
     { Operator::Equals, ArwenKeyword::Equals, 8 },
     { Operator::Greater, '>', 8 },
@@ -54,8 +57,38 @@ std::vector<Parser::OperatorDef> Parser::operators {
     { Operator::Sequence, ',', 0 },
     { Operator::ShiftLeft, ArwenKeyword::ShiftLeft, 10 },
     { Operator::ShiftRight, ArwenKeyword::ShiftRight, 10 },
+    { Operator::Subscript, '[', 15, Position::Postfix },
+    { Operator::Subscript, ']', 15, Position::Closing },
     { Operator::Subtract, '-', 11 },
 };
+
+struct BindingPower {
+    int left;
+    int right;
+};
+
+static BindingPower binding_power(Parser::OperatorDef op)
+{
+    switch (op.position) {
+    case Position::Infix: {
+        switch (op.associativity) {
+        case Associativity::Left:
+            return { op.precedence * 2 - 1, op.precedence * 2 };
+        case Associativity::Right:
+            return { op.precedence * 2, op.precedence * 2 - 1 };
+        }
+    }
+    case Position::Prefix: {
+        return { -1, op.precedence * 2 - 1 };
+    }
+    case Position::Postfix: {
+        return { op.precedence * 2 - 1, -1 };
+    }
+    case Position::Closing: {
+        return { -1, -1 };
+    }
+    }
+}
 
 pSyntaxNode Parser::parse_file(std::wstring const &text)
 {
@@ -172,7 +205,7 @@ pSyntaxNode Parser::parse_statement()
         // Fall through
     case TokenKind::Number:
     case TokenKind::QuotedString:
-        return parse_top_expression();
+        return parse_expression();
     case TokenKind::Keyword: {
         switch (t.keyword()) {
         case ArwenKeyword::Break:
@@ -208,7 +241,7 @@ pSyntaxNode Parser::parse_statement()
         case ArwenKeyword::Yield:
             return parse_yield();
         default:
-            append(t, "Unexpected keyword `{}`", as_utf8(text_of(t)));
+            append(t, "Unexpected keyword `{}` parsing statement", as_utf8(text_of(t)));
             lexer.lex();
             return nullptr;
         }
@@ -242,7 +275,7 @@ pSyntaxNode Parser::parse_statement()
             }
             // Fall through
         default:
-            if (auto expr = parse_top_expression(); expr) {
+            if (auto expr = parse_expression(); expr) {
                 return expr;
             }
             append(t, "Unexpected symbol `{:c}`", static_cast<char>(t.symbol_code()));
@@ -287,15 +320,9 @@ std::wstring_view Parser::text_of(TokenLocation const &location) const
     return L"";
 }
 
-pSyntaxNode Parser::parse_top_expression()
-{
-    auto lhs = parse_primary();
-    return (lhs) ? parse_expr(lhs, 0) : nullptr;
-}
-
 pSyntaxNode Parser::parse_primary()
 {
-    auto       &token = lexer.peek();
+    auto        token = lexer.peek();
     pSyntaxNode ret { nullptr };
     switch (token.kind) {
     case TokenKind::Number: {
@@ -324,32 +351,33 @@ pSyntaxNode Parser::parse_primary()
         if (token.matches_keyword(ArwenKeyword::Include)) {
             return parse_include();
         }
-        append(token, "Unexpected keyword '{}'", ArwenKeyword_name(token.keyword()));
+        append(token, "Unexpected keyword '{}' parsing primary expression", ArwenKeyword_name(token.keyword()));
         return nullptr;
     case TokenKind::Symbol: {
         if (token.symbol_code() == L'(') {
             lexer.lex();
-            ret = parse_top_expression();
-            if (auto t = lexer.peek(); !t.matches_symbol(')')) {
-                append(t, "Expected ')'");
+            ret = parse_expression();
+            if (auto err = lexer.expect_symbol(')'); err.is_error()) {
+                append(err.error(), "Expected ')'");
                 return nullptr;
             }
-            lexer.lex();
             break;
         }
         if (auto const op_maybe = check_prefix_op(); op_maybe) {
             auto &op = *op_maybe;
+            auto  bp = binding_power(op);
             auto  op_token = lexer.lex();
-            auto  operand = parse_primary();
+            auto  operand = parse_expression(bp.right);
             if (!operand) {
                 append(token, "Expected operand following prefix operator '{}'", Operator_name(op.op));
                 return nullptr;
             }
-            ret = make_node<UnaryExpression>(op_token.location, op.op, operand);
+            ret = make_node<UnaryExpression>(op_token.location + operand->location, op.op, operand);
+            break;
         }
     } // Fall through
     default:
-        append(token, L"Unexpected token `{}`", text_of(token));
+        append(token, L"Unexpected token {} `{}`", as_wstring(TokenKind_name(token.kind)), text_of(token));
         ret = nullptr;
     }
     if (ret == nullptr) {
@@ -358,38 +386,82 @@ pSyntaxNode Parser::parse_primary()
     return ret;
 }
 
-pSyntaxNode Parser::parse_expr(pSyntaxNode lhs, Precedence min_prec)
+// Shamelessly stolen from here:
+// https://matklad.github.io/2020/04/13/simple-but-powerful-pratt-parsing.html
+pSyntaxNode Parser::parse_expression(Precedence min_prec)
 {
-    for (auto op_maybe = check_binop(min_prec); op_maybe; op_maybe = check_binop(min_prec)) {
-        auto const &curr_op = *op_maybe;
-        if (curr_op.op == Operator::Call) {
-            // Don't lex the '(' so parse_primary will return a
-            // single expression, probably a binop with op = ','.
-            auto param_list = parse_primary();
-            return make_node<BinaryExpression>(lhs->location + param_list->location, lhs, curr_op.op, param_list);
+    auto lhs = parse_primary();
+    if (lhs == nullptr) {
+        return nullptr;
+    }
+    while (!lexer.next_matches(TokenKind::EndOfFile) && check_op()) {
+        if (auto op_maybe = check_postfix_op(); op_maybe) {
+            auto op = op_maybe.value();
+            auto bp = binding_power(op);
+            if (bp.left < min_prec) {
+                break;
+            }
+            if (op.op == Operator::Subscript) {
+                lexer.lex();
+                auto rhs = parse_expression();
+                if (rhs == nullptr) {
+                    append(lexer.peek().location, "Expected subscript expression");
+                    return nullptr;
+                }
+                if (auto err = lexer.expect_symbol(']'); err.is_error()) {
+                    append(err.error(), "Expected ']'");
+                    return nullptr;
+                }
+                lhs = make_node<BinaryExpression>(lhs->location + rhs->location, lhs, op_maybe->op, rhs);
+            } else {
+                lhs = make_node<UnaryExpression>(lhs->location + lexer.peek().location, op_maybe->op, lhs);
+                lexer.lex();
+            }
+            continue;
         }
-        auto token = lexer.lex();
-        auto rhs = parse_primary();
-        if (!rhs) {
-            append(token, "Expected right hand side operand following infix operator `{}`", Operator_name(curr_op.op));
-            return nullptr;
-        }
-        for (auto next_op_maybe = check_binop(curr_op.precedence); next_op_maybe; next_op_maybe = check_binop(curr_op.precedence)) {
-            auto const &next_op = *next_op_maybe;
-            auto        next_prec = curr_op.precedence + ((next_op.precedence > curr_op.precedence) ? 1 : 0);
-            token = lexer.peek();
-            rhs = parse_expr(rhs, next_prec);
-            if (!rhs) {
-                append(token, "Expected right hand side operand following infix operator `{}`", Operator_name(next_op.op));
+        if (auto op_maybe = check_binop(); op_maybe) {
+            auto op = op_maybe.value();
+            auto bp = binding_power(op);
+            if (bp.left < min_prec) {
+                break;
+            }
+            if (op.op == Operator::Call) {
+                // Don't lex the '(' so parse_primary will return a
+                // single expression, probably a binop with op = ','.
+                auto param_list = parse_primary();
+                return make_node<BinaryExpression>(lhs->location + param_list->location, lhs, Operator::Call, param_list);
+            }
+            auto token = lexer.lex();
+            auto rhs = (op.op == Operator::Cast) ? parse_type() : parse_expression(bp.right);
+            if (rhs == nullptr) {
                 return nullptr;
             }
+            lhs = make_node<BinaryExpression>(lhs->location + rhs->location, lhs, op.op, rhs);
+            continue;
         }
-        lhs = make_node<BinaryExpression>(lhs->location + rhs->location, lhs, curr_op.op, rhs);
+        break;
     }
     return lhs;
 }
 
-std::optional<Parser::OperatorDef> Parser::check_binop(Precedence min_prec)
+bool Parser::check_op()
+{
+    auto const &token = lexer.peek();
+    if (!token.matches(TokenKind::Symbol) && !token.matches(TokenKind::Keyword)) {
+        return false;
+    }
+    return std::any_of(
+        operators.begin(),
+        operators.end(),
+        [&token](auto const &def) -> bool {
+            return std::visit(overloads {
+                                  [&token](wchar_t sym) { return token.matches_symbol(sym); },
+                                  [&token](ArwenKeyword sym) { return token.matches_keyword(sym); } },
+                def.sym);
+        });
+}
+
+std::optional<Parser::OperatorDef> Parser::check_binop()
 {
     auto const &token = lexer.peek();
     if (token.kind != TokenKind::Symbol && token.kind != TokenKind::Keyword) {
@@ -405,12 +477,6 @@ std::optional<Parser::OperatorDef> Parser::check_binop(Precedence min_prec)
                 def.sym)) {
             continue;
         }
-        if (def.precedence < min_prec) {
-            continue;
-        }
-        if (def.associativity == Associativity::Right || def.precedence > min_prec) {
-            return def;
-        }
         return def;
     }
     return {};
@@ -424,6 +490,27 @@ std::optional<Parser::OperatorDef> Parser::check_prefix_op()
     }
     for (auto const &def : operators) {
         if (def.position != Position::Prefix) {
+            continue;
+        }
+        if (!std::visit(overloads {
+                            [&token](wchar_t sym) { return token.matches_symbol(sym); },
+                            [&token](ArwenKeyword sym) { return token.matches_keyword(sym); } },
+                def.sym)) {
+            continue;
+        }
+        return def;
+    }
+    return {};
+}
+
+std::optional<Parser::OperatorDef> Parser::check_postfix_op()
+{
+    auto const &token = lexer.peek();
+    if (token.kind != TokenKind::Symbol && token.kind != TokenKind::Keyword) {
+        return {};
+    }
+    for (auto const &def : operators) {
+        if (def.position != Position::Postfix) {
             continue;
         }
         if (!std::visit(overloads {
@@ -668,7 +755,7 @@ pSyntaxNode Parser::parse_for()
         lexer.lex();
     }
     token = lexer.peek();
-    auto condition = parse_top_expression();
+    auto condition = parse_expression();
     if (condition == nullptr) {
         append(token, "Error parsing `for` range");
         return nullptr;
@@ -761,7 +848,7 @@ pSyntaxNode Parser::parse_if()
 {
     auto if_token = lexer.lex();
     assert(if_token.matches_keyword(ArwenKeyword::If));
-    auto condition = parse_top_expression();
+    auto condition = parse_expression();
     if (condition == nullptr) {
         append(if_token, "Error parsing `if` condition");
         return nullptr;
@@ -889,7 +976,7 @@ pSyntaxNode Parser::parse_return_error()
 {
     auto kw = lexer.lex();
     assert(kw.matches_keyword(ArwenKeyword::Return) || kw.matches_keyword(ArwenKeyword::Error));
-    auto expr = parse_top_expression();
+    auto expr = parse_expression();
     if (expr == nullptr) {
         append(kw.location, "Error parsing return expression");
         return nullptr;
@@ -968,7 +1055,7 @@ pSyntaxNode Parser::parse_var_decl()
     pSyntaxNode initializer = nullptr;
     if (token.matches_symbol('=')) {
         lexer.lex();
-        initializer = parse_top_expression();
+        initializer = parse_expression();
         if (initializer == nullptr) {
             append(token.location, "Error parsing initialization expression");
             return nullptr;
@@ -1004,7 +1091,7 @@ pSyntaxNode Parser::parse_while()
     if (!label.has_value()) {
         location = while_token.location;
     }
-    auto condition = parse_top_expression();
+    auto condition = parse_expression();
     if (condition == nullptr) {
         append(while_token, "Error parsing `while` condition");
         return nullptr;
@@ -1134,5 +1221,4 @@ pType Parser::bind_error(TokenLocation location, std::wstring msg)
     append(location, msg);
     return make_error(location, msg);
 }
-
 }

@@ -41,10 +41,16 @@ pType Program::bind(Parser &parser)
     for (auto const& t : TypeRegistry::the().types) {
         parser.register_type(t->name, t);
     }
+    pType ret { nullptr };
     for (auto &[_, mod] : modules) {
-        bind_node(mod, parser);
+        if (auto t = bind_node(mod, parser); t == TypeRegistry::undetermined) {
+            ret = t;
+        }
     }
-    return make_type(as_wstring(name), NamespaceType {});
+    if (ret == nullptr) {
+        ret = make_type(as_wstring(name), NamespaceType {});
+    }
+    return ret;
 }
 
 void Program::header()
