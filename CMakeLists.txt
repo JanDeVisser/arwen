@@ -78,6 +78,7 @@ add_executable(
         src/App/Parser.cpp
         src/App/Operator.cpp
         src/App/SyntaxNode.cpp
+        src/App/Syntax/Block.cpp
         src/App/Syntax/Branch.cpp
         src/App/Syntax/Embed.cpp
         src/App/Syntax/Enum.cpp
@@ -86,6 +87,8 @@ add_executable(
         src/App/Syntax/Import.cpp
         src/App/Syntax/Include.cpp
         src/App/Syntax/Loop.cpp
+        src/App/Syntax/Module.cpp
+        src/App/Syntax/Namespace.cpp
         src/App/Syntax/Number.cpp
         src/App/Syntax/Program.cpp
         src/App/Syntax/Public.cpp

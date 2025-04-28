@@ -90,7 +90,7 @@ static BindingPower binding_power(Parser::OperatorDef op)
     }
 }
 
-pSyntaxNode Parser::parse_file(std::wstring const &text)
+pSyntaxNode Parser::parse_file(std::wstring const &text, pNamespace ns)
 {
     this->text = text;
     lexer.push_source(text);
@@ -106,7 +106,10 @@ pSyntaxNode Parser::parse_file(std::wstring const &text)
     case 1:
         return statements[0];
     default:
-        return make_node<Block>(statements[0]->location + statements.back()->location, statements);
+        return make_node<Block>(
+            statements[0]->location + statements.back()->location,
+            statements,
+            std::make_shared<Namespace>(ns));
     }
 }
 
@@ -115,13 +118,21 @@ pModule Parser::parse_module(std::string_view name, std::wstring text)
     this->text = text;
     lexer.push_source(text);
 
+    push_new_namespace();
+    Defer pop_ns { [this]() { pop_namespace(); }};
     SyntaxNodes statements;
     if (auto t = parse_statements(statements); !t.matches(TokenKind::EndOfFile)) {
         append(t, "Expected end of file");
         return nullptr;
     }
     if (!statements.empty()) {
-        return make_node<Module>(statements[0]->location + statements.back()->location, as_wstring(name), std::move(text), statements);
+        return make_node<Module>(
+            statements[0]->location + statements.back()->location,
+            as_wstring(name),
+            std::move(text),
+            statements,
+            namespaces.back()
+        );
     }
     return nullptr;
 }
@@ -256,6 +267,8 @@ pSyntaxNode Parser::parse_statement()
             auto        old_level = level;
             level = ParseLevel::Block;
             Defer defer { [this, old_level]() { level = old_level; } };
+            push_new_namespace();
+            Defer pop_ns { [this]() { pop_namespace(); }};
             if (auto const end_token = parse_statements(block); !end_token.matches_symbol('}')) {
                 append(t, "Unexpected end of block");
                 return nullptr;
@@ -263,7 +276,7 @@ pSyntaxNode Parser::parse_statement()
                 if (block.empty()) {
                     return make_node<Void>(t.location + end_token.location);
                 }
-                return make_node<Block>(t.location + end_token.location, block);
+                return make_node<Block>(t.location + end_token.location, block, namespaces.back());
             }
         }
         case '=':
@@ -755,8 +768,10 @@ pSyntaxNode Parser::parse_for()
         lexer.lex();
     }
     token = lexer.peek();
-    auto condition = parse_expression();
-    if (condition == nullptr) {
+    push_new_namespace();
+    Defer pop_for_ns { [this]{ pop_namespace(); }};
+    auto range = parse_expression();
+    if (range == nullptr) {
         append(token, "Error parsing `for` range");
         return nullptr;
     }
@@ -766,8 +781,7 @@ pSyntaxNode Parser::parse_for()
         append(token, "Error parsing `for` block");
         return nullptr;
     }
-    auto ret = make_node<ForStatement>(location + stmt->location, std::wstring { text_of(var_name) }, condition, stmt);
-    return ret;
+    return make_node<ForStatement>(location + stmt->location, std::wstring { text_of(var_name) }, range, stmt, namespaces.back());
 }
 
 pSyntaxNode Parser::parse_func()
@@ -785,6 +799,8 @@ pSyntaxNode Parser::parse_func()
     if (auto res = lexer.expect_symbol('('); res.is_error()) {
         append(res.error(), "Expected '(' in function definition");
     }
+    push_new_namespace();
+    Defer pop_def_ns { [this]() { pop_namespace(); }};
     std::vector<pParameter> params;
     while (true) {
         if (lexer.accept_symbol(')')) {
@@ -835,11 +851,18 @@ pSyntaxNode Parser::parse_func()
             name = name.substr(0, name.size() - 1).substr(1);
             return make_node<FunctionDefinition>(
                 decl->location + res.value().location,
-                decl->name, decl, make_node<ExternLink>(res.value().location, std::wstring { name }));
+                decl->name,
+                decl,
+                make_node<ExternLink>(res.value().location, std::wstring { name }),
+                nullptr);
         }
     }
     if (auto impl = parse_statement(); impl != nullptr) {
-        return make_node<FunctionDefinition>(decl->location + impl->location, decl->name, decl, impl);
+        return make_node<FunctionDefinition>(
+            decl->location + impl->location,
+            decl->name,
+            decl, impl, namespaces.back()
+        );
     }
     return nullptr;
 }
@@ -1128,27 +1151,28 @@ pSyntaxNode Parser::parse_yield()
 
 pType Parser::find_name(std::wstring const &name) const
 {
-    for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
-        auto &scope = *it;
-        if (scope.names.contains(name)) {
-            return scope.names.at(name);
+    for (auto it = namespaces.rbegin(); it != namespaces.rend(); ++it) {
+        auto &ns = *it;
+        if (auto ret = ns->type_of(name); ret != nullptr) {
+            return ret;
         }
     }
     return nullptr;
 }
 
-void Parser::register_name(std::wstring name, pType type)
+void Parser::register_name(std::wstring name, pSyntaxNode node)
 {
-    assert(!scopes.empty());
-    scopes.back().names[std::move(name)] = std::move(type);
+    assert(!namespaces.empty());
+    namespaces.back()->register_name(std::move(name), std::move(node));
 }
 
 pType Parser::find_type(std::wstring const &name) const
 {
-    for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
-        auto &scope = *it;
-        if (scope.types.contains(name)) {
-            return scope.types.at(name);
+    for (auto it = namespaces.rbegin(); it != namespaces.rend(); ++it) {
+        auto &ns = *it;
+        assert(ns != nullptr);
+        if (auto ret = ns->find_type(name); ret != nullptr) {
+            return ret;
         }
     }
     return nullptr;
@@ -1156,19 +1180,26 @@ pType Parser::find_type(std::wstring const &name) const
 
 void Parser::register_type(std::wstring name, pType type)
 {
-    assert(!scopes.empty());
-    scopes.back().types[std::move(name)] = std::move(type);
+    assert(!namespaces.empty());
+    namespaces.back()->register_type(std::move(name), std::move(type));
 }
 
-void Parser::push_scope(pSyntaxNode const &owner)
+void Parser::push_namespace(pNamespace const &ns)
 {
-    scopes.emplace_back(owner);
+    assert(ns != nullptr);
+    namespaces.emplace_back(ns);
 }
 
-void Parser::pop_scope()
+void Parser::push_new_namespace()
 {
-    assert(!scopes.empty());
-    scopes.pop_back();
+    assert(!namespaces.empty());
+    namespaces.emplace_back(std::make_shared<Namespace>(namespaces.back()));
+}
+
+void Parser::pop_namespace()
+{
+    assert(!namespaces.empty());
+    namespaces.pop_back();
 }
 
 void Parser::append(LexerErrorMessage const &lexer_error)

@@ -50,12 +50,12 @@ pSyntaxNode Import::normalize(Parser &parser)
 
 pType Import::bind(Parser &parser)
 {
-    return parser.bind_error(location, L"`@include` statement should have been elided");
+    return parser.bind_error(location, L"`@import` statement should have been elided");
 }
 
-void Import::header()
+std::wostream& Import::header(std::wostream &os)
 {
-    std::wcout << name;
+    return os << name;
 }
 
 }

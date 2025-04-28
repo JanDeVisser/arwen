@@ -5,6 +5,7 @@
  */
 
 #include <cstdlib>
+#include <iostream>
 #include <memory>
 #include <string>
 
@@ -18,7 +19,7 @@
 namespace Arwen {
 
 Program::Program(std::wstring name)
-    : SyntaxNode(SyntaxNodeType::Program)
+    : SyntaxNode(SyntaxNodeType::Program, std::make_shared<Namespace>())
     , name(std::move(name))
 {
 }
@@ -36,12 +37,18 @@ pSyntaxNode Program::normalize(Parser &parser)
 
 pType Program::bind(Parser &parser)
 {
-    parser.push_scope(shared_from_this());
-    Defer pop_scope { [&parser]() { parser.pop_scope(); }};
-    for (auto const& t : TypeRegistry::the().types) {
-        parser.register_type(t->name, t);
-    }
+    parser.push_namespace(ns);
+    Defer pop_scope { [&parser]() { parser.pop_namespace(); }};
     pType ret { nullptr };
+    if (parser.pass == 0) {
+        assert(ns->types.empty());
+        for (auto const& t : TypeRegistry::the().types) {
+            ns->register_type(t->name, t);
+        }
+        for (auto &[_, mod] : modules) {
+            ns->register_name(mod->name, mod);
+        }
+    }
     for (auto &[_, mod] : modules) {
         if (auto t = bind_node(mod, parser); t == TypeRegistry::undetermined) {
             ret = t;
@@ -53,9 +60,9 @@ pType Program::bind(Parser &parser)
     return ret;
 }
 
-void Program::header()
+std::wostream& Program::header(std::wostream &os)
 {
-    std::wcout << name;
+    return os << name;
 }
 
 void Program::dump_node(int indent)

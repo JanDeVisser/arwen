@@ -26,9 +26,9 @@ pType ExternLink::bind(Parser &parser)
     return TypeRegistry::void_;
 }
 
-void ExternLink::header()
+std::wostream& ExternLink::header(std::wostream &os)
 {
-    std::wcout << link_name;
+    return os << link_name;
 }
 
 FunctionDeclaration::FunctionDeclaration(std::wstring name, std::vector<pParameter> parameters, pTypeSpecification return_type)
@@ -71,14 +71,12 @@ pType FunctionDeclaration::bind(Parser &parser)
     if (parser.find_name(name) != nullptr) {
         return parser.bind_error(location, L"Duplicate variable name `{}`", name);
     }
-    auto ret = TypeRegistry::the().function_of(parameter_types, result_type);
-    parser.register_name(name, ret);
-    return ret;
+    return TypeRegistry::the().function_of(parameter_types, result_type);
 }
 
-void FunctionDeclaration::header()
+std::wostream& FunctionDeclaration::header(std::wostream &os)
 {
-    std::wcout << name << ": " << return_type->to_string();
+    return os << name << ": " << return_type->to_string();
 }
 
 void FunctionDeclaration::dump_node(int indent)
@@ -88,8 +86,8 @@ void FunctionDeclaration::dump_node(int indent)
     }
 }
 
-FunctionDefinition::FunctionDefinition(std::wstring name, pFunctionDeclaration declaration, pSyntaxNode implementation)
-    : SyntaxNode(SyntaxNodeType::FunctionDefinition)
+FunctionDefinition::FunctionDefinition(std::wstring name, pFunctionDeclaration declaration, pSyntaxNode implementation, pNamespace ns)
+    : SyntaxNode(SyntaxNodeType::FunctionDefinition, std::move(ns))
     , name(std::move(name))
     , declaration(std::move(declaration))
     , implementation(std::move(implementation))
@@ -103,16 +101,24 @@ pSyntaxNode FunctionDefinition::normalize(Parser &parser)
         location,
         name,
         std::dynamic_pointer_cast<FunctionDeclaration>(declaration->normalize(parser)),
-        implementation->normalize(parser));
+        implementation->normalize(parser),
+        ns);
 }
 
 pType FunctionDefinition::bind(Parser &parser)
 {
-    bind_node(declaration, parser);
-    parser.push_scope(shared_from_this());
-    Defer pop_scope { [&parser]() { parser.pop_scope(); }};
-    for (auto const &param : declaration->parameters) {
-        parser.register_name(param->name, param->bound_type);
+    if (auto t = bind_node(declaration, parser); t->is<BindErrors>()) {
+        return t;
+    }
+    if (parser.pass == 0) {
+        parser.register_name(name, shared_from_this());
+    }
+    parser.push_namespace(ns);
+    Defer pop_namespace { [&parser]() { parser.pop_namespace(); } };
+    if (parser.pass == 0) {
+        for (auto const &param : declaration->parameters) {
+            parser.register_name(param->name, param);
+        }
     }
     bind_node(implementation, parser);
     if (declaration->bound_type == TypeRegistry::undetermined || implementation->bound_type == TypeRegistry::undetermined) {
@@ -139,9 +145,9 @@ pType Parameter::bind(Parser &parser)
     return bind_node(type_name, parser);
 }
 
-void Parameter::header()
+std::wostream& Parameter::header(std::wostream &os)
 {
-    std::wcout << name << ": " << type_name->to_string();
+    return os << name << ": " << type_name->to_string();
 }
 
 }

@@ -4,12 +4,15 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "Util/Logging.h"
 #include <iostream>
 #include <memory>
 
-#include <App/SyntaxNode.h>
+#include <Util/Logging.h>
+
 #include <App/Parser.h>
+#include <App/Syntax/Number.h>
+#include <App/SyntaxNode.h>
+#include <ostream>
 
 namespace Arwen {
 
@@ -35,18 +38,19 @@ pType EnumValue::bind(Parser &parser)
     UNREACHABLE();
 }
 
-void EnumValue::header()
+std::wostream &EnumValue::header(std::wostream &os)
 {
-    std::wcout << label;
+    os << label;
     if (value != nullptr) {
-        std::wcout << " = ";
-        value->header();
+        os << " = ";
+        value->header(os);
     }
     if (payload != nullptr) {
-        std::wcout << " ("
-                   << payload->to_string()
-                   << ")";
+        os << " ("
+           << payload->to_string()
+           << ")";
     }
+    return os;
 }
 
 Enum::Enum(std::wstring name, pTypeSpecification underlying_type, EnumValues values)
@@ -105,12 +109,13 @@ void Enum::dump_node(int indent)
     }
 }
 
-void Enum::header()
+std::wostream &Enum::header(std::wostream &os)
 {
-    std::wcout << name;
+    os << name;
     if (underlying_type != nullptr) {
-        std::wcout << ": " << underlying_type->to_string();
+        os << ": " << underlying_type->to_string();
     }
+    return os;
 }
 
 }

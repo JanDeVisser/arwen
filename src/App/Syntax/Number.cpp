@@ -10,6 +10,7 @@
 #include <Util/Utf8.h>
 
 #include <App/SyntaxNode.h>
+#include <App/Syntax/Number.h>
 #include <App/Type.h>
 
 namespace Arwen {
@@ -25,9 +26,9 @@ pType BoolConstant::bind(Parser &parser)
     return TypeRegistry::boolean;
 }
 
-void BoolConstant::header()
+std::wostream& BoolConstant::header(std::wostream &os)
 {
-    std::wcout << ((value) ? L"True" : L"False");
+    return os << ((value) ? L"True" : L"False");
 }
 
 pSyntaxNode BoolConstant::evaluate_LogicalInvert(pConstantExpression const &)
@@ -47,10 +48,9 @@ pType Number::bind(Parser &parser)
     return nullptr;
 }
 
-void Number::header()
+std::wostream& Number::header(std::wostream &os)
 {
-    std::wcout << number << L" ";
-    std::cout << NumberType_name(number_type);
+    return os << number << L" " << as_wstring(NumberType_name(number_type));
 }
 
 pSyntaxNode Number::normalize(struct Parser &)

@@ -8,6 +8,7 @@
 #include <memory>
 #include <print>
 #include <ranges>
+#include <variant>
 
 #include <Util/TokenLocation.h>
 #include <Util/Utf8.h>
@@ -16,7 +17,6 @@
 #include <App/Parser.h>
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
-#include <variant>
 
 namespace Arwen {
 
@@ -435,9 +435,9 @@ pType BinaryExpression::bind(Parser &parser)
         rhs_type->name);
 }
 
-void BinaryExpression::header()
+std::wostream& BinaryExpression::header(std::wostream &os)
 {
-    std::cout << Operator_name(op);
+    return os << Operator_name(op);
 }
 
 void BinaryExpression::dump_node(int indent)
@@ -531,9 +531,9 @@ pType UnaryExpression::bind(Parser &parser)
         operand_type->name);
 }
 
-void UnaryExpression::header()
+std::wostream& UnaryExpression::header(std::wostream &os)
 {
-    std::cout << Operator_name(op);
+    return os << Operator_name(op);
 }
 
 void UnaryExpression::dump_node(int indent)
@@ -617,16 +617,17 @@ pType MemberPath::bind(Parser &parser)
     return type;
 }
 
-void MemberPath::header()
+std::wostream& MemberPath::header(std::wostream &os)
 {
     bool first = true;
     for (auto const &segment : path) {
         if (!first) {
-            std::wcout << '.';
+            os << '.';
         }
         first = false;
-        std::wcout << segment->identifier;
+        os << segment->identifier;
     }
+    return os;
 }
 
 }

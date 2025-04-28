@@ -25,9 +25,9 @@ pType QuotedString::bind(Parser &parser)
     return parser.bind_error(location, L"QuotedString node should have been elided");
 }
 
-void QuotedString::header()
+std::wostream &QuotedString::header(std::wostream &os)
 {
-    std::wcout << string;
+    return os << string;
 }
 
 pSyntaxNode QuotedString::normalize(Parser &parser)
@@ -53,9 +53,9 @@ pType DoubleQuotedString::bind(Parser &parser)
     return TypeRegistry::string;
 }
 
-void DoubleQuotedString::header()
+std::wostream &DoubleQuotedString::header(std::wostream &os)
 {
-    std::wcout << string;
+    return os << string;
 }
 
 pSyntaxNode DoubleQuotedString::evaluate_Add(pConstantExpression const &rhs)
@@ -77,9 +77,9 @@ pType SingleQuotedString::bind(Parser &parser)
     return TypeRegistry::character;
 }
 
-void SingleQuotedString::header()
+std::wostream &SingleQuotedString::header(std::wostream &os)
 {
-    std::wcout << string;
+    return os << string;
 }
 
 }

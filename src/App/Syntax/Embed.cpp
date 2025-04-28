@@ -37,9 +37,9 @@ pType Embed::bind(Parser &parser)
     return parser.bind_error(location, L"`@embed` statement have been elided");
 }
 
-void Embed::header()
+std::wostream &Embed::header(std::wostream &os)
 {
-    std::wcout << file_name;
+    return os << file_name;
 }
 
 }

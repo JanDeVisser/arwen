@@ -6,6 +6,7 @@
 
 #include <iostream>
 #include <memory>
+#include <ostream>
 #include <unistd.h>
 
 #include <Util/Defer.h>
@@ -39,16 +40,27 @@ void print_indent(int indent)
     printf("%*.*s", indent, indent, "");
 }
 
-SyntaxNode::SyntaxNode(SyntaxNodeType type)
+SyntaxNode::SyntaxNode(SyntaxNodeType type, pNamespace ns)
     : type(type)
+    , ns(ns)
 {
+}
+
+std::wostream &SyntaxNode::header_line(std::wostream &os)
+{
+    os << SyntaxNodeType_name(type) << " (" << location.index << ".." << location.index + location.length << ") ";
+    header(std::wcout);
+    if (bound_type != nullptr) {
+        os << " -> " << bound_type->name;
+    }
+    return os;
 }
 
 void SyntaxNode::dump(int indent)
 {
     print_indent(indent);
     std::cout << SyntaxNodeType_name(type) << " (" << location.index << ".." << location.index + location.length << ") ";
-    header();
+    header(std::wcout);
     if (bound_type != nullptr) {
         std::wcout << " -> " << bound_type->name;
     }
@@ -56,8 +68,9 @@ void SyntaxNode::dump(int indent)
     dump_node(indent);
 }
 
-void SyntaxNode::header()
+std::wostream &SyntaxNode::header(std::wostream &os)
 {
+    return os;
 }
 
 void SyntaxNode::dump_node(int indent)
@@ -114,47 +127,7 @@ pSyntaxNode ConstantExpression::evaluate(Operator op, pConstantExpression const 
 Operators(S)
 #undef S
 
-    Block::Block(SyntaxNodes statements)
-    : SyntaxNode(SyntaxNodeType::Block)
-    , statements(std::move(statements))
-{
-}
-
-pSyntaxNode Block::normalize(Parser &parser)
-{
-    SyntaxNodes normalized;
-    for (auto const &stmt : statements) {
-        normalized.emplace_back(stmt->normalize(parser));
-    }
-    return make_node<Block>(location, normalized);
-}
-
-pType Block::bind(Parser &parser)
-{
-    parser.push_scope(shared_from_this());
-    Defer pop_scope { [&parser]() { parser.pop_scope(); } };
-    pType type = TypeRegistry::void_;
-    pType undetermined { nullptr };
-    for (auto &statement : statements) {
-        type = bind_node(statement, parser);
-        if (type == TypeRegistry::undetermined) {
-            undetermined = TypeRegistry::undetermined;
-        }
-    }
-    if (undetermined != nullptr) {
-        return undetermined;
-    }
-    return type;
-}
-
-void Block::dump_node(int indent)
-{
-    for (auto const &stmt : statements) {
-        stmt->dump(indent + 4);
-    }
-}
-
-DeferStatement::DeferStatement(pSyntaxNode stmt)
+    DeferStatement::DeferStatement(pSyntaxNode stmt)
     : SyntaxNode(SyntaxNodeType::DeferStatement)
     , stmt(std::move(stmt))
 {
@@ -191,57 +164,6 @@ pType Dummy::bind(Parser &parser)
     return TypeRegistry::void_;
 }
 
-Module::Module(std::wstring name, std::wstring source, SyntaxNodes statements)
-    : SyntaxNode(SyntaxNodeType::Module)
-    , name(std::move(name))
-    , source(std::move(source))
-{
-    switch (statements.size()) {
-    case 0:
-        this->statements = make_node<Dummy>({ 0, 0, 0, 0 });
-        break;
-    case 1:
-        this->statements = statements[0];
-    default: {
-        TokenLocation loc = statements.front()->location + statements.back()->location;
-        this->statements = make_node<Block>(loc, std::move(statements));
-    }
-    }
-}
-
-Module::Module(std::wstring name, std::wstring source, pSyntaxNode statement)
-    : SyntaxNode(SyntaxNodeType::Module)
-    , name(std::move(name))
-    , source(std::move(source))
-    , statements(statement)
-{
-}
-
-pSyntaxNode Module::normalize(Parser &parser)
-{
-    return make_node<Module>(location, name, std::move(source), statements->normalize(parser));
-}
-
-pType Module::bind(Parser &parser)
-{
-    auto stmt_type = bind_node(statements, parser);
-    if (stmt_type == TypeRegistry::undetermined) {
-        return stmt_type;
-    }
-    auto ret = make_type(as_wstring(name), NamespaceType {});
-    return ret;
-}
-
-void Module::header()
-{
-    std::wcout << name;
-}
-
-void Module::dump_node(int indent)
-{
-    statements->dump(indent + 4);
-}
-
 pType bind_node(pSyntaxNode node, Parser &parser)
 {
     assert(node != nullptr);
@@ -249,8 +171,17 @@ pType bind_node(pSyntaxNode node, Parser &parser)
         return node->bound_type;
     }
     auto ret = node->bind(parser);
+    if ((parser.pass > 0) && (ret == TypeRegistry::undetermined)) {
+        parser.append(node->location, "Cannot determine type");
+    }
     node->bound_type = ret;
     return ret;
 }
 
+}
+
+std::wostream &operator<<(std::wostream &os, Arwen::SyntaxNode const &node)
+{
+    os << SyntaxNodeType_name(node.type) << " (" << node.location.index << ".." << node.location.index + node.location.length << ") ";
+    return os;
 }

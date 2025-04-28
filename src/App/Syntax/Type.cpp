@@ -94,9 +94,9 @@ pType TypeSpecification::bind(Parser &parser)
     return resolve(parser);
 }
 
-void TypeSpecification::header()
+std::wostream& TypeSpecification::header(std::wostream &os)
 {
-    std::wcout << to_string();
+    return os << to_string();
 }
 
 std::wstring TypeSpecification::to_string()

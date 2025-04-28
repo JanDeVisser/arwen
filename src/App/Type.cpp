@@ -132,30 +132,6 @@ TypeRegistry::TypeRegistry()
     void_ = make_type(L"void", VoidType {});
     ambiguous = make_type(L"%ambiguous", Ambiguous {});
     undetermined = make_type(L"%undetermined", Undetermined {});
-
-    types.emplace_back(ambiguous);
-    types.emplace_back(undetermined);
-    types.emplace_back(boolean);
-    types.emplace_back(character);
-    types.emplace_back(cstring);
-    types.emplace_back(f32);
-    types.emplace_back(f64);
-    types.emplace_back(i16);
-    types.emplace_back(i32);
-    types.emplace_back(i64);
-    types.emplace_back(i8);
-    types.emplace_back(string);
-    types.emplace_back(u16);
-    types.emplace_back(u32);
-    types.emplace_back(u64);
-    types.emplace_back(u8);
-    types.emplace_back(void_);
-    types.emplace_back(make_type(L"byte", TypeAlias { i8 }));
-    types.emplace_back(make_type(L"short", TypeAlias { i16 }));
-    types.emplace_back(make_type(L"int", TypeAlias { i32 }));
-    types.emplace_back(make_type(L"long", TypeAlias { i64 }));
-    types.emplace_back(make_type(L"float", TypeAlias { f32 }));
-    types.emplace_back(make_type(L"double", TypeAlias { f64 }));
 }
 
 TypeRegistry &TypeRegistry::the()

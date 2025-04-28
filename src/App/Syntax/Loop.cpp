@@ -4,13 +4,17 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <memory>
+
+#include <Util/Defer.h>
+
 #include <App/Parser.h>
 #include <App/SyntaxNode.h>
 
 namespace Arwen {
 
-ForStatement::ForStatement(std::wstring var, pSyntaxNode expr, pSyntaxNode statement)
-    : SyntaxNode(SyntaxNodeType::ForStatement)
+ForStatement::ForStatement(std::wstring var, pSyntaxNode expr, pSyntaxNode statement, pNamespace ns)
+    : SyntaxNode(SyntaxNodeType::ForStatement, std::move(ns))
     , range_variable(std::move(var))
     , range_expr(std::move(expr))
     , statement(statement)
@@ -25,7 +29,8 @@ pSyntaxNode ForStatement::normalize(Parser &parser)
         location,
         range_variable,
         range_expr->normalize(parser),
-        statement->normalize(parser));
+        statement->normalize(parser),
+        ns);
 }
 
 pType ForStatement::bind(Parser &parser)
@@ -35,11 +40,11 @@ pType ForStatement::bind(Parser &parser)
         return parser.bind_error(
             location,
             L"`for` loop range expression is a `{}`, not a range",
-            range_type->name
-        );
+            range_type->name);
     }
-    parser.push_scope(shared_from_this());
-    parser.register_name(range_variable, std::get<RangeType>(range_type->description).range_of);
+    parser.push_namespace(ns);
+    Defer pop_namespace { [&parser]() { parser.pop_namespace(); } };
+    parser.register_name(range_variable, range_expr);
     auto block_type = bind_node(statement, parser);
     return block_type;
 }
@@ -50,9 +55,9 @@ void ForStatement::dump_node(int indent)
     statement->dump(indent + 4);
 }
 
-void ForStatement::header()
+std::wostream& ForStatement::header(std::wostream &os)
 {
-    std::wcout << range_variable;
+    return os << range_variable;
 }
 
 LoopStatement::LoopStatement(Label label, pSyntaxNode statement)
@@ -81,11 +86,12 @@ void LoopStatement::dump_node(int indent)
     statement->dump(indent + 4);
 }
 
-void LoopStatement::header()
+std::wostream& LoopStatement::header(std::wostream &os)
 {
     if (label) {
-        std::wcout << *label;
+        os << *label;
     }
+    return os;
 }
 
 WhileStatement::WhileStatement(Label label, pSyntaxNode condition, pSyntaxNode statement)
@@ -117,11 +123,12 @@ void WhileStatement::dump_node(int indent)
     statement->dump(indent + 4);
 }
 
-void WhileStatement::header()
+std::wostream& WhileStatement::header(std::wostream &os)
 {
     if (label) {
-        std::wcout << *label;
+        os << *label;
     }
+    return os;
 }
 
 }

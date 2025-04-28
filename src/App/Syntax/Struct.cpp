@@ -34,9 +34,9 @@ pType StructMember::bind(Parser &parser)
     return nullptr;
 }
 
-void StructMember::header()
+std::wostream& StructMember::header(std::wostream &os)
 {
-    std::wcout << label << ' ' << type->to_string();
+    return os << label << ' ' << type->to_string();
 }
 
 Struct::Struct(std::wstring name, StructMembers members)
@@ -77,9 +77,9 @@ void Struct::dump_node(int indent)
     }
 }
 
-void Struct::header()
+std::wostream& Struct::header(std::wostream &os)
 {
-    std::wcout << name;
+    return os << name;
 }
 
 }

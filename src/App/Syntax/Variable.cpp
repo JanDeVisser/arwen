@@ -31,9 +31,9 @@ pType Identifier::bind(Parser &parser)
     return type;
 }
 
-void Identifier::header()
+std::wostream& Identifier::header(std::wostream &os)
 {
-    std::wcout << identifier;
+    return os << identifier;
 }
 
 VariableDeclaration::VariableDeclaration(std::wstring name, pTypeSpecification type_name, pSyntaxNode initializer, bool is_const)
@@ -81,7 +81,7 @@ pType VariableDeclaration::bind(Parser &parser)
     if (parser.find_name(name) != nullptr) {
         return parser.bind_error(location, std::format(L"Duplicate variable name `{}`", name));
     }
-    parser.register_name(name, my_type);
+    parser.register_name(name, shared_from_this());
     return my_type;
 }
 
@@ -102,15 +102,16 @@ void VariableDeclaration::dump_node(int indent)
     }
 }
 
-void VariableDeclaration::header()
+std::wostream& VariableDeclaration::header(std::wostream &os)
 {
     if (is_const) {
-        std::wcout << "const ";
+        os << "const ";
     }
-    std::wcout << name;
+    os << name;
     if (type_name) {
-        std::wcout << ": " << type_name->to_string();
+        os << ": " << type_name->to_string();
     }
+    return os;
 }
 
 }

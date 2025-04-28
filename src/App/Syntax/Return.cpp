@@ -19,11 +19,12 @@ pType Break::bind(Parser &parser)
     return TypeRegistry::void_;
 }
 
-void Break::header()
+std::wostream& Break::header(std::wostream &os)
 {
     if (label) {
-        std::wcout << *label;
+        os << *label;
     }
+    return os;
 }
 
 Continue::Continue(Label label)
@@ -37,11 +38,12 @@ pType Continue::bind(Parser &parser)
     return TypeRegistry::void_;
 }
 
-void Continue::header()
+std::wostream& Continue::header(std::wostream &os)
 {
     if (label) {
-        std::wcout << *label;
+        os << *label;
     }
+    return os;
 }
 
 Error::Error(pSyntaxNode expression)
@@ -115,11 +117,12 @@ void Yield::dump_node(int indent)
     statement->dump(indent + 4);
 }
 
-void Yield::header()
+std::wostream& Yield::header(std::wostream &os)
 {
     if (label) {
-        std::wcout << *label;
+        os << *label;
     }
+    return os;
 }
 
 }

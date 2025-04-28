@@ -170,11 +170,11 @@ Result<std::string> Socket::read(size_t count)
     std::string out = {};
 
     size_t total = 0;
-    trace(SOCKET, "socket_read(%zu)", count);
+    trace("socket_read(%zu)", count);
     do {
         TRY(fill_buffer());
         if (!count && !buffer.empty()) {
-            trace(SOCKET, "socket_read(%zu) => NULL", count);
+            trace("socket_read(%zu) => NULL", count);
             return out;
         }
         size_t available = buffer.length();
@@ -199,9 +199,9 @@ Result<std::string> Socket::read(size_t count)
             }
             total = count;
         }
-        trace(SOCKET, "socket_read({}): read chunk of {} total {}", count, available, total);
+        trace("socket_read({}): read chunk of {} total {}", count, available, total);
     } while (total < count);
-    trace(SOCKET, "socket_read({}) => {}}", count, out.length());
+    trace("socket_read({}) => {}}", count, out.length());
     return out;
 }
 
@@ -210,7 +210,7 @@ Result<std::string> Socket::readln()
     std::string out {};
     while (true) {
         TRY(fill_buffer());
-        trace(SOCKET, "socket_readln: {} bytes available", buffer.length());
+        trace("socket_readln: {} bytes available", buffer.length());
         for (size_t ix = 0; ix < buffer.length(); ++ix) {
             char ch = buffer[ix];
             switch (ch) {
@@ -222,14 +222,14 @@ Result<std::string> Socket::readln()
                 } else {
                     buffer.clear();
                 }
-                trace(SOCKET, "socket_readln: {} bytes consumed", ix + 1);
+                trace("socket_readln: {} bytes consumed", ix + 1);
                 return out;
             default:
                 out += ch;
                 break;
             }
         }
-        trace(SOCKET, "socket_readln: buffer depleted");
+        trace("socket_readln: buffer depleted");
         buffer.clear();
     }
 }
@@ -238,26 +238,26 @@ Result<size_t> Socket::write(std::string_view const& buf, size_t num)
 {
     ssize_t total = 0;
     assert(buf.length() <= num);
-    trace(SOCKET, "socket_write({})", num);
+    trace("socket_write({})", num);
     while (total < num) {
         ssize_t written = ::write(fd, buf.data() + total, num - total);
         if (written < 0) {
             if (errno == EAGAIN) {
-                trace(SOCKET, "Socket::write(%zu) - EAGAIN (retrying)", num);
+                trace("Socket::write(%zu) - EAGAIN (retrying)", num);
                 continue;
             }
             auto err = LibCError();
-            trace(SOCKET, "Socket::write({}) - error {}", err.to_string());
+            trace("Socket::write({}) - error {}", err.to_string());
             return err;
         }
         if (written == 0) {
-            trace(SOCKET, "Socket::write({}) - incomplete write", num);
+            trace("Socket::write({}) - incomplete write", num);
             return LibCError("Incomplete write to socket: {} < {}", written, num);
         }
-        trace(SOCKET, "socket_write: chunk {}", written);
+        trace("socket_write: chunk {}", written);
         total += written;
     }
-    trace(SOCKET, "socket_write: {}", total);
+    trace("socket_write: {}", total);
     return total;
 }
 

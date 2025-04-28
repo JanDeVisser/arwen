@@ -7,11 +7,8 @@
 #pragma once
 
 #include <concepts>
-#include <cstdint>
-#include <limits>
 #include <memory>
 #include <string>
-#include <type_traits>
 #include <vector>
 
 #include <Util/Logging.h>
@@ -87,18 +84,35 @@ using TypeSpecifications = std::vector<pTypeSpecification>;
 
 struct Parser;
 
+using pNamespace = std::shared_ptr<struct Namespace>;
+
+struct Namespace {
+    std::map<std::wstring, pType>       types {};
+    std::map<std::wstring, pSyntaxNode> names {};
+    pNamespace                          parent { nullptr };
+
+    Namespace(pNamespace parent = nullptr);
+    pType       find_type(std::wstring const &name) const;
+    void        register_type(std::wstring name, pType type);
+    pSyntaxNode find_name(std::wstring const &name) const;
+    pType       type_of(std::wstring const &name) const;
+    void        register_name(std::wstring name, pSyntaxNode node);
+};
+
 struct SyntaxNode : std::enable_shared_from_this<SyntaxNode> {
     TokenLocation  location;
     SyntaxNodeType type;
     pType          bound_type;
+    pNamespace     ns { nullptr };
 
     virtual ~SyntaxNode() = default;
     SyntaxNode() = delete;
-    SyntaxNode(SyntaxNodeType type);
+    SyntaxNode(SyntaxNodeType type, pNamespace ns = nullptr);
 
-    void         dump(int indent = 0);
-    virtual void header();
-    virtual void dump_node(int indent);
+    void                   dump(int indent = 0);
+    std::wostream         &header_line(std::wostream &os);
+    virtual std::wostream &header(std::wostream &os);
+    virtual void           dump_node(int indent);
 
     virtual pSyntaxNode normalize(Parser &parser);
     virtual pType       bind(Parser &parser) = 0;
@@ -167,10 +181,10 @@ struct BinaryExpression : SyntaxNode {
 
     BinaryExpression(pSyntaxNode lhs, Operator op, pSyntaxNode rhs);
 
-    pType       bind(Parser &parser) override;
-    pSyntaxNode normalize(Parser &parser) override;
-    void        header() override;
-    void        dump_node(int indent) override;
+    pType          bind(Parser &parser) override;
+    pSyntaxNode    normalize(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
+    void           dump_node(int indent) override;
 };
 
 using pConstantExpression = std::shared_ptr<struct ConstantExpression>;
@@ -189,7 +203,7 @@ struct ConstantExpression : SyntaxNode {
 struct Block : SyntaxNode {
     SyntaxNodes statements;
 
-    Block(SyntaxNodes statements);
+    Block(SyntaxNodes statements, pNamespace const &ns);
 
     pSyntaxNode normalize(Parser &parser) override;
     pType       bind(Parser &parser) override;
@@ -200,9 +214,9 @@ struct BoolConstant : ConstantExpression {
     bool value;
 
     BoolConstant(bool value);
-    pType       bind(Parser &parser) override;
-    void        header() override;
-    pSyntaxNode evaluate_LogicalInvert(pConstantExpression const &) override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
+    pSyntaxNode    evaluate_LogicalInvert(pConstantExpression const &) override;
 };
 
 struct Break : SyntaxNode {
@@ -210,8 +224,8 @@ struct Break : SyntaxNode {
 
     Break(Label label);
 
-    pType bind(Parser &parser) override;
-    void  header() override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
 };
 
 struct Continue : SyntaxNode {
@@ -219,8 +233,8 @@ struct Continue : SyntaxNode {
 
     Continue(Label label);
 
-    pType bind(Parser &parser) override;
-    void  header() override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
 };
 
 struct DeferStatement : SyntaxNode {
@@ -236,9 +250,9 @@ struct DoubleQuotedString : ConstantExpression {
     std::wstring string;
 
     DoubleQuotedString(std::wstring_view str, bool strip_quotes);
-    pType       bind(Parser &parser) override;
-    void        header() override;
-    pSyntaxNode evaluate_Add(pConstantExpression const &rhs) override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
+    pSyntaxNode    evaluate_Add(pConstantExpression const &rhs) override;
 };
 
 struct Dummy : SyntaxNode {
@@ -250,9 +264,9 @@ struct Embed : SyntaxNode {
     std::wstring file_name;
 
     Embed(std::wstring_view file_name);
-    pSyntaxNode normalize(Parser &parser) override;
-    pType       bind(Parser &parser) override;
-    void        header() override;
+    pSyntaxNode    normalize(Parser &parser) override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
 };
 
 struct EnumValue : SyntaxNode {
@@ -261,9 +275,9 @@ struct EnumValue : SyntaxNode {
     pTypeSpecification  payload;
 
     EnumValue(std::wstring label, pConstantExpression value, pTypeSpecification payload);
-    pSyntaxNode normalize(Parser &parser) override;
-    pType       bind(Parser &parser) override;
-    void        header() override;
+    pSyntaxNode    normalize(Parser &parser) override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
 };
 
 using pEnumValue = std::shared_ptr<EnumValue>;
@@ -275,10 +289,10 @@ struct Enum : SyntaxNode {
     EnumValues         values;
 
     Enum(std::wstring name, pTypeSpecification underlying_type, EnumValues values);
-    pSyntaxNode normalize(Parser &parser) override;
-    pType       bind(Parser &parser) override;
-    void        dump_node(int indent) override;
-    void        header() override;
+    pSyntaxNode    normalize(Parser &parser) override;
+    pType          bind(Parser &parser) override;
+    void           dump_node(int indent) override;
+    std::wostream &header(std::wostream &os) override;
 };
 
 struct Error : SyntaxNode {
@@ -306,17 +320,17 @@ struct MemberPath : SyntaxNode {
     Identifiers path;
 
     MemberPath(Identifiers path);
-    pSyntaxNode normalize(Parser &parser) override;
-    pType       bind(Parser &parser) override;
-    void        header() override;
+    pSyntaxNode    normalize(Parser &parser) override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
 };
 
 struct ExternLink : SyntaxNode {
     std::wstring link_name;
 
     ExternLink(std::wstring link_name);
-    pType bind(Parser &parser) override;
-    void  header() override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
 };
 
 struct ForStatement : SyntaxNode {
@@ -324,11 +338,11 @@ struct ForStatement : SyntaxNode {
     pSyntaxNode  range_expr;
     pSyntaxNode  statement;
 
-    ForStatement(std::wstring var, pSyntaxNode expr, pSyntaxNode stmt);
-    pSyntaxNode normalize(Parser &parser) override;
-    pType       bind(Parser &parser) override;
-    void        header() override;
-    void        dump_node(int indent) override;
+    ForStatement(std::wstring var, pSyntaxNode expr, pSyntaxNode stmt, pNamespace ns);
+    pSyntaxNode    normalize(Parser &parser) override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
+    void           dump_node(int indent) override;
 };
 
 using pParameter = std::shared_ptr<struct Parameter>;
@@ -339,10 +353,10 @@ struct FunctionDeclaration : SyntaxNode {
     pTypeSpecification      return_type;
 
     FunctionDeclaration(std::wstring name, std::vector<pParameter> parameters, pTypeSpecification return_type);
-    pSyntaxNode normalize(Parser &parser) override;
-    pType       bind(Parser &parser) override;
-    void        header() override;
-    void        dump_node(int indent) override;
+    pSyntaxNode    normalize(Parser &parser) override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
+    void           dump_node(int indent) override;
 };
 
 using pFunctionDeclaration = std::shared_ptr<FunctionDeclaration>;
@@ -352,18 +366,20 @@ struct FunctionDefinition : SyntaxNode {
     pFunctionDeclaration declaration;
     pSyntaxNode          implementation;
 
-    FunctionDefinition(std::wstring name, pFunctionDeclaration declaration, pSyntaxNode implementation);
+    FunctionDefinition(std::wstring name, pFunctionDeclaration declaration, pSyntaxNode implementation, pNamespace ns);
     pSyntaxNode normalize(Parser &parser) override;
     pType       bind(Parser &parser) override;
     void        dump_node(int indent) override;
 };
 
+using pFunctionDefinition = std::shared_ptr<FunctionDefinition>;
+
 struct Identifier : SyntaxNode {
     std::wstring identifier;
 
     Identifier(std::wstring_view identifier);
-    pType bind(Parser &parser) override;
-    void  header() override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
 };
 
 struct IfStatement : SyntaxNode {
@@ -381,400 +397,29 @@ struct Include : SyntaxNode {
     std::wstring file_name;
 
     Include(std::wstring_view file_name);
-    pSyntaxNode normalize(Parser &parser) override;
-    pType       bind(Parser &parser) override;
-    void        header() override;
+    pSyntaxNode    normalize(Parser &parser) override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
 };
 
 struct Import : SyntaxNode {
     std::wstring name;
 
     Import(std::wstring name);
-    pSyntaxNode normalize(Parser &parser) override;
-    pType       bind(Parser &parser) override;
-    void        header() override;
+    pSyntaxNode    normalize(Parser &parser) override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
 };
-
-template<typename T, SyntaxNodeType NodeType>
-struct Num : ConstantExpression {
-    using Integer = Num<uint64_t, SyntaxNodeType::Integer>;
-    using SignedInteger = Num<int64_t, SyntaxNodeType::SignedInteger>;
-    using Decimal = Num<double, SyntaxNodeType::Decimal>;
-
-    T value;
-
-    Num(std::wstring_view number)
-        : ConstantExpression(NodeType)
-    {
-        if constexpr (std::is_integral_v<T>) {
-            this->value = string_to_integer<T>(number)
-                              .or_else([number]() -> std::optional<T> {
-                                  std::wcerr << "Could not convert string '" << number << "' to integer. This is unexpected" << std::endl;
-                                  abort();
-                                  return { 0 };
-                              })
-                              .value();
-        }
-        if constexpr (std::is_floating_point_v<T>) {
-            char *end_ptr;
-            auto  narrow_string = as_utf8(number);
-            value = static_cast<T>(strtod(narrow_string.data(), &end_ptr));
-            assert(end_ptr != narrow_string.data());
-        }
-    }
-
-    Num(T number)
-        : ConstantExpression(NodeType)
-        , value(number)
-    {
-    }
-
-    template<typename Result>
-    pSyntaxNode make_result(TokenLocation location, Result result)
-    {
-        fatal("Unexpected return type in evaluate_numeric_op");
-    }
-
-    template<std::unsigned_integral Result>
-    pSyntaxNode make_result(TokenLocation location, Result result)
-    {
-        return make_node<Num<uint64_t, SyntaxNodeType::Integer>>(std::move(location), result);
-    }
-
-    template<std::signed_integral Result>
-    pSyntaxNode make_result(TokenLocation location, Result result)
-    {
-        return make_node<Num<int64_t, SyntaxNodeType::SignedInteger>>(std::move(location), result);
-    }
-
-    template<std::floating_point Result>
-    pSyntaxNode make_result(TokenLocation location, Result result)
-    {
-        return make_node<Num<double, SyntaxNodeType::Decimal>>(std::move(location), result);
-    }
-
-    template<typename Func>
-    pSyntaxNode evaluate_numeric_op(auto *lhs, pConstantExpression const &rhs, Func const &func)
-    {
-        switch (rhs->type) {
-        case SyntaxNodeType::Integer: {
-            auto rhs_integer = std::dynamic_pointer_cast<Integer>(rhs);
-            return make_result(lhs->location + rhs->location, func(lhs->value, rhs_integer->value));
-        }
-        case SyntaxNodeType::SignedInteger: {
-            auto rhs_integer = std::dynamic_pointer_cast<SignedInteger>(rhs);
-            return make_result(lhs->location + rhs->location, func(lhs->value, rhs_integer->value));
-        }
-        case SyntaxNodeType::Decimal: {
-            auto rhs_decimal = std::dynamic_pointer_cast<Decimal>(rhs);
-            return make_result(lhs->location + rhs->location, func(lhs->value, rhs_decimal->value));
-        }
-        default:
-            return nullptr;
-        }
-    }
-
-    template<typename Func>
-    pSyntaxNode evaluate_binary_op(auto *lhs, pConstantExpression const &rhs, Func const &func)
-    {
-        switch (rhs->type) {
-        case SyntaxNodeType::Integer: {
-            auto rhs_integer = std::dynamic_pointer_cast<Integer>(rhs);
-            return make_result(lhs->location + rhs->location, func(lhs->value, rhs_integer->value));
-        }
-        case SyntaxNodeType::SignedInteger: {
-            auto rhs_integer = std::dynamic_pointer_cast<SignedInteger>(rhs);
-            return make_result(lhs->location + rhs->location, func(lhs->value, rhs_integer->value));
-        }
-        default:
-            return nullptr;
-        }
-    }
-
-    template<typename Func>
-    pSyntaxNode evaluate_comparison_op(auto *lhs, pConstantExpression const &rhs, Func const &func)
-    {
-        switch (rhs->type) {
-        case SyntaxNodeType::Integer: {
-            auto rhs_integer = std::dynamic_pointer_cast<Integer>(rhs);
-            bool z = func(lhs->value, rhs_integer->value);
-            return make_node<BoolConstant>(lhs->location + rhs->location, z);
-        }
-        case SyntaxNodeType::SignedInteger: {
-            auto rhs_integer = std::dynamic_pointer_cast<SignedInteger>(rhs);
-            bool z = func(lhs->value, rhs_integer->value);
-            return make_node<BoolConstant>(lhs->location + rhs->location, z);
-        }
-        case SyntaxNodeType::Decimal: {
-            auto rhs_decimal = std::dynamic_pointer_cast<Decimal>(rhs);
-            bool z = func(lhs->value, rhs_decimal->value);
-            return make_node<BoolConstant>(lhs->location + rhs->location, z);
-        }
-        default:
-            return nullptr;
-        }
-    }
-
-    pType bind(Parser &parser) override
-    {
-        if (value > IntType::u32.max_value) {
-            return TypeRegistry::u64;
-        }
-        return TypeRegistry::u32;
-    }
-
-    template<typename V>
-    pSyntaxNode coerce_value(pType const &target, Parser &parser)
-    {
-        return ConstantExpression::coerce(target, parser);
-    }
-
-    template<std::unsigned_integral V>
-    pSyntaxNode coerce_value(pType const &target, Parser &)
-    {
-        if (!std::holds_alternative<IntType>(target->description)) {
-            return nullptr;
-        }
-        if (value <= std::get<IntType>(target->description).max_value) {
-            auto ret = make_node<Integer>(location, value);
-            ret->bound_type = target;
-            return ret;
-        }
-        return nullptr;
-    }
-
-    template<std::signed_integral V>
-    pSyntaxNode coerce_value(pType const &target, Parser &)
-    {
-        if (!std::holds_alternative<IntType>(target->description)) {
-            return nullptr;
-        }
-        if (value >= std::get<IntType>(target->description).min_value
-            && value <= std::get<IntType>(target->description).max_value) {
-            auto ret = make_node<Integer>(location, value);
-            ret->bound_type = target;
-            return ret;
-        }
-        return nullptr;
-    }
-
-    pSyntaxNode coerce(pType const &target, Parser &parser) override
-    {
-        if (bound_type == target) {
-            return shared_from_this();
-        }
-        return coerce_value<T>(target, parser);
-    }
-
-    void header() override
-    {
-        std::wcout << value;
-    }
-
-    pSyntaxNode evaluate_Add(pConstantExpression const &rhs) override
-    {
-        return evaluate_numeric_op(
-            this, rhs,
-            [](auto x, auto y) { return x + y; });
-    }
-
-    pSyntaxNode evaluate_Subtract(pConstantExpression const &rhs) override
-    {
-        return evaluate_numeric_op(
-            this, rhs,
-            [](auto x, auto y) { return x - y; });
-    }
-
-    pSyntaxNode evaluate_Multiply(pConstantExpression const &rhs) override
-    {
-        if (auto rhs_string = std::dynamic_pointer_cast<DoubleQuotedString>(rhs); rhs_string != nullptr) {
-            std::wstring s;
-            for (auto ix = 0; ix < value; ++value) {
-                s += rhs_string->string;
-            }
-            return make_node<DoubleQuotedString>(location + rhs->location, s, false);
-        }
-        return evaluate_numeric_op(
-            this, rhs,
-            [](auto x, auto y) { return x * y; });
-    }
-
-    pSyntaxNode evaluate_Divide(pConstantExpression const &rhs) override
-    {
-        if (value == 0) {
-            std::wcerr << "Division by zero" << std::endl;
-            return nullptr;
-        }
-        return evaluate_numeric_op(
-            this, rhs,
-            [](auto x, auto y) { return x / y; });
-    }
-
-    pSyntaxNode evaluate_Modulo(pConstantExpression const &rhs) override
-    {
-        if (value == 0) {
-            std::wcerr << "Division by zero" << std::endl;
-            return nullptr;
-        }
-        if constexpr (std::is_integral_v<T>) {
-            switch (rhs->type) {
-            case SyntaxNodeType::Integer: {
-                auto rhs_integer = std::dynamic_pointer_cast<Integer>(rhs);
-                return make_node<Integer>(location + rhs->location, value % rhs_integer->value);
-            }
-            case SyntaxNodeType::SignedInteger: {
-                auto rhs_integer = std::dynamic_pointer_cast<SignedInteger>(rhs);
-                return make_node<SignedInteger>(location + rhs->location, value % rhs_integer->value);
-            }
-            case SyntaxNodeType::Decimal: {
-                auto rhs_decimal = std::dynamic_pointer_cast<Decimal>(rhs);
-                return make_node<Decimal>(location + rhs->location, fmod(value, rhs_decimal->value));
-            }
-            default:
-                return nullptr;
-            }
-        } else {
-            return evaluate_numeric_op(
-                this, rhs,
-                [](auto x, auto y) { return fmod(x, y); });
-        }
-    }
-
-    pSyntaxNode evaluate_Equals(pConstantExpression const &rhs) override
-    {
-        return evaluate_comparison_op(
-            this, rhs,
-            [](auto x, auto y) { return x == y; });
-    }
-
-    pSyntaxNode evaluate_NotEqual(pConstantExpression const &rhs) override
-    {
-        return evaluate_comparison_op(
-            this, rhs,
-            [](auto x, auto y) { return x != y; });
-    }
-
-    pSyntaxNode evaluate_Less(pConstantExpression const &rhs) override
-    {
-        return evaluate_comparison_op(
-            this, rhs,
-            [](auto x, auto y) { return x < y; });
-    }
-
-    pSyntaxNode evaluate_LessEqual(pConstantExpression const &rhs) override
-    {
-        return evaluate_comparison_op(
-            this, rhs,
-            [](auto x, auto y) { return x <= y; });
-    }
-
-    pSyntaxNode evaluate_Greater(pConstantExpression const &rhs) override
-    {
-        return evaluate_comparison_op(
-            this, rhs,
-            [](auto x, auto y) { return x > y; });
-    }
-
-    pSyntaxNode evaluate_GreaterEqual(pConstantExpression const &rhs) override
-    {
-        return evaluate_comparison_op(
-            this, rhs,
-            [](auto x, auto y) { return x >= y; });
-    }
-
-    pSyntaxNode evaluate_BinaryAnd(pConstantExpression const &rhs) override
-    {
-        if constexpr (std::is_floating_point_v<T>) {
-            return ConstantExpression::evaluate_BinaryAnd(rhs);
-        } else {
-            return evaluate_binary_op(
-                this, rhs,
-                [](auto x, auto y) { return x & y; });
-        }
-    }
-
-    pSyntaxNode evaluate_BinaryOr(pConstantExpression const &rhs) override
-    {
-        if constexpr (std::is_floating_point_v<T>) {
-            return ConstantExpression::evaluate_BinaryOr(rhs);
-        } else {
-            return evaluate_binary_op(
-                this, rhs,
-                [](auto x, auto y) { return x | y; });
-        }
-    }
-
-    pSyntaxNode evaluate_BinaryXor(pConstantExpression const &rhs) override
-    {
-        if constexpr (std::is_floating_point_v<T>) {
-            return ConstantExpression::evaluate_BinaryXor(rhs);
-        } else {
-            return evaluate_binary_op(
-                this, rhs,
-                [](auto x, auto y) { return x ^ y; });
-        }
-    }
-
-    pSyntaxNode evaluate_ShiftLeft(pConstantExpression const &rhs) override
-    {
-        if constexpr (std::is_floating_point_v<T>) {
-            return ConstantExpression::evaluate_ShiftLeft(rhs);
-        } else {
-            return evaluate_binary_op(
-                this, rhs,
-                [](auto x, auto y) { return x << y; });
-        }
-    }
-
-    pSyntaxNode evaluate_ShiftRight(pConstantExpression const &rhs) override
-    {
-        if constexpr (std::is_floating_point_v<T>) {
-            return ConstantExpression::evaluate_ShiftRight(rhs);
-        } else {
-            return evaluate_binary_op(
-                this, rhs,
-                [](auto x, auto y) { return x >> y; });
-        }
-    }
-
-    pSyntaxNode evaluate_Idempotent(pConstantExpression const &) override
-    {
-        return make_result(location, value);
-    }
-
-    pSyntaxNode evaluate_Negate(pConstantExpression const &) override
-    {
-        if constexpr (std::is_integral_v<T> && std::is_unsigned_v<T>) {
-            if (value > std::numeric_limits<int64_t>::max()) {
-                fatal("Cannot invert integer larger than int64_t::max");
-            }
-        }
-        return make_result(location, -value);
-    }
-
-    pSyntaxNode evaluate_BinaryInvert(pConstantExpression const &) override
-    {
-        if constexpr (std::is_floating_point_v<T>) {
-            return ConstantExpression::evaluate_BinaryInvert();
-        } else {
-            return make_result(location, ~value);
-        }
-    }
-};
-
-using Integer = Num<uint64_t, SyntaxNodeType::Integer>;
-using SignedInteger = Num<int64_t, SyntaxNodeType::SignedInteger>;
-using Decimal = Num<double, SyntaxNodeType::Decimal>;
 
 struct LoopStatement : SyntaxNode {
     Label       label;
     pSyntaxNode statement;
 
     LoopStatement(Label label, pSyntaxNode statement);
-    pSyntaxNode normalize(Parser &parser) override;
-    pType       bind(Parser &parser) override;
-    void        header() override;
-    void        dump_node(int indent) override;
+    pSyntaxNode    normalize(Parser &parser) override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
+    void           dump_node(int indent) override;
 };
 
 struct Module : SyntaxNode {
@@ -782,12 +427,13 @@ struct Module : SyntaxNode {
     std::wstring source;
     pSyntaxNode  statements;
 
-    Module(std::wstring name, std::wstring source, SyntaxNodes statements);
-    Module(std::wstring name, std::wstring source, pSyntaxNode statement);
-    pSyntaxNode normalize(Parser &parser) override;
-    pType       bind(Parser &parser) override;
-    void        header() override;
-    void        dump_node(int indent) override;
+    Module();
+    Module(std::wstring const &name, std::wstring const &source, SyntaxNodes const &statements, pNamespace const &ns);
+    Module(std::wstring name, std::wstring source, pSyntaxNode statement, pNamespace ns);
+    pSyntaxNode    normalize(Parser &parser) override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
+    void           dump_node(int indent) override;
 };
 
 using pModule = std::shared_ptr<struct Module>;
@@ -797,9 +443,9 @@ struct Number : ConstantExpression {
     NumberType   number_type;
 
     Number(std::wstring_view number, NumberType type);
-    pSyntaxNode normalize(Parser &parser) override;
-    pType       bind(Parser &parser) override;
-    void        header() override;
+    pSyntaxNode    normalize(Parser &parser) override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
 };
 
 using pNumber = std::shared_ptr<Number>;
@@ -809,8 +455,8 @@ struct Parameter : SyntaxNode {
     pTypeSpecification type_name;
 
     Parameter(std::wstring name, pTypeSpecification type_name);
-    pType bind(Parser &parser) override;
-    void  header() override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
 };
 
 struct Program : SyntaxNode {
@@ -818,10 +464,10 @@ struct Program : SyntaxNode {
     std::map<std::wstring, pModule> modules {};
 
     Program(std::wstring name);
-    pSyntaxNode normalize(Parser &parser) override;
-    pType       bind(Parser &parser) override;
-    void        header() override;
-    void        dump_node(int indent) override;
+    pSyntaxNode    normalize(Parser &parser) override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
+    void           dump_node(int indent) override;
 };
 
 struct PublicDeclaration : SyntaxNode {
@@ -839,9 +485,9 @@ struct QuotedString : SyntaxNode {
     QuoteType    quote_type;
 
     QuotedString(std::wstring_view str, QuoteType type);
-    pType       bind(Parser &parser) override;
-    void        header() override;
-    pSyntaxNode normalize(Parser &parser) override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
+    pSyntaxNode    normalize(Parser &parser) override;
 };
 
 struct Return : SyntaxNode {
@@ -857,8 +503,8 @@ struct SingleQuotedString : ConstantExpression {
     std::wstring string;
 
     SingleQuotedString(std::wstring_view str, bool strip_quotes);
-    pType bind(Parser &parser) override;
-    void  header() override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
 };
 
 struct StructMember : SyntaxNode {
@@ -866,9 +512,9 @@ struct StructMember : SyntaxNode {
     pTypeSpecification type;
 
     StructMember(std::wstring label, pTypeSpecification payload);
-    pSyntaxNode normalize(Parser &parser) override;
-    pType       bind(Parser &parser) override;
-    void        header() override;
+    pSyntaxNode    normalize(Parser &parser) override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
 };
 
 using pStructMember = std::shared_ptr<StructMember>;
@@ -879,10 +525,10 @@ struct Struct : SyntaxNode {
     StructMembers members;
 
     Struct(std::wstring name, StructMembers members);
-    pSyntaxNode normalize(Parser &parser) override;
-    pType       bind(Parser &parser) override;
-    void        dump_node(int indent) override;
-    void        header() override;
+    pSyntaxNode    normalize(Parser &parser) override;
+    pType          bind(Parser &parser) override;
+    void           dump_node(int indent) override;
+    std::wostream &header(std::wostream &os) override;
 };
 
 struct TypeNameNode {
@@ -932,11 +578,11 @@ struct TypeSpecification : SyntaxNode {
     TypeSpecification(OptionalDescriptionNode optional);
     TypeSpecification(ErrorDescriptionNode error);
 
-    pSyntaxNode  normalize(Parser &parser) override;
-    pType        bind(Parser &parser) override;
-    void         header() override;
-    std::wstring to_string();
-    pType        resolve(Parser &parser);
+    pSyntaxNode    normalize(Parser &parser) override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
+    std::wstring   to_string();
+    pType          resolve(Parser &parser);
 };
 
 struct UnaryExpression : SyntaxNode {
@@ -944,10 +590,10 @@ struct UnaryExpression : SyntaxNode {
     pSyntaxNode operand;
 
     UnaryExpression(Operator op, pSyntaxNode operand);
-    pSyntaxNode normalize(Parser &parser) override;
-    pType       bind(Parser &parser) override;
-    void        header() override;
-    void        dump_node(int indent) override;
+    pSyntaxNode    normalize(Parser &parser) override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
+    void           dump_node(int indent) override;
 };
 
 struct VariableDeclaration : SyntaxNode {
@@ -957,10 +603,10 @@ struct VariableDeclaration : SyntaxNode {
     bool               is_const;
 
     VariableDeclaration(std::wstring name, pTypeSpecification type_name, pSyntaxNode initializer, bool is_const);
-    pType       bind(Parser &parser) override;
-    pSyntaxNode normalize(Parser &parser) override;
-    void        header() override;
-    void        dump_node(int indent) override;
+    pType          bind(Parser &parser) override;
+    pSyntaxNode    normalize(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
+    void           dump_node(int indent) override;
 };
 
 struct Void : ConstantExpression {
@@ -974,10 +620,10 @@ struct WhileStatement : SyntaxNode {
     pSyntaxNode statement;
 
     WhileStatement(Label label, pSyntaxNode condition, pSyntaxNode statement);
-    pSyntaxNode normalize(Parser &parser) override;
-    pType       bind(Parser &parser) override;
-    void        header() override;
-    void        dump_node(int indent) override;
+    pSyntaxNode    normalize(Parser &parser) override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
+    void           dump_node(int indent) override;
 };
 
 struct Yield : SyntaxNode {
@@ -985,12 +631,14 @@ struct Yield : SyntaxNode {
     pSyntaxNode statement;
 
     Yield(Label label, pSyntaxNode statement);
-    pSyntaxNode normalize(Parser &parser) override;
-    pType       bind(Parser &parser) override;
-    void        header() override;
-    void        dump_node(int indent) override;
+    pSyntaxNode    normalize(Parser &parser) override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
+    void           dump_node(int indent) override;
 };
 
 pType bind_node(pSyntaxNode node, Parser &parser);
 
 }
+
+std::wostream &operator<<(std::wostream &os, Arwen::SyntaxNode const &node);

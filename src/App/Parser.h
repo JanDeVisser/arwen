@@ -49,24 +49,18 @@ struct Parser {
         Block,
     };
 
-    struct Scope {
-        pSyntaxNode                   owner;
-        std::map<std::wstring, pType> types {};
-        std::map<std::wstring, pType> names {};
-    };
-
     static std::vector<OperatorDef> operators;
     std::wstring_view               text;
     ArwenLexer                      lexer {};
     ParseLevel                      level { ParseLevel::Module };
     std::vector<ArwenError>         errors;
-    std::vector<Scope>              scopes;
+    std::vector<pNamespace>         namespaces;
     std::shared_ptr<Program>        program;
-    int                             pass {0};
+    int                             pass { 0 };
 
     Parser() = default;
 
-    pSyntaxNode                parse_file(std::wstring const &text);
+    pSyntaxNode                parse_file(std::wstring const &text, pNamespace ns);
     pModule                    parse_module(std::string_view name, std::wstring text);
     Token                      parse_statements(SyntaxNodes &statements);
     pSyntaxNode                parse_statement();
@@ -101,11 +95,12 @@ struct Parser {
     pSyntaxNode                parse_yield();
 
     pType find_name(std::wstring const &name) const;
-    void  register_name(std::wstring name, pType node);
+    void  register_name(std::wstring name, pSyntaxNode node);
     pType find_type(std::wstring const &name) const;
-    void  register_type(std::wstring name, pType node);
-    void  push_scope(pSyntaxNode const &owner);
-    void  pop_scope();
+    void  register_type(std::wstring name, pType type);
+    void  push_namespace(pNamespace const &ns);
+    void  push_new_namespace();
+    void  pop_namespace();
 
     void append(LexerErrorMessage const &lexer_error);
     void append(LexerErrorMessage const &lexer_error, char const *message);
