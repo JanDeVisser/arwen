@@ -45,6 +45,7 @@ using namespace Util;
     S(Include)             \
     S(Import)              \
     S(Integer)             \
+    S(Insert)              \
     S(LoopStatement)       \
     S(MemberPath)          \
     S(Module)              \
@@ -125,7 +126,7 @@ static std::shared_ptr<Node> make_node(TokenLocation location, Args &&...args)
 {
     auto ret = std::make_shared<Node>(args...);
     ret->location = std::move(location);
-    // std::cout << "[" << SyntaxNodeType_name(ret->type) << "] (" << ret->location.line + 1 << "," << ret->location.column + 1 << ")" << std::endl;
+    // trace("[{}] ({},{})", SyntaxNodeType_name(ret->type), ret->location.line + 1, ret->location.column + 1);
     return ret;
 }
 
@@ -393,6 +394,15 @@ struct IfStatement : SyntaxNode {
     void        dump_node(int indent) override;
 };
 
+struct Import : SyntaxNode {
+    std::wstring name;
+
+    Import(std::wstring name);
+    pSyntaxNode    normalize(Parser &parser) override;
+    pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
+};
+
 struct Include : SyntaxNode {
     std::wstring file_name;
 
@@ -402,13 +412,12 @@ struct Include : SyntaxNode {
     std::wostream &header(std::wostream &os) override;
 };
 
-struct Import : SyntaxNode {
-    std::wstring name;
+struct Insert : SyntaxNode {
+    std::wstring script_text;
 
-    Import(std::wstring name);
+    Insert(std::wstring_view script_text);
     pSyntaxNode    normalize(Parser &parser) override;
     pType          bind(Parser &parser) override;
-    std::wostream &header(std::wostream &os) override;
 };
 
 struct LoopStatement : SyntaxNode {
@@ -509,7 +518,7 @@ struct SingleQuotedString : ConstantExpression {
 
 struct StructMember : SyntaxNode {
     std::wstring       label;
-    pTypeSpecification type;
+    pTypeSpecification member_type;
 
     StructMember(std::wstring label, pTypeSpecification payload);
     pSyntaxNode    normalize(Parser &parser) override;

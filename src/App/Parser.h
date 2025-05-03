@@ -28,8 +28,14 @@ namespace Arwen {
 using namespace Util;
 
 struct Parser {
+
+    struct ArwenInsertBlock {
+        constexpr static wchar_t const *begin = L"@insert";
+        constexpr static wchar_t const *end = L"@end";
+    };
+
     using ArwenLexerTypes = LexerTypes<std::wstring_view, wchar_t, ArwenKeyword>;
-    using ArwenLexer = Lexer<ArwenLexerTypes, ArwenLexerTypes::CScannerPack>;
+    using ArwenLexer = Lexer<ArwenLexerTypes, ArwenLexerTypes::ScannerPack<ArwenLexerTypes::CScannerPack, ArwenLexerTypes::RawScanner<ArwenInsertBlock>>>;
     using Token = ArwenLexer::Token;
     using LexerError = ArwenLexer::LexerError;
     using LexerResult = ArwenLexer::LexerResult;
@@ -62,9 +68,11 @@ struct Parser {
 
     pSyntaxNode                parse_file(std::wstring const &text, pNamespace ns);
     pModule                    parse_module(std::string_view name, std::wstring text);
+    pSyntaxNode                parse_script(std::wstring text);
     Token                      parse_statements(SyntaxNodes &statements);
     pSyntaxNode                parse_statement();
     pSyntaxNode                parse_module_level_statement();
+    std::wstring_view          text_at(size_t start, std::optional<size_t> end) const;
     std::wstring_view          text_of(Token const &token) const;
     std::wstring_view          text_of(LexerErrorMessage const &error) const;
     std::wstring_view          text_of(LexerError const &error) const;

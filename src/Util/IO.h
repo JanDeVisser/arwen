@@ -1,3 +1,4 @@
+
 /*
  * Copyright (c) 2023, Jan de Visser <jan@finiandarcy.com>
  *
@@ -11,6 +12,7 @@
 #include <netinet/in.h>
 #include <string>
 
+#include <Util/Logging.h>
 #include <Util/Result.h>
 #include <Util/Utf8.h>
 

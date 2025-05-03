@@ -10,7 +10,6 @@
 #pragma once
 
 #include <Util/Error.h>
-#include <Util/Logging.h>
 
 namespace Util {
 

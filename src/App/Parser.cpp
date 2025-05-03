@@ -5,6 +5,7 @@
  */
 
 #include <algorithm>
+#include <cstddef>
 #include <memory>
 #include <string>
 
@@ -18,6 +19,7 @@
 #include <App/Operator.h>
 #include <App/Parser.h>
 #include <App/SyntaxNode.h>
+#include <string_view>
 
 namespace Arwen {
 
@@ -54,7 +56,7 @@ std::vector<Parser::OperatorDef> Parser::operators {
     { Operator::Negate, '-', 14, Position::Prefix, Associativity::Right },
     { Operator::NotEqual, ArwenKeyword::NotEqual, 8 },
     { Operator::Range, ArwenKeyword::Range, 2 },
-    { Operator::Sequence, ',', 0 },
+    { Operator::Sequence, ',', 1 },
     { Operator::ShiftLeft, ArwenKeyword::ShiftLeft, 10 },
     { Operator::ShiftRight, ArwenKeyword::ShiftRight, 10 },
     { Operator::Subscript, '[', 15, Position::Postfix },
@@ -119,7 +121,7 @@ pModule Parser::parse_module(std::string_view name, std::wstring text)
     lexer.push_source(text);
 
     push_new_namespace();
-    Defer pop_ns { [this]() { pop_namespace(); }};
+    Defer       pop_ns { [this]() { pop_namespace(); } };
     SyntaxNodes statements;
     if (auto t = parse_statements(statements); !t.matches(TokenKind::EndOfFile)) {
         append(t, "Expected end of file");
@@ -131,8 +133,29 @@ pModule Parser::parse_module(std::string_view name, std::wstring text)
             as_wstring(name),
             std::move(text),
             statements,
-            namespaces.back()
-        );
+            namespaces.back());
+    }
+    return nullptr;
+}
+
+pSyntaxNode Parser::parse_script(std::wstring text)
+{
+    this->text = text;
+    lexer.push_source(text);
+
+    push_new_namespace();
+    Defer       pop_ns { [this]() { pop_namespace(); } };
+    SyntaxNodes statements;
+    level = ParseLevel::Block;
+    if (auto t = parse_statements(statements); !t.matches(TokenKind::EndOfFile)) {
+        append(t, "Expected end of file");
+        return nullptr;
+    }
+    if (!statements.empty()) {
+        return make_node<Block>(
+            statements[0]->location + statements.back()->location,
+            statements,
+            namespaces.back());
     }
     return nullptr;
 }
@@ -198,6 +221,7 @@ pSyntaxNode Parser::parse_module_level_statement()
 pSyntaxNode Parser::parse_statement()
 {
     auto t = lexer.peek();
+    // trace("parse_statement() t = {} [{}]", as_utf8(text_of(t)), TokenKind_name(t.kind));
     switch (t.kind) {
     case TokenKind::EndOfFile:
         append(t, "Unexpected end of file");
@@ -268,7 +292,7 @@ pSyntaxNode Parser::parse_statement()
             level = ParseLevel::Block;
             Defer defer { [this, old_level]() { level = old_level; } };
             push_new_namespace();
-            Defer pop_ns { [this]() { pop_namespace(); }};
+            Defer pop_ns { [this]() { pop_namespace(); } };
             if (auto const end_token = parse_statements(block); !end_token.matches_symbol('}')) {
                 append(t, "Unexpected end of block");
                 return nullptr;
@@ -295,11 +319,34 @@ pSyntaxNode Parser::parse_statement()
             lexer.lex();
             return nullptr;
         }
+    case TokenKind::Raw: {
+        auto raw = t.raw_text();
+        assert(raw.marker == ArwenInsertBlock::begin);
+        lexer.lex();
+        if (raw.end) {
+            return make_node<Insert>(t.location, text_at(raw.start, *raw.end));
+        } else {
+            append(t.location, "Unclosed `@insert` block");
+            return nullptr;
+        }
+    }
     default:
         lexer.lex();
         append(t, L"Unexpected token `{}`", text_of(t));
         return nullptr;
     }
+}
+
+std::wstring_view Parser::text_at(size_t start, std::optional<size_t> end) const
+{
+    if (start < text.length()) {
+        if (end) {
+            return text.substr(start, *end - start);
+        } else {
+            return text.substr(start);
+        }
+    }
+    return L"";
 }
 
 std::wstring_view Parser::text_of(Token const &token) const
@@ -336,6 +383,7 @@ std::wstring_view Parser::text_of(TokenLocation const &location) const
 pSyntaxNode Parser::parse_primary()
 {
     auto        token = lexer.peek();
+    // trace("parse_primary() t = {} [{}]", as_utf8(text_of(token)), TokenKind_name(token.kind));
     pSyntaxNode ret { nullptr };
     switch (token.kind) {
     case TokenKind::Number: {
@@ -404,6 +452,7 @@ pSyntaxNode Parser::parse_primary()
 pSyntaxNode Parser::parse_expression(Precedence min_prec)
 {
     auto lhs = parse_primary();
+    // trace("parse_expression({}) lhs = {}", min_prec, SyntaxNodeType_name(lhs->type));
     if (lhs == nullptr) {
         return nullptr;
     }
@@ -411,6 +460,7 @@ pSyntaxNode Parser::parse_expression(Precedence min_prec)
         if (auto op_maybe = check_postfix_op(); op_maybe) {
             auto op = op_maybe.value();
             auto bp = binding_power(op);
+            // trace("parse_expression({}) postfix op = {} ({})", min_prec, Operator_name(op.op), bp.left);
             if (bp.left < min_prec) {
                 break;
             }
@@ -435,6 +485,7 @@ pSyntaxNode Parser::parse_expression(Precedence min_prec)
         if (auto op_maybe = check_binop(); op_maybe) {
             auto op = op_maybe.value();
             auto bp = binding_power(op);
+            // trace("parse_expression({}) infix op = {} ({})", min_prec, Operator_name(op.op), bp.left);
             if (bp.left < min_prec) {
                 break;
             }
@@ -442,6 +493,11 @@ pSyntaxNode Parser::parse_expression(Precedence min_prec)
                 // Don't lex the '(' so parse_primary will return a
                 // single expression, probably a binop with op = ','.
                 auto param_list = parse_primary();
+                if (param_list == nullptr) {
+                    append(lhs->location, "Could not parse function call argument list");
+                    return nullptr;
+                }
+                // trace("parse_expression() param_list = {}", SyntaxNodeType_name(param_list->type));
                 return make_node<BinaryExpression>(lhs->location + param_list->location, lhs, Operator::Call, param_list);
             }
             auto token = lexer.lex();
@@ -449,6 +505,7 @@ pSyntaxNode Parser::parse_expression(Precedence min_prec)
             if (rhs == nullptr) {
                 return nullptr;
             }
+            // trace("parse_expression({}) rhs = {}", min_prec, SyntaxNodeType_name(rhs->type));
             lhs = make_node<BinaryExpression>(lhs->location + rhs->location, lhs, op.op, rhs);
             continue;
         }
@@ -769,8 +826,8 @@ pSyntaxNode Parser::parse_for()
     }
     token = lexer.peek();
     push_new_namespace();
-    Defer pop_for_ns { [this]{ pop_namespace(); }};
-    auto range = parse_expression();
+    Defer pop_for_ns { [this] { pop_namespace(); } };
+    auto  range = parse_expression();
     if (range == nullptr) {
         append(token, "Error parsing `for` range");
         return nullptr;
@@ -800,7 +857,7 @@ pSyntaxNode Parser::parse_func()
         append(res.error(), "Expected '(' in function definition");
     }
     push_new_namespace();
-    Defer pop_def_ns { [this]() { pop_namespace(); }};
+    Defer                   pop_def_ns { [this]() { pop_namespace(); } };
     std::vector<pParameter> params;
     while (true) {
         if (lexer.accept_symbol(')')) {
@@ -861,8 +918,7 @@ pSyntaxNode Parser::parse_func()
         return make_node<FunctionDefinition>(
             decl->location + impl->location,
             decl->name,
-            decl, impl, namespaces.back()
-        );
+            decl, impl, namespaces.back());
     }
     return nullptr;
 }
@@ -1192,8 +1248,11 @@ void Parser::push_namespace(pNamespace const &ns)
 
 void Parser::push_new_namespace()
 {
-    assert(!namespaces.empty());
-    namespaces.emplace_back(std::make_shared<Namespace>(namespaces.back()));
+    if (namespaces.empty()) {
+        namespaces.emplace_back(std::make_shared<Namespace>(nullptr));
+    } else {
+        namespaces.emplace_back(std::make_shared<Namespace>(namespaces.back()));
+    }
 }
 
 void Parser::pop_namespace()

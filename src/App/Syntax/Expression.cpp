@@ -379,6 +379,7 @@ pType BinaryExpression::bind(Parser &parser)
                     arg->name);
             }
         }
+        return func.result;
     }
 
     if (op == Operator::Cast) {

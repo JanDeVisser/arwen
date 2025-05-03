@@ -12,6 +12,7 @@
 #include <string>
 #include <string_view>
 #include <variant>
+#include <cwchar>
 
 #include <Util/Logging.h>
 #include <Util/Result.h>
@@ -33,7 +34,8 @@ using EnumResult = Result<ResultType, NoSuchEnumValue>;
     S(Symbol)               \
     S(Number)               \
     S(QuotedString)         \
-    S(Comment)
+    S(Comment)              \
+    S(Raw)
 
 #define TOKENKINDS(S)   \
     S(Unknown)          \
@@ -135,6 +137,13 @@ struct CommentText {
     bool        terminated;
 };
 
+template<typename Char>
+struct RawText {
+    Char const           *marker;
+    size_t                start;
+    std::optional<size_t> end;
+};
+
 enum class NoKeywordCode {
 };
 
@@ -173,7 +182,7 @@ struct LexerTypes {
     using KWMatch = KeywordMatch<Keyword>;
 
     struct Token {
-        using TokenValue = std::variant<std::monostate, NumberType, QuotedString, CommentText, Char, Keyword>;
+        using TokenValue = std::variant<std::monostate, NumberType, QuotedString, CommentText, RawText<Char>, Char, Keyword>;
 
         Token() = default;
         Token(Token const &) = default;
@@ -210,6 +219,14 @@ struct LexerTypes {
         {
             Token ret;
             ret.kind = TokenKind::Whitespace;
+            return ret;
+        }
+
+        static Token raw(Char const *marker, size_t start, std::optional<size_t> end)
+        {
+            Token ret;
+            ret.kind = TokenKind::Raw;
+            ret.value.template emplace<RawText<Char>>(marker, start, end);
             return ret;
         }
 
@@ -289,6 +306,12 @@ struct LexerTypes {
         {
             assert(kind == TokenKind::Comment);
             return std::get<CommentText>(value);
+        }
+
+        [[nodiscard]] RawText<Char> const &raw_text() const
+        {
+            assert(kind == TokenKind::Raw);
+            return std::get<RawText<Char>>(value);
         }
 
         bool operator==(TokenKind const &k) const
@@ -485,6 +508,53 @@ struct LexerTypes {
     };
 
     using CStyleComments = ScannerPack<LineComments<SlashSlash>, BlockComments<CBlockComments>>;
+
+    template<typename Markers>
+    struct RawScanner {
+        constexpr static Char const *begin = Markers::begin;
+        constexpr static Char const *end = Markers::end;
+        size_t                       begin_length;
+        size_t                       end_length;
+
+        RawScanner()
+        {
+            if constexpr (typeid(Char) == typeid(char)) {
+                begin_length = strlen(begin);
+                end_length = strlen(end);
+            }
+            if constexpr (typeid(Char) == typeid(wchar_t)) {
+                begin_length = wcslen(begin);
+                end_length = wcslen(end);
+            }
+        }
+
+        std::optional<ScanResult> scan(Buffer const &buffer, size_t index)
+        {
+            auto cur = buffer[index];
+            auto ix = index;
+            for (; ix < buffer.length() && ix - index < begin_length; ++ix) {
+                if (begin[ix - index] != buffer[ix]) {
+                    return {};
+                }
+            }
+            if (ix == buffer.length() && ix - index < begin_length) {
+                return {};
+            }
+            auto start = ix;
+            for (; ix < buffer.length(); ++ix) {
+                auto iix = ix;
+                for (; iix < buffer.length() && iix - ix < end_length; ++iix) {
+                    if (end[iix - ix] != buffer[iix]) {
+                        break;
+                    }
+                    if (iix - ix + 1 == end_length) {
+                        return ScanResult { Token::raw(begin, start, ix), iix - index + 1};
+                    }
+                }
+            }
+            return ScanResult { Token::raw(begin, start, {}), ix - index };
+        }
+    };
 
     struct NumberScanner {
         std::optional<ScanResult> scan(Buffer const &buffer, size_t index)

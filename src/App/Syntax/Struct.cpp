@@ -16,9 +16,9 @@ namespace Arwen {
 StructMember::StructMember(std::wstring label, pTypeSpecification type)
     : SyntaxNode(SyntaxNodeType::StructMember)
     , label(std::move(label))
-    , type(std::move(type))
+    , member_type(std::move(type))
 {
-    assert(this->type != nullptr);
+    assert(this->member_type != nullptr);
 }
 
 pSyntaxNode StructMember::normalize(Parser &parser)
@@ -26,7 +26,7 @@ pSyntaxNode StructMember::normalize(Parser &parser)
     return make_node<StructMember>(
         location,
         label,
-        normalize_node(type, parser));
+        normalize_node(member_type, parser));
 }
 
 pType StructMember::bind(Parser &parser)
@@ -36,7 +36,7 @@ pType StructMember::bind(Parser &parser)
 
 std::wostream& StructMember::header(std::wostream &os)
 {
-    return os << label << ' ' << type->to_string();
+    return os << label << ' ' << member_type->to_string();
 }
 
 Struct::Struct(std::wstring name, StructMembers members)
@@ -58,8 +58,8 @@ pType Struct::bind(Parser &parser)
 {
     StructType strukt;
     for (auto const& m : members) {
-        if (auto type = m->type->resolve(parser); type == nullptr) {
-            parser.append(m->type->location, L"Could not resolve type `{}`", m->type->to_string());
+        if (auto type = m->member_type->resolve(parser); type == nullptr) {
+            parser.append(m->member_type->location, L"Could not resolve type `{}`", m->member_type->to_string());
             return nullptr;
         } else {
             strukt.fields.emplace_back(m->label, type);

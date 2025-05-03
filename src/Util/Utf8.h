@@ -6,8 +6,9 @@
 
 #pragma once
 
-#include <Util/Result.h>
 #include <string>
+
+#include <Util/Result.h>
 
 namespace Util {
 
@@ -19,7 +20,7 @@ Result<std::wstring> read_utf8(std::ifstream &is);
 template<class T>
 std::string as_utf8(std::basic_string_view<T> const &)
 {
-    UNREACHABLE();
+    static_assert(false);
 }
 
 template<>
@@ -31,13 +32,17 @@ inline std::string as_utf8(std::string_view const &s)
 template<>
 inline std::string as_utf8(std::wstring_view const &s)
 {
-    return MUST_EVAL(to_utf8(s));
+    if (auto result_maybe = to_utf8(s); result_maybe.is_error()) {
+        abort();
+    } else {
+        return result_maybe.value();
+    }
 }
 
 template<class T>
 std::string as_utf8(std::basic_string<T> const &)
 {
-    UNREACHABLE();
+    static_assert(false);
 }
 
 template<>
@@ -49,7 +54,11 @@ inline std::string as_utf8(std::string const &s)
 template<>
 inline std::string as_utf8(std::wstring const &s)
 {
-    return MUST_EVAL(to_utf8(s));
+    if (auto result_maybe = to_utf8(s); result_maybe.is_error()) {
+        abort();
+    } else {
+        return result_maybe.value();
+    }
 }
 
 inline std::string as_utf8(const char *s)
@@ -65,13 +74,17 @@ inline std::string as_utf8(const wchar_t *s)
 template<class T>
 std::wstring as_wstring(std::basic_string_view<T> const &)
 {
-    UNREACHABLE();
+    static_assert(false);
 }
 
 template<>
 inline std::wstring as_wstring(std::string_view const &s)
 {
-    return MUST_EVAL(to_wstring(s));
+    if (auto result_maybe = to_wstring(s); result_maybe.is_error()) {
+        abort();
+    } else {
+        return result_maybe.value();
+    }
 }
 
 template<>
@@ -83,13 +96,17 @@ inline std::wstring as_wstring(std::wstring_view const &s)
 template<class T>
 std::wstring as_wstring(std::basic_string<T> const &)
 {
-    UNREACHABLE();
+    static_assert(false);
 }
 
 template<>
 inline std::wstring as_wstring(std::string const &s)
 {
-    return MUST_EVAL(to_wstring(s));
+    if (auto result_maybe = to_wstring(s); result_maybe.is_error()) {
+        abort();
+    } else {
+        return result_maybe.value();
+    }
 }
 
 template<>

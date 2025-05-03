@@ -78,47 +78,50 @@ enum class Associativity {
     Right,
 };
 
-#define Operators(S)    \
-    S(Add)              \
-    S(Assign)           \
-    S(AssignAnd)        \
-    S(AssignDecrement)  \
-    S(AssignDivide)     \
-    S(AssignIncrement)  \
-    S(AssignModulo)     \
-    S(AssignMultiply)   \
-    S(AssignOr)         \
-    S(AssignShiftLeft)  \
-    S(AssignShiftRight) \
-    S(AssignXor)        \
-    S(BinaryAnd)        \
-    S(BinaryInvert)     \
-    S(BinaryOr)         \
-    S(BinaryXor)        \
-    S(Call)             \
-    S(Cast)             \
-    S(Divide)           \
-    S(Equals)           \
-    S(Greater)          \
-    S(GreaterEqual)     \
-    S(Idempotent)       \
-    S(Invert)           \
-    S(Less)             \
-    S(LessEqual)        \
-    S(LogicalAnd)       \
-    S(LogicalInvert)    \
-    S(LogicalOr)        \
-    S(MemberAccess)     \
-    S(Modulo)           \
-    S(Multiply)         \
-    S(Negate)           \
-    S(NotEqual)         \
-    S(Range)            \
-    S(Sequence)         \
-    S(ShiftLeft)        \
-    S(ShiftRight)       \
-    S(Subscript)        \
+#define BinOps(S)    \
+    S(Add)           \
+    S(BinaryAnd)     \
+    S(BinaryInvert)  \
+    S(BinaryOr)      \
+    S(BinaryXor)     \
+    S(Call)          \
+    S(Cast)          \
+    S(Divide)        \
+    S(Equals)        \
+    S(Greater)       \
+    S(GreaterEqual)  \
+    S(Idempotent)    \
+    S(Less)          \
+    S(LessEqual)     \
+    S(LogicalAnd)    \
+    S(LogicalInvert) \
+    S(LogicalOr)     \
+    S(MemberAccess)  \
+    S(Modulo)        \
+    S(Multiply)      \
+    S(Negate)        \
+    S(NotEqual)      \
+    S(Range)         \
+    S(Sequence)      \
+    S(ShiftLeft)     \
+    S(ShiftRight)    \
+    S(Subscript)     \
     S(Subtract)
+
+#define AssignmentOps(S) \
+    S(Assign)            \
+    S(AssignAnd)         \
+    S(AssignDecrement)   \
+    S(AssignDivide)      \
+    S(AssignIncrement)   \
+    S(AssignModulo)      \
+    S(AssignMultiply)    \
+    S(AssignOr)          \
+    S(AssignShiftLeft)   \
+    S(AssignShiftRight)  \
+    S(AssignXor)
+
+#define Operators(S) AssignmentOps(S) BinOps(S)
 
 enum class Operator : int {
 #undef S

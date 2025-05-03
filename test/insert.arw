@@ -1,0 +1,12 @@
+func bar(x: i32, y: i32) i32
+{
+  x + y
+}
+
+func foo(x: i32) i32
+{
+@insert
+  output = "bar(x, 2::i32)"
+@end
+}
+

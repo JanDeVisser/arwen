@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <cassert>
 #include <fstream>
 #include <iconv.h>
 #include <locale>

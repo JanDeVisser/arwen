@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include "Util/Utf8.h"
 #include <cstring>
 #include <format>
 #include <iostream>
@@ -37,7 +38,39 @@ enum class LogLevel {
 #undef S
 };
 
-char const             *LogLevel_name(LogLevel);
+struct LogLevelDescription {
+    LogLevel       level;
+    char const    *name;
+    wchar_t const *wname;
+};
+
+constexpr LogLevelDescription log_level_descriptions[] = {
+    { LogLevel::None, "None", L"None" },
+    { LogLevel::Trace, "Trace", L"Trace" },
+    { LogLevel::Info, "Info", L"Info" },
+    { LogLevel::Warning, "Warning", L"Warning" },
+    { LogLevel::Error, "Error", L"Error" },
+    { LogLevel::Fatal, "Fatal", L"Fatal" },
+};
+
+template<typename T>
+constexpr T const *LogLevel_name(LogLevel level)
+{
+    static_assert(false, "LogLevel_name<T> must be for char or wchar_t");
+}
+
+template<>
+constexpr inline char const *LogLevel_name(LogLevel level)
+{
+    return log_level_descriptions[static_cast<int>(level)].name;
+}
+
+template<>
+constexpr inline wchar_t const *LogLevel_name(LogLevel level)
+{
+    return log_level_descriptions[static_cast<int>(level)].wname;
+}
+
 std::optional<LogLevel> LogLevel_by_name(std::string_view const &);
 
 template<typename T>
@@ -49,12 +82,78 @@ struct LogMessage {
     T const         *message;
 };
 
+template<typename T>
+std::basic_string<T> file_name(LogMessage<T> const &)
+{
+    static_assert(false, "file_name(LogMessage<T>) must be for char or wchar_t");
+}
+
+template<>
+inline std::string file_name(LogMessage<char> const &msg)
+{
+    std::string f { msg.file };
+    if (f.front() == '/') {
+        auto ix = f.find_last_of('/');
+        if (ix != std::string_view::npos) {
+            auto len = f.length() - ix - 1;
+            if (len > 19) {
+                len = 19;
+            }
+            f = f.substr(ix + 1, len);
+        }
+    }
+    return f;
+}
+
+template<>
+inline std::wstring file_name(LogMessage<wchar_t> const &msg)
+{
+    std::wstring f { as_wstring(msg.file) };
+    if (f.front() == '/') {
+        auto ix = f.find_last_of('/');
+        if (ix != std::string_view::npos) {
+            auto len = f.length() - ix - 1;
+            if (len > 19) {
+                len = 19;
+            }
+            f = f.substr(ix + 1, len);
+        }
+    }
+    return f;
+}
+
+template<typename T, typename... Args>
+std::basic_string<T> build_message(LogMessage<T> const &, Args &&...args)
+{
+    static_assert(false, "build_message(LogMessage<T>, ...) must be for char or wchar_t");
+}
+
+template<typename... Args>
+inline std::string build_message(LogMessage<char> const &msg, Args &&...args)
+{
+    auto file_line = std::format("{}:{}", file_name(msg), msg.line);
+    auto prefix = std::format("{:<24}:{:<20}:{:<5}:", file_line, msg.function, LogLevel_name<char>(msg.level));
+    auto message = std::vformat(msg.message, std::make_format_args(args...));
+    return std::format("{}{}", prefix, message);
+}
+
+template<typename... Args>
+inline std::wstring build_message(LogMessage<wchar_t> const &msg, Args &&...args)
+{
+    auto function = as_wstring(msg.function);
+    auto file_line = std::format(L"{}:{}", file_name(msg), msg.line);
+    auto prefix = std::format(L"{:<24}:{:<20}:{:<5}:", file_line, function, LogLevel_name<wchar_t>(msg.level));
+    auto message = std::vformat(msg.message, std::make_wformat_args(args...));
+    return std::format(L"{}{}", prefix, message);
+}
+
 static constexpr LogLevel m_level = LogLevel::Trace;
-extern std::mutex g_logging_mutex;
+extern std::mutex         g_logging_mutex;
 
 template<typename T>
 void print_message(std::basic_string<T> const &msg)
 {
+    static_assert(false, "print_message(std::basic_string<T>) must be for char or wchar_t");
 }
 
 template<>
@@ -72,25 +171,11 @@ inline void print_message(std::wstring const &msg)
 }
 
 template<typename T, typename... Args>
-void logmsg(LogMessage<T> const &msg, Args const &...args)
+void logmsg(LogMessage<T> const &msg, Args &&...args)
 {
     std::lock_guard<std::mutex> const lock(g_logging_mutex);
     if (msg.level >= m_level) {
-        std::string_view f(msg.file);
-        if (f.front() == '/') {
-            auto ix = f.find_last_of('/');
-            if (ix != std::string_view::npos) {
-                auto len = f.length() - ix - 1;
-                if (len > 19) {
-                    len = 19;
-                }
-                f = f.substr(ix + 1, len);
-            }
-        }
-        auto file_line = std::format("{}:{}", f, msg.line);
-        auto prefix = std::format("{:<24}:{:<20}:{:<5}:", file_line, msg.function, LogLevel_name(msg.level));
-        auto message = std::vformat(msg.message, std::make_format_args(args...));
-        print_message(std::format("{}{}", prefix, message));
+        print_message(build_message(msg, std::forward<Args>(args)...));
     }
 }
 

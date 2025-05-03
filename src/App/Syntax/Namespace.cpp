@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "Util/Utf8.h"
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
 

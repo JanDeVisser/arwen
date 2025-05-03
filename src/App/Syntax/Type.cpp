@@ -91,7 +91,11 @@ pSyntaxNode TypeSpecification::normalize(Parser &parser)
 
 pType TypeSpecification::bind(Parser &parser)
 {
-    return resolve(parser);
+    auto ret = resolve(parser);
+    if (ret == nullptr) {
+        ret = TypeRegistry::undetermined;
+    }
+    return ret;
 }
 
 std::wostream& TypeSpecification::header(std::wostream &os)

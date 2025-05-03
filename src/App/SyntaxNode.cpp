@@ -59,11 +59,7 @@ std::wostream &SyntaxNode::header_line(std::wostream &os)
 void SyntaxNode::dump(int indent)
 {
     print_indent(indent);
-    std::cout << SyntaxNodeType_name(type) << " (" << location.index << ".." << location.index + location.length << ") ";
-    header(std::wcout);
-    if (bound_type != nullptr) {
-        std::wcout << " -> " << bound_type->name;
-    }
+    header_line(std::wcout);
     std::cout << std::endl;
     dump_node(indent);
 }

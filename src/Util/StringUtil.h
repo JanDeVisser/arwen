@@ -8,12 +8,11 @@
 
 #include <algorithm>
 #include <cxxabi.h>
+#include <iostream>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
-
-#include <Util/Logging.h>
 
 namespace Util {
 
@@ -159,7 +158,10 @@ template<std::integral Int, typename Str = std::string>
 
     if (radix == 0)
         radix = 10;
-    assert(radix < 36);
+    if (radix > 36) {
+        std::cerr << "Radix must be less than 37\n";
+        abort();
+    }
 
     Int      val { 0 };
     uint64_t exp { 1 };

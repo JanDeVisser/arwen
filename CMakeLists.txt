@@ -86,6 +86,7 @@ add_executable(
         src/App/Syntax/Function.cpp
         src/App/Syntax/Import.cpp
         src/App/Syntax/Include.cpp
+        src/App/Syntax/Insert.cpp
         src/App/Syntax/Loop.cpp
         src/App/Syntax/Module.cpp
         src/App/Syntax/Namespace.cpp
@@ -98,6 +99,8 @@ add_executable(
         src/App/Syntax/Type.cpp
         src/App/Syntax/Variable.cpp
         src/App/Type.cpp
+        src/Interp/Interpreter.cpp
+        src/Interp/Value.cpp
 )
 
 target_link_libraries(

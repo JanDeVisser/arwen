@@ -10,16 +10,16 @@
 #include <format>
 #include <string>
 
-#include <Util/StringUtil.h>
+#include <config.h>
 
 namespace Util {
 
 struct LibCError {
-#ifdef IS_APPLE
-    static constexpr int ECUSTOM = EQFULL + 1;
-#endif
 #ifdef IS_LINUX
     static constexpr int ECUSTOM = EHWPOISON + 1;
+#endif
+#ifdef IS_APPLE
+    static constexpr int ECUSTOM = EQFULL + 1;
 #endif
 
     int         err_no = { 0 };

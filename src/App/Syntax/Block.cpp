@@ -9,6 +9,7 @@
 #include <App/Parser.h>
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
+#include <cstddef>
 
 namespace Arwen {
 
@@ -26,7 +27,12 @@ pSyntaxNode Block::normalize(Parser &parser)
     assert(ns != nullptr);
     SyntaxNodes normalized;
     for (auto const &stmt : statements) {
-        normalized.emplace_back(stmt->normalize(parser));
+        auto new_stmt = stmt->normalize(parser);
+        if (new_stmt == nullptr) {
+            parser.append(location, "Folding statement failed");
+            return nullptr;
+        }
+        normalized.emplace_back(new_stmt);
     }
     return make_node<Block>(location, normalized, ns);
 }
