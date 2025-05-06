@@ -10,8 +10,19 @@
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
 #include <cstddef>
+#include <memory>
 
 namespace Arwen {
+
+Block::Block(SyntaxNodes statements, SyntaxNodes deferred, pNamespace const& ns)
+    : SyntaxNode(SyntaxNodeType::Block, ns)
+    , statements(statements)
+    , deferred_statements(deferred)
+{
+    if (this->ns == nullptr) {
+        assert(this->ns != nullptr);
+    }
+}
 
 Block::Block(SyntaxNodes statements, pNamespace const& ns)
     : SyntaxNode(SyntaxNodeType::Block, ns)
@@ -32,9 +43,13 @@ pSyntaxNode Block::normalize(Parser &parser)
             parser.append(location, "Folding statement failed");
             return nullptr;
         }
-        normalized.emplace_back(new_stmt);
+        if (auto defer = std::dynamic_pointer_cast<DeferStatement>(new_stmt); defer != nullptr) {
+            deferred_statements.push_back(new_stmt);
+        } else {
+            normalized.emplace_back(new_stmt);
+        }
     }
-    return make_node<Block>(location, normalized, ns);
+    return make_node<Block>(location, normalized, deferred_statements, ns);
 }
 
 pType Block::bind(Parser &parser)
@@ -50,6 +65,12 @@ pType Block::bind(Parser &parser)
             undetermined = TypeRegistry::undetermined;
         }
     }
+    for (auto &statement : deferred_statements) {
+        type = bind_node(statement, parser);
+        if (type == TypeRegistry::undetermined) {
+            undetermined = TypeRegistry::undetermined;
+        }
+    }
     if (undetermined != nullptr) {
         return undetermined;
     }
@@ -60,6 +81,12 @@ void Block::dump_node(int indent)
 {
     for (auto const &stmt : statements) {
         stmt->dump(indent + 4);
+    }
+    if (!deferred_statements.empty()) {
+        printf("%*.*sDeferred\n", indent, indent, "");
+        for (auto const &stmt : deferred_statements) {
+            stmt->dump(indent + 4);
+        }
     }
 }
 

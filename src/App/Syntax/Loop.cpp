@@ -44,7 +44,7 @@ pType ForStatement::bind(Parser &parser)
     }
     parser.push_namespace(ns);
     Defer pop_namespace { [&parser]() { parser.pop_namespace(); } };
-    parser.register_name(range_variable, range_expr);
+    parser.register_variable(range_variable, range_expr);
     auto block_type = bind_node(statement, parser);
     return block_type;
 }

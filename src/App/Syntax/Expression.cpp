@@ -4,8 +4,10 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "Util/Logging.h"
 #include <functional>
 #include <memory>
+#include <ostream>
 #include <print>
 #include <ranges>
 #include <variant>
@@ -74,7 +76,7 @@ pSyntaxNode BinaryExpression::normalize(Parser &parser)
             }
         };
         flatten(shared_from_this());
-        return make_node<ExpressionList>(nodes, nodes)->normalize(parser);
+        return make_node<ExpressionList>(nodes, nodes)->normalize(parser)->normalize(parser);
     };
 
     auto make_member_path = [this, &parser]() -> pSyntaxNode {
@@ -112,10 +114,10 @@ pSyntaxNode BinaryExpression::normalize(Parser &parser)
         if (path.empty()) {
             return nullptr;
         }
-        return make_node<MemberPath>(path[0]->location + path.back()->location, path);
+        return make_node<MemberPath>(path[0]->location + path.back()->location, path)->normalize(parser);
     };
 
-    auto evaluate = [this](pSyntaxNode const &lhs, Operator op, pSyntaxNode const &rhs) -> pSyntaxNode {
+    auto evaluate = [this, &parser](pSyntaxNode const &lhs, Operator op, pSyntaxNode const &rhs) -> pSyntaxNode {
         auto lhs_const = std::dynamic_pointer_cast<ConstantExpression>(lhs);
         auto rhs_const = std::dynamic_pointer_cast<ConstantExpression>(rhs);
         if (lhs_const != nullptr && rhs_const != nullptr) {
@@ -136,7 +138,8 @@ pSyntaxNode BinaryExpression::normalize(Parser &parser)
                 location,
                 make_node<MemberPath>(new_lhs->location, path),
                 op,
-                new_rhs);
+                new_rhs)
+                ->normalize(parser);
         }
         if (std::dynamic_pointer_cast<MemberPath>(new_lhs) == nullptr) {
             parser.append(location, "Cannot assign to non-lvalues");
@@ -146,12 +149,23 @@ pSyntaxNode BinaryExpression::normalize(Parser &parser)
             location,
             new_lhs,
             op,
-            new_rhs);
+            new_rhs)
+            ->normalize(parser);
     }
-    case Operator::Sequence:
-        return make_expression_list();
+    case Operator::Call: {
+        auto arg_list = rhs->normalize(parser);
+        if (std::dynamic_pointer_cast<Void>(arg_list) != nullptr) {
+            arg_list = make_node<ExpressionList>(arg_list->location, SyntaxNodes {});
+        }
+        if (std::dynamic_pointer_cast<ExpressionList>(arg_list) == nullptr) {
+            arg_list = make_node<ExpressionList>(arg_list->location, SyntaxNodes { arg_list });
+        }
+        return make_node<Call>(location, lhs->normalize(parser), std::dynamic_pointer_cast<ExpressionList>(arg_list));
+    }
     case Operator::MemberAccess:
         return make_member_path();
+    case Operator::Sequence:
+        return make_expression_list();
     default:
         if (assign_ops.contains(op)) {
             auto bin_expr = make_node<BinaryExpression>(location, lhs->normalize(parser), assign_ops[op], rhs->normalize(parser));
@@ -383,23 +397,32 @@ pType BinaryExpression::bind(Parser &parser)
     }
 
     if (op == Operator::Cast) {
-        return std::visit(overloads {
-            [&rhs_type, this, &parser](IntType const& lhs_int_type, IntType const& rhs_int_type) {
-                if (lhs_int_type.width_bits > rhs_int_type.width_bits) {
-                    return parser.bind_error(
-                        location,
-                        L"Invalid argument type. Cannot narrow integers"
-                    );
+        auto lhs_const = std::dynamic_pointer_cast<ConstantExpression>(lhs);
+        if (lhs_const != nullptr && op == Operator::Cast) {
+            if (auto rhs_type = std::dynamic_pointer_cast<TypeSpecification>(rhs); rhs_type != nullptr) {
+                if (auto type = rhs_type->resolve(parser); type != nullptr) {
+                    if (auto casted = lhs_const->coerce(type, parser); casted != nullptr) {
+                        lhs_type = lhs->bound_type = type;
+                        return type;
+                    }
                 }
-                return rhs_type;
-            },
-            [this, &parser](auto const&, auto const&) {
-                return parser.bind_error(
-                    location,
-                    L"Invalid argument type. Can only cast integers"
-                );
             }
-        }, lhs_type->description, rhs_type->description);
+        }
+        return std::visit(overloads {
+                              [&rhs_type, this, &parser](IntType const &lhs_int_type, IntType const &rhs_int_type) {
+                                  if (lhs_int_type.width_bits > rhs_int_type.width_bits) {
+                                      return parser.bind_error(
+                                          location,
+                                          L"Invalid argument type. Cannot narrow integers");
+                                  }
+                                  return rhs_type;
+                              },
+                              [this, &parser](auto const &, auto const &) {
+                                  return parser.bind_error(
+                                      location,
+                                      L"Invalid argument type. Can only cast integers");
+                              } },
+            lhs_type->description, rhs_type->description);
     }
 
     for (auto const &o : binary_ops) {
@@ -436,7 +459,7 @@ pType BinaryExpression::bind(Parser &parser)
         rhs_type->name);
 }
 
-std::wostream& BinaryExpression::header(std::wostream &os)
+std::wostream &BinaryExpression::header(std::wostream &os)
 {
     return os << Operator_name(op);
 }
@@ -532,7 +555,7 @@ pType UnaryExpression::bind(Parser &parser)
         operand_type->name);
 }
 
-std::wostream& UnaryExpression::header(std::wostream &os)
+std::wostream &UnaryExpression::header(std::wostream &os)
 {
     return os << Operator_name(op);
 }
@@ -618,7 +641,7 @@ pType MemberPath::bind(Parser &parser)
     return type;
 }
 
-std::wostream& MemberPath::header(std::wostream &os)
+std::wostream &MemberPath::header(std::wostream &os)
 {
     bool first = true;
     for (auto const &segment : path) {

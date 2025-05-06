@@ -18,7 +18,7 @@ Identifier::Identifier(std::wstring_view identifier)
 
 pType Identifier::bind(Parser &parser)
 {
-    auto const &type = parser.find_name(identifier);
+    auto const &type = parser.type_of(identifier);
     if (type == nullptr) {
         if (parser.pass == 0) {
             return TypeRegistry::undetermined;
@@ -78,10 +78,10 @@ pType VariableDeclaration::bind(Parser &parser)
             assert(my_type == init_type);
         }
     }
-    if (parser.find_name(name) != nullptr) {
+    if (parser.find_type(name) != nullptr) {
         return parser.bind_error(location, std::format(L"Duplicate variable name `{}`", name));
     }
-    parser.register_name(name, shared_from_this());
+    parser.register_variable(name, shared_from_this());
     return my_type;
 }
 

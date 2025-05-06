@@ -141,7 +141,7 @@ std::wstring TypeSpecification::to_string()
 pType TypeSpecification::resolve(Parser &parser)
 {
     return std::visit(overloads {
-                          [this, &parser](TypeNameNode const &d) -> pType {
+                          [this, &parser](TypeNameNode d) -> pType {
                               auto t = parser.find_type(d.name);
                               if (t == nullptr) {
                                   return nullptr;
@@ -151,19 +151,19 @@ pType TypeSpecification::resolve(Parser &parser)
                               }
                               return t;
                           },
-                          [this, &parser](SliceDescriptionNode const &d) -> pType {
+                          [this, &parser](SliceDescriptionNode d) -> pType {
                               return TypeRegistry::the().slice_of(d.slice_of->resolve(parser));
                           },
-                          [this, &parser](ZeroTerminatedArrayDescriptionNode const &d) -> pType {
+                          [this, &parser](ZeroTerminatedArrayDescriptionNode d) -> pType {
                               return TypeRegistry::the().zero_terminated_array_of(d.array_of->resolve(parser));
                           },
-                          [this, &parser](ArrayDescriptionNode const &d) -> pType {
+                          [this, &parser](ArrayDescriptionNode d) -> pType {
                               return TypeRegistry::the().array_of(d.array_of->resolve(parser), d.size);
                           },
-                          [this, &parser](OptionalDescriptionNode const &d) -> pType {
+                          [this, &parser](OptionalDescriptionNode d) -> pType {
                               return TypeRegistry::the().optional_of(d.optional_of->resolve(parser));
                           },
-                          [this, &parser](ErrorDescriptionNode const &d) -> pType {
+                          [this, &parser](ErrorDescriptionNode d) -> pType {
                               return TypeRegistry::the().error_of(d.success->resolve(parser), d.error->resolve(parser));
                           },
                       },

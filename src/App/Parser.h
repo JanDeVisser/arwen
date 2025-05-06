@@ -102,13 +102,18 @@ struct Parser {
     pSyntaxNode                parse_while();
     pSyntaxNode                parse_yield();
 
-    pType find_name(std::wstring const &name) const;
-    void  register_name(std::wstring name, pSyntaxNode node);
-    pType find_type(std::wstring const &name) const;
-    void  register_type(std::wstring name, pType type);
-    void  push_namespace(pNamespace const &ns);
-    void  push_new_namespace();
-    void  pop_namespace();
+    pType               type_of(std::wstring const &name) const;
+    bool                has_function(std::wstring const &name, pType const &type) const;
+    pFunctionDefinition find_function(std::wstring const &name, pType const &type) const;
+    pFunctionDefinition find_function_by_arg_list(std::wstring const &name, pType const &type) const;
+    void                register_variable(std::wstring name, pSyntaxNode node);
+    void                register_function(std::wstring name, pFunctionDefinition node);
+    void                unregister_function(std::wstring name, pFunctionDefinition node);
+    pType               find_type(std::wstring const &name) const;
+    void                register_type(std::wstring name, pType type);
+    void                push_namespace(pNamespace const &ns);
+    void                push_new_namespace();
+    void                pop_namespace();
 
     void append(LexerErrorMessage const &lexer_error);
     void append(LexerErrorMessage const &lexer_error, char const *message);

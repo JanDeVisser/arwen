@@ -46,7 +46,7 @@ pType Program::bind(Parser &parser)
             ns->register_type(t->name, t);
         }
         for (auto &[_, mod] : modules) {
-            ns->register_name(mod->name, mod);
+            ns->register_variable(mod->name, mod);
         }
     }
     for (auto &[_, mod] : modules) {

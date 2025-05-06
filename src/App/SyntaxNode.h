@@ -7,6 +7,8 @@
 #pragma once
 
 #include <concepts>
+#include <iterator>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -26,6 +28,7 @@ using namespace Util;
     S(Block)               \
     S(BoolConstant)        \
     S(Break)               \
+    S(Call)                \
     S(Continue)            \
     S(Decimal)             \
     S(DeferStatement)      \
@@ -82,22 +85,36 @@ using pBoundNode = std::shared_ptr<struct BoundNode>;
 using Label = std::optional<std::wstring>;
 using pTypeSpecification = std::shared_ptr<struct TypeSpecification>;
 using TypeSpecifications = std::vector<pTypeSpecification>;
+using pExpressionList = std::shared_ptr<struct ExpressionList>;
+using pFunctionDefinition = std::shared_ptr<struct FunctionDefinition>;
 
 struct Parser;
 
 using pNamespace = std::shared_ptr<struct Namespace>;
 
 struct Namespace {
-    std::map<std::wstring, pType>       types {};
-    std::map<std::wstring, pSyntaxNode> names {};
-    pNamespace                          parent { nullptr };
+    using VariableMap = std::map<std::wstring, pSyntaxNode>;
+    using TypeMap = std::map<std::wstring, pType>;
+    using FunctionMap = std::multimap<std::wstring, pFunctionDefinition>;
+    using FunctionIter = FunctionMap::iterator;
+    using FunctionConstIter = FunctionMap::const_iterator;
+
+    TypeMap     types {};
+    FunctionMap functions {};
+    VariableMap variables {};
+    pNamespace  parent { nullptr };
 
     Namespace(pNamespace parent = nullptr);
-    pType       find_type(std::wstring const &name) const;
-    void        register_type(std::wstring name, pType type);
-    pSyntaxNode find_name(std::wstring const &name) const;
-    pType       type_of(std::wstring const &name) const;
-    void        register_name(std::wstring name, pSyntaxNode node);
+    pType               find_type(std::wstring const &name) const;
+    void                register_type(std::wstring name, pType type);
+    void                register_function(std::wstring name, pFunctionDefinition fnc);
+    void                unregister_function(std::wstring name, pFunctionDefinition fnc);
+    pFunctionDefinition find_function(std::wstring const &name, pType const &type) const;
+    pFunctionDefinition find_function_by_arg_list(std::wstring const &name, pType const &type) const;
+    FunctionConstIter   find_function_here(std::wstring name, pType const &type) const;
+    pSyntaxNode         find_variable(std::wstring const &name) const;
+    pType               type_of(std::wstring const &name) const;
+    void                register_variable(std::wstring name, pSyntaxNode node);
 };
 
 struct SyntaxNode : std::enable_shared_from_this<SyntaxNode> {
@@ -203,7 +220,9 @@ struct ConstantExpression : SyntaxNode {
 
 struct Block : SyntaxNode {
     SyntaxNodes statements;
+    SyntaxNodes deferred_statements;
 
+    Block(SyntaxNodes statements, SyntaxNodes deferred, pNamespace const &ns);
     Block(SyntaxNodes statements, pNamespace const &ns);
 
     pSyntaxNode normalize(Parser &parser) override;
@@ -226,6 +245,17 @@ struct Break : SyntaxNode {
     Break(Label label);
 
     pType          bind(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
+};
+
+struct Call : SyntaxNode {
+    pSyntaxNode         callable;
+    pExpressionList     arguments;
+    pFunctionDefinition function;
+
+    Call(pSyntaxNode callable, pExpressionList arguments);
+    pType          bind(Parser &parser) override;
+    void           dump_node(int indent) override;
     std::wostream &header(std::wostream &os) override;
 };
 
@@ -373,8 +403,6 @@ struct FunctionDefinition : SyntaxNode {
     void        dump_node(int indent) override;
 };
 
-using pFunctionDefinition = std::shared_ptr<FunctionDefinition>;
-
 struct Identifier : SyntaxNode {
     std::wstring identifier;
 
@@ -416,8 +444,8 @@ struct Insert : SyntaxNode {
     std::wstring script_text;
 
     Insert(std::wstring_view script_text);
-    pSyntaxNode    normalize(Parser &parser) override;
-    pType          bind(Parser &parser) override;
+    pSyntaxNode normalize(Parser &parser) override;
+    pType       bind(Parser &parser) override;
 };
 
 struct LoopStatement : SyntaxNode {

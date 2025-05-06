@@ -26,7 +26,7 @@ pType ExternLink::bind(Parser &parser)
     return TypeRegistry::void_;
 }
 
-std::wostream& ExternLink::header(std::wostream &os)
+std::wostream &ExternLink::header(std::wostream &os)
 {
     return os << link_name;
 }
@@ -68,13 +68,10 @@ pType FunctionDeclaration::bind(Parser &parser)
     if (result_type == TypeRegistry::ambiguous || result_type == TypeRegistry::undetermined) {
         return result_type;
     }
-    if (parser.find_name(name) != nullptr) {
-        return parser.bind_error(location, L"Duplicate variable name `{}`", name);
-    }
     return TypeRegistry::the().function_of(parameter_types, result_type);
 }
 
-std::wostream& FunctionDeclaration::header(std::wostream &os)
+std::wostream &FunctionDeclaration::header(std::wostream &os)
 {
     return os << name << ": " << return_type->to_string();
 }
@@ -107,24 +104,31 @@ pSyntaxNode FunctionDefinition::normalize(Parser &parser)
 
 pType FunctionDefinition::bind(Parser &parser)
 {
-    if (auto t = bind_node(declaration, parser); t->is<BindErrors>()) {
+    if (auto const &t = bind_node(declaration, parser); t->is<BindErrors>() || t->is<Undetermined>()) {
+        return t;
+    } else {
+        assert(t->is<FunctionType>());
+        if (parser.has_function(name, t)) {
+            return parser.bind_error(location, L"Duplicate overload for function `{}` with type `{}`", name, t->to_string());
+        }
+        bound_type = t; // Cheating? Needed when function is called recursively.
+        parser.register_function(name, std::dynamic_pointer_cast<FunctionDefinition>(shared_from_this()));
+        {
+            parser.push_namespace(ns);
+            Defer pop_namespace { [&parser]() { parser.pop_namespace(); } };
+            if (parser.pass == 0) {
+                for (auto const &param : declaration->parameters) {
+                    parser.register_variable(param->name, param);
+                }
+            }
+            bind_node(implementation, parser);
+        }
+        if (implementation->bound_type->is<Undetermined>()) {
+            parser.unregister_function(name, std::dynamic_pointer_cast<FunctionDefinition>(shared_from_this()));
+            return TypeRegistry::undetermined;
+        }
         return t;
     }
-    if (parser.pass == 0) {
-        parser.register_name(name, shared_from_this());
-    }
-    parser.push_namespace(ns);
-    Defer pop_namespace { [&parser]() { parser.pop_namespace(); } };
-    if (parser.pass == 0) {
-        for (auto const &param : declaration->parameters) {
-            parser.register_name(param->name, param);
-        }
-    }
-    bind_node(implementation, parser);
-    if (declaration->bound_type == TypeRegistry::undetermined || implementation->bound_type == TypeRegistry::undetermined) {
-        return TypeRegistry::undetermined;
-    }
-    return declaration->bound_type;
 }
 
 void FunctionDefinition::dump_node(int indent)
@@ -145,9 +149,54 @@ pType Parameter::bind(Parser &parser)
     return bind_node(type_name, parser);
 }
 
-std::wostream& Parameter::header(std::wostream &os)
+std::wostream &Parameter::header(std::wostream &os)
 {
     return os << name << ": " << type_name->to_string();
+}
+
+Call::Call(pSyntaxNode callable, pExpressionList args)
+    : SyntaxNode(SyntaxNodeType::Call)
+    , callable(std::move(callable))
+    , arguments(std::move(args))
+{
+    if (auto id = std::dynamic_pointer_cast<Identifier>(this->callable); id == nullptr) {
+        NYI("Callable must be a function name");
+    }
+    assert(this->arguments != nullptr);
+}
+
+std::wostream &Call::header(std::wostream &os)
+{
+    auto id = std::dynamic_pointer_cast<Identifier>(this->callable);
+    assert(id != nullptr);
+    return os << id->identifier;
+}
+
+void Call::dump_node(int ident)
+{
+    callable->dump_node(ident + 4);
+    arguments->dump_node(ident + 4);
+}
+
+pType Call::bind(Parser &parser)
+{
+    auto arg_types = bind_node(arguments, parser);
+    if (!arg_types->is<TypeList>()) {
+        return arg_types;
+    }
+    auto id = std::dynamic_pointer_cast<Identifier>(this->callable);
+    assert(id != nullptr);
+    function = parser.find_function_by_arg_list(id->identifier, arg_types);
+    if (function != nullptr) {
+        return std::get<FunctionType>(function->bound_type->description).result;
+    }
+    if (parser.pass == 0) {
+        return TypeRegistry::undetermined;
+    } else {
+        return parser.bind_error(
+            location,
+            std::format(L"Unresolved function `{}{}`", id->identifier, arg_types->to_string()));
+    }
 }
 
 }

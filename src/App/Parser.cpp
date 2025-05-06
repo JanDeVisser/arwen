@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "App/Type.h"
 #include <algorithm>
 #include <cstddef>
 #include <memory>
@@ -382,7 +383,7 @@ std::wstring_view Parser::text_of(TokenLocation const &location) const
 
 pSyntaxNode Parser::parse_primary()
 {
-    auto        token = lexer.peek();
+    auto token = lexer.peek();
     // trace("parse_primary() t = {} [{}]", as_utf8(text_of(token)), TokenKind_name(token.kind));
     pSyntaxNode ret { nullptr };
     switch (token.kind) {
@@ -417,6 +418,9 @@ pSyntaxNode Parser::parse_primary()
     case TokenKind::Symbol: {
         if (token.symbol_code() == L'(') {
             lexer.lex();
+            if (lexer.accept_symbol(')')) {
+                return make_node<Void>(token.location);
+            }
             ret = parse_expression();
             if (auto err = lexer.expect_symbol(')'); err.is_error()) {
                 append(err.error(), "Expected ')'");
@@ -1205,33 +1209,50 @@ pSyntaxNode Parser::parse_yield()
     }
 }
 
-pType Parser::find_name(std::wstring const &name) const
+pType Parser::type_of(std::wstring const &name) const
 {
-    for (auto it = namespaces.rbegin(); it != namespaces.rend(); ++it) {
-        auto &ns = *it;
-        if (auto ret = ns->type_of(name); ret != nullptr) {
-            return ret;
-        }
-    }
-    return nullptr;
+    return namespaces.back()->type_of(name);
 }
 
-void Parser::register_name(std::wstring name, pSyntaxNode node)
+bool Parser::has_function(std::wstring const &name, pType const &type) const
+{
+    return namespaces.back()->find_function(name, type) != nullptr;
+}
+
+pFunctionDefinition Parser::find_function(std::wstring const &name, pType const &type) const
+{
+    assert(type->is<FunctionType>());
+    return namespaces.back()->find_function(name, type);
+}
+
+pFunctionDefinition Parser::find_function_by_arg_list(std::wstring const &name, pType const &type) const
+{
+    assert(type->is<TypeList>());
+    return namespaces.back()->find_function_by_arg_list(name, type);
+}
+
+void Parser::register_variable(std::wstring name, pSyntaxNode node)
 {
     assert(!namespaces.empty());
-    namespaces.back()->register_name(std::move(name), std::move(node));
+    namespaces.back()->register_variable(std::move(name), std::move(node));
+}
+
+void Parser::register_function(std::wstring name, pFunctionDefinition fnc)
+{
+    assert(!namespaces.empty());
+    namespaces.back()->register_function(std::move(name), std::move(fnc));
+}
+
+void Parser::unregister_function(std::wstring name, pFunctionDefinition fnc)
+{
+    assert(!namespaces.empty());
+    namespaces.back()->unregister_function(std::move(name), std::move(fnc));
 }
 
 pType Parser::find_type(std::wstring const &name) const
 {
-    for (auto it = namespaces.rbegin(); it != namespaces.rend(); ++it) {
-        auto &ns = *it;
-        assert(ns != nullptr);
-        if (auto ret = ns->find_type(name); ret != nullptr) {
-            return ret;
-        }
-    }
-    return nullptr;
+    assert(!namespaces.empty());
+    return namespaces.back()->find_type(name);
 }
 
 void Parser::register_type(std::wstring name, pType type)

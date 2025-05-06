@@ -4,6 +4,9 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <cstddef>
+#include <memory>
+
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
 
@@ -31,20 +34,20 @@ void Namespace::register_type(std::wstring name, pType type)
     types[name] = std::move(type);
 }
 
-pSyntaxNode Namespace::find_name(std::wstring const &name) const
+pSyntaxNode Namespace::find_variable(std::wstring const &name) const
 {
-    if (names.contains(name)) {
-        return names.at(name);
+    if (variables.contains(name)) {
+        return variables.at(name);
     }
     if (parent != nullptr) {
-        return parent->find_name(name);
+        return parent->find_variable(name);
     }
     return nullptr;
 }
 
 pType Namespace::type_of(std::wstring const &name) const
 {
-    auto n = find_name(name);
+    auto n = find_variable(name);
     if (n == nullptr) {
         return nullptr;
     }
@@ -54,10 +57,67 @@ pType Namespace::type_of(std::wstring const &name) const
     return n->bound_type;
 }
 
-void Namespace::register_name(std::wstring name, pSyntaxNode node)
+void Namespace::register_variable(std::wstring name, pSyntaxNode node)
 {
-    assert(!names.contains(name));
-    names[name] = std::move(node);
+    assert(!variables.contains(name));
+    variables.emplace(name, std::move(node));
+}
+
+Namespace::FunctionConstIter Namespace::find_function_here(std::wstring name, pType const &type) const
+{
+    assert(type->is<FunctionType>());
+    for (auto it = functions.find(name); it != functions.end(); ++it) {
+        if ((*it).second->bound_type == type) {
+            return it;
+        }
+    }
+    return functions.end();
+}
+
+pFunctionDefinition Namespace::find_function(std::wstring const &name, pType const &type) const
+{
+    assert(type->is<FunctionType>());
+    if (auto here = find_function_here(name, type); here != functions.end()) {
+        return (*here).second;
+    }
+    if (parent != nullptr) {
+        return parent->find_function(name, type);
+    }
+    return nullptr;
+}
+
+pFunctionDefinition Namespace::find_function_by_arg_list(std::wstring const &name, pType const &type) const
+{
+    assert(type->is<TypeList>());
+    auto const &type_descr = std::get<TypeList>(type->description);
+    for (auto it = functions.find(name); it != functions.end(); ++it) {
+        auto const &func_type = (*it).second->bound_type;
+        if (!func_type->is<FunctionType>()) {
+            continue;
+        }
+        auto const &func_type_descr = std::get<FunctionType>(func_type->description);
+        if (func_type_descr.parameters == type_descr.types) {
+            return (*it).second;
+        }
+    }
+    if (parent != nullptr) {
+        return parent->find_function_by_arg_list(name, type);
+    }
+    return nullptr;
+}
+
+void Namespace::register_function(std::wstring name, pFunctionDefinition fnc)
+{
+    assert(find_function_here(fnc->name, fnc->bound_type) == functions.end());
+    functions.emplace(name, fnc);
+}
+
+void Namespace::unregister_function(std::wstring name, pFunctionDefinition fnc)
+{
+    assert(fnc->bound_type->is<FunctionType>());
+    if (auto it = find_function_here(name, fnc->bound_type); it != functions.end()) {
+        functions.erase(it);
+    }
 }
 
 }

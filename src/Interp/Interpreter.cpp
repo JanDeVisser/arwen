@@ -16,6 +16,7 @@
 #include <App/Type.h>
 
 #include <Interp/Interpreter.h>
+#include <stdexcept>
 
 namespace Arwen::Interpreter {
 
@@ -47,24 +48,6 @@ void execute_node(Scope &scope, std::shared_ptr<BinaryExpression> const &node)
         scope.reassign(ident->identifier, rhs);
         return;
     }
-    if (node->op == Operator::Call) {
-        auto args = std::dynamic_pointer_cast<ExpressionList>(node->rhs);
-        assert(args != nullptr);
-        for (auto it = args->expressions.crbegin(); it != args->expressions.crend(); ++it) {
-            scope.execute(*it);
-        }
-        auto ident = std::dynamic_pointer_cast<Identifier>(node->lhs);
-        assert(ident != nullptr);
-        auto func = std::dynamic_pointer_cast<FunctionDefinition>(scope.name(ident->identifier));
-        assert(func != nullptr);
-        auto param_scope = scope.interpreter->new_scope(func);
-        for (auto const &param_def : func->declaration->parameters) {
-            param_scope.values.emplace(param_def->name, scope.interpreter->stack.back());
-            scope.interpreter->stack.pop_back();
-        }
-        scope.execute(func->implementation);
-        return;
-    }
     scope.execute(node->lhs);
     scope.execute(node->rhs);
     Value rhs = scope.interpreter->stack.back();
@@ -86,6 +69,25 @@ void execute_node(Scope &scope, std::shared_ptr<Block> const &node)
         first = false;
         scope.execute(stmt);
     }
+    for (auto it = node->deferred_statements.crbegin(); it != node->deferred_statements.crend(); ++it) {
+        scope.execute(*it);
+        scope.interpreter->stack.pop_back();
+    }
+}
+
+template<>
+void execute_node(Scope &scope, std::shared_ptr<Call> const &node)
+{
+    for (auto it = node->arguments->expressions.crbegin(); it != node->arguments->expressions.crend(); ++it) {
+        scope.execute(*it);
+    }
+    auto param_scope = scope.interpreter->new_scope(node->function);
+    for (auto const &param_def : node->function->declaration->parameters) {
+        param_scope.values.emplace(param_def->name, scope.interpreter->stack.back());
+        scope.interpreter->stack.pop_back();
+    }
+    param_scope.execute(node->function->implementation);
+    return;
 }
 
 template<>
@@ -123,6 +125,8 @@ void execute_node(Scope &scope, std::shared_ptr<IfStatement> const &node)
     }
     if (node->else_branch != nullptr) {
         scope.execute(node->else_branch);
+    } else {
+        scope.interpreter->stack.emplace_back();
     }
 }
 
@@ -137,7 +141,12 @@ template<>
 void execute_node(Scope &scope, std::shared_ptr<LoopStatement> const &node)
 {
     // trace("execute_node(LoopStatement)");
+    bool first { true };
     while (true) {
+        if (!first) {
+            scope.interpreter->stack.pop_back();
+        }
+        first = false;
         scope.execute(node->statement);
         if (scope.interpreter->break_) {
             if (*scope.interpreter->break_ == L"" || scope.interpreter->break_ == node->label) {
@@ -151,6 +160,9 @@ void execute_node(Scope &scope, std::shared_ptr<LoopStatement> const &node)
             }
             continue;
         }
+    }
+    if (first) {
+        scope.interpreter->stack.emplace_back();
     }
 }
 
@@ -169,7 +181,7 @@ void execute_node(Scope &scope, std::shared_ptr<Program> const &node)
         scope.execute(mod);
     }
     for (auto &[_, mod] : node->modules) {
-        if (auto main = mod->ns->find_name(L"main"); main != nullptr) {
+        if (auto main = mod->ns->find_function(L"main", TypeRegistry::the().function_of(std::vector<pType> {}, TypeRegistry::i32)); main != nullptr) {
             auto call_expr = make_node<BinaryExpression>(
                 TokenLocation {},
                 make_node<Identifier>(TokenLocation {}, L"main"),
@@ -210,7 +222,12 @@ template<>
 void execute_node(Scope &scope, std::shared_ptr<WhileStatement> const &node)
 {
     // trace("execute_node(WhileStatement)");
+    bool first { true };
     while (true) {
+        if (!first) {
+            scope.interpreter->stack.pop_back();
+        }
+        first = false;
         scope.execute(node->condition);
         Value res = scope.interpreter->stack.back();
         scope.interpreter->stack.pop_back();
@@ -232,6 +249,9 @@ void execute_node(Scope &scope, std::shared_ptr<WhileStatement> const &node)
             }
             continue;
         }
+    }
+    if (first) {
+        scope.interpreter->stack.emplace_back();
     }
 }
 
@@ -280,7 +300,7 @@ void Scope::reassign(std::wstring const &name, Value v)
 pSyntaxNode Scope::name(std::wstring const &name) const
 {
     assert(owner->ns != nullptr);
-    return owner->ns->find_name(name);
+    return owner->ns->find_variable(name);
 }
 
 Interpreter::Interpreter()

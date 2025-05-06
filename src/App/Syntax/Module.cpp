@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <Util/Defer.h>
+
 #include <App/Parser.h>
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
@@ -18,7 +20,7 @@ Module::Module()
 {
 }
 
-Module::Module(std::wstring const &n, std::wstring const &src, SyntaxNodes const &stmts, pNamespace const& name_space)
+Module::Module(std::wstring const &n, std::wstring const &src, SyntaxNodes const &stmts, pNamespace const &name_space)
     : SyntaxNode(SyntaxNodeType::Module, name_space)
     , name(n)
     , source(src)
@@ -54,7 +56,9 @@ pSyntaxNode Module::normalize(Parser &parser)
 
 pType Module::bind(Parser &parser)
 {
-    auto stmt_type = bind_node(statements, parser);
+    parser.push_namespace(ns);
+    Defer pop_ns { [&parser]() { parser.pop_namespace(); } };
+    auto  stmt_type = bind_node(statements, parser);
     if (stmt_type == TypeRegistry::undetermined) {
         return stmt_type;
     }
@@ -62,7 +66,7 @@ pType Module::bind(Parser &parser)
     return ret;
 }
 
-std::wostream& Module::header(std::wostream &os)
+std::wostream &Module::header(std::wostream &os)
 {
     return os << name;
 }
