@@ -42,6 +42,11 @@ pSyntaxNode QuotedString::normalize(Parser &parser)
     }
 }
 
+pSyntaxNode QuotedString::stamp(Parser &parser)
+{
+    return make_node<QuotedString>(location, string, quote_type);
+}
+
 DoubleQuotedString::DoubleQuotedString(std::wstring_view string, bool strip_quotes)
     : ConstantExpression(SyntaxNodeType::DoubleQuotedString)
     , string(strip_quotes ? string.substr(0, string.length() - 1).substr(1) : string)
@@ -51,6 +56,11 @@ DoubleQuotedString::DoubleQuotedString(std::wstring_view string, bool strip_quot
 pType DoubleQuotedString::bind(Parser &parser)
 {
     return TypeRegistry::string;
+}
+
+pSyntaxNode DoubleQuotedString::stamp(Parser &parser)
+{
+    return make_node<DoubleQuotedString>(location, string, false);
 }
 
 std::wostream &DoubleQuotedString::header(std::wostream &os)
@@ -70,6 +80,11 @@ SingleQuotedString::SingleQuotedString(std::wstring_view string, bool strip_quot
     : ConstantExpression(SyntaxNodeType::SingleQuotedString)
     , string(strip_quotes ? string.substr(0, string.length() - 1).substr(1) : string)
 {
+}
+
+pSyntaxNode SingleQuotedString::stamp(Parser &parser)
+{
+    return make_node<SingleQuotedString>(location, string, false);
 }
 
 pType SingleQuotedString::bind(Parser &parser)

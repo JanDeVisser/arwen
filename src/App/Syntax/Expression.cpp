@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "Util/Logging.h"
 #include <functional>
 #include <memory>
 #include <ostream>
@@ -12,6 +11,7 @@
 #include <ranges>
 #include <variant>
 
+#include <Util/Logging.h>
 #include <Util/TokenLocation.h>
 #include <Util/Utf8.h>
 
@@ -173,6 +173,11 @@ pSyntaxNode BinaryExpression::normalize(Parser &parser)
         }
         return evaluate(lhs->normalize(parser), op, rhs->normalize(parser));
     }
+}
+
+pSyntaxNode BinaryExpression::stamp(Parser &parser)
+{
+    return make_node<BinaryExpression>(location, lhs->stamp(parser), op, rhs->stamp(parser));
 }
 
 pType BinaryExpression::bind(Parser &parser)
@@ -500,6 +505,11 @@ pSyntaxNode UnaryExpression::normalize(Parser &parser)
     return evaluate(location, op, operand->normalize(parser));
 }
 
+pSyntaxNode UnaryExpression::stamp(Parser &parser)
+{
+    return make_node<UnaryExpression>(location, op, operand->stamp(parser));
+}
+
 pType UnaryExpression::bind(Parser &parser)
 {
     if (unary_ops.empty()) {
@@ -573,11 +583,12 @@ ExpressionList::ExpressionList(SyntaxNodes expressions)
 
 pSyntaxNode ExpressionList::normalize(Parser &parser)
 {
-    SyntaxNodes normalized;
-    for (auto const &expr : expressions) {
-        normalized.emplace_back(expr->normalize(parser));
-    }
-    return make_node<ExpressionList>(location, normalized);
+    return make_node<ExpressionList>(location, normalize_nodes(expressions, parser));
+}
+
+pSyntaxNode ExpressionList::stamp(Parser &parser)
+{
+    return make_node<ExpressionList>(location, stamp_nodes(expressions, parser));
 }
 
 pType ExpressionList::bind(Parser &parser)
@@ -608,7 +619,12 @@ MemberPath::MemberPath(Identifiers path)
 
 pSyntaxNode MemberPath::normalize(Parser &parser)
 {
-    return shared_from_this();
+    return make_node<MemberPath>(location, normalize_nodes(path, parser));
+}
+
+pSyntaxNode MemberPath::stamp(Parser &parser)
+{
+    return make_node<MemberPath>(location, stamp_nodes(path, parser));
 }
 
 pType MemberPath::bind(Parser &parser)

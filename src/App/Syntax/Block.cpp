@@ -14,7 +14,7 @@
 
 namespace Arwen {
 
-Block::Block(SyntaxNodes statements, SyntaxNodes deferred, pNamespace const& ns)
+Block::Block(SyntaxNodes statements, SyntaxNodes deferred, pNamespace const &ns)
     : SyntaxNode(SyntaxNodeType::Block, ns)
     , statements(statements)
     , deferred_statements(deferred)
@@ -24,7 +24,7 @@ Block::Block(SyntaxNodes statements, SyntaxNodes deferred, pNamespace const& ns)
     }
 }
 
-Block::Block(SyntaxNodes statements, pNamespace const& ns)
+Block::Block(SyntaxNodes statements, pNamespace const &ns)
     : SyntaxNode(SyntaxNodeType::Block, ns)
     , statements(statements)
 {
@@ -44,12 +44,38 @@ pSyntaxNode Block::normalize(Parser &parser)
             return nullptr;
         }
         if (auto defer = std::dynamic_pointer_cast<DeferStatement>(new_stmt); defer != nullptr) {
-            deferred_statements.push_back(new_stmt);
+            deferred_statements.push_back(defer->stmt);
         } else {
             normalized.emplace_back(new_stmt);
         }
     }
     return make_node<Block>(location, normalized, deferred_statements, ns);
+}
+
+pSyntaxNode Block::stamp(Parser &parser)
+{
+    assert(ns != nullptr);
+    auto        new_ns = parser.push_new_namespace();
+    Defer       pop_ns { [&parser]() { parser.pop_namespace(); } };
+    SyntaxNodes normalized;
+    for (auto const &stmt : statements) {
+        auto new_stmt = stmt->stamp(parser);
+        if (new_stmt == nullptr) {
+            parser.append(location, "Stamping statement failed");
+            return nullptr;
+        }
+        normalized.emplace_back(new_stmt);
+    }
+    SyntaxNodes deferred;
+    for (auto const &stmt : deferred_statements) {
+        auto new_stmt = stmt->stamp(parser);
+        if (new_stmt == nullptr) {
+            parser.append(location, "Stamping statement failed");
+            return nullptr;
+        }
+        deferred.push_back(new_stmt);
+    }
+    return make_node<Block>(location, normalized, deferred, new_ns);
 }
 
 pType Block::bind(Parser &parser)

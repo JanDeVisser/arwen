@@ -5,6 +5,7 @@
  */
 
 #include <cstddef>
+#include <functional>
 #include <memory>
 
 #include <App/SyntaxNode.h>
@@ -106,9 +107,26 @@ pFunctionDefinition Namespace::find_function_by_arg_list(std::wstring const &nam
     return nullptr;
 }
 
+std::vector<pFunctionDefinition> Namespace::find_overloads(std::wstring const& name) const
+{
+    std::function<void(std::shared_ptr<const Namespace> const &, std::vector<pFunctionDefinition>&)> find_them;
+    find_them = [&name,&find_them](std::shared_ptr<const Namespace> const &ns, std::vector<pFunctionDefinition> &overloads) -> void {
+        for (auto it = ns->functions.find(name); it != ns->functions.end(); ++it) {
+            auto const &func_def = (*it).second;
+            overloads.push_back(func_def);
+        }
+        if (ns->parent != nullptr) {
+            find_them(ns->parent, overloads);
+        }
+    };
+    std::vector<pFunctionDefinition> ret;
+    find_them(shared_from_this(), ret);
+    return ret;
+}
+
 void Namespace::register_function(std::wstring name, pFunctionDefinition fnc)
 {
-    assert(find_function_here(fnc->name, fnc->bound_type) == functions.end());
+    assert(fnc->bound_type == nullptr || find_function_here(fnc->name, fnc->bound_type) == functions.end());
     functions.emplace(name, fnc);
 }
 

@@ -6,8 +6,12 @@
 
 #include <cstdint>
 #include <format>
+#include <functional>
 #include <limits>
+#include <memory>
+#include <string>
 #include <string_view>
+#include <utility>
 
 #include <Util/Logging.h>
 #include <Util/StringUtil.h>
@@ -68,6 +72,11 @@ std::wstring TypeList::to_string() const
     return std::format(L"({})", join(types, std::wstring_view { L", " }, [](pType const &t) { return type_name(t); }));
 }
 
+std::wstring ReferenceType::to_string() const
+{
+    return std::format(L"&{}", type_name(referencing));
+}
+
 std::wstring SliceType::to_string() const
 {
     return std::format(L"SliceOf({})", type_name(slice_of));
@@ -80,7 +89,12 @@ std::wstring ZeroTerminatedArray::to_string() const
 
 std::wstring Array::to_string() const
 {
-    return std::format(L"ArrayOf({})", type_name(array_of));
+    return std::format(L"ArrayOf({}[{}])", type_name(array_of), size);
+}
+
+std::wstring DynArray::to_string() const
+{
+    return std::format(L"DynArrayOf({})", type_name(array_of));
 }
 
 std::wstring RangeType::to_string() const
@@ -113,6 +127,51 @@ std::wstring ErrorType::to_string() const
     return std::format(L"Error({}/{})", type_name(success), type_name(error));
 }
 
+std::map<std::wstring, pType> Type::infer_generic_arguments(pType const &param_type) const
+{
+    std::function<void(std::map<std::wstring, pType> &, Type const &, Type const &)> infer;
+    infer = [&infer](std::map<std::wstring, pType> &mapping, Type const &arg, Type const &param) {
+        std::visit(overloads {
+                       [&mapping, &infer](OptionalType const &d, OptionalType const &other) -> void {
+                           infer(mapping, *d.type, *other.type);
+                       },
+                       [&mapping, &infer](ErrorType const &d, ErrorType const &other) -> void {
+                           infer(mapping, *d.success, *other.success);
+                           infer(mapping, *d.error, *other.error);
+                       },
+                       [&mapping, &infer](SliceType const &d, SliceType const &other) -> void {
+                           infer(mapping, *d.slice_of, *other.slice_of);
+                       },
+                       [&mapping, &infer](Array const &d, Array const &other) -> void {
+                           infer(mapping, *d.array_of, *other.array_of);
+                       },
+                       [&mapping, &infer](DynArray const &d, DynArray const &other) -> void {
+                           infer(mapping, *d.array_of, *other.array_of);
+                       },
+                       [&mapping, &infer](ZeroTerminatedArray const &d, ZeroTerminatedArray const &other) -> void {
+                           infer(mapping, *d.array_of, *other.array_of);
+                       },
+                       [&mapping, &infer](RangeType const &d, RangeType const &other) -> void {
+                           infer(mapping, *d.range_of, *other.range_of);
+                       },
+                       [&mapping, &infer, &arg](auto const &d, TypeAlias const &other) -> void {
+                           infer(mapping, arg, *other.alias_of);
+                       },
+                       [&mapping, &arg](auto const &d, GenericParameter const &generic) -> void {
+                           mapping[generic.name] = arg.shared_from_this();
+                       },
+                       [](auto const &d, auto const &other) -> void {
+                       } },
+            arg.description, param.description);
+    };
+    if (is<TypeAlias>()) {
+        return std::get<TypeAlias>(description).alias_of->infer_generic_arguments(param_type);
+    }
+    std::map<std::wstring, pType> ret;
+    infer(ret, *this, *param_type);
+    return ret;
+}
+
 TypeRegistry::TypeRegistry()
 {
     u8 = make_type(L"u8", IntType::u8);
@@ -137,6 +196,53 @@ TypeRegistry::TypeRegistry()
 TypeRegistry &TypeRegistry::the()
 {
     return s_registry;
+}
+
+pType TypeRegistry::generic_parameter(std::wstring name)
+{
+    for (auto const &t : types) {
+        if (std::visit(overloads {
+                           [&name](GenericParameter const descr) -> bool {
+                               return descr.name == name;
+                           },
+                           [](auto const &) -> bool {
+                               return false;
+                           } },
+                t->description)) {
+            return t;
+        }
+    }
+    auto ret = make_type(std::format(L"{}", name), GenericParameter { std::move(name) });
+    types.emplace_back(ret);
+    return ret;
+}
+
+pType TypeRegistry::referencing(pType type)
+{
+    assert(type != nullptr);
+    for (auto const &t : types) {
+        if (std::visit(overloads {
+                           [&type](ReferenceType const descr) -> bool {
+                               return descr.referencing == type;
+                           },
+                           [](auto const &) -> bool {
+                               return false;
+                           } },
+                t->description)) {
+            return t;
+        }
+    }
+    auto ret = make_type(std::format(L"&{}", type->name), ReferenceType { type });
+    types.emplace_back(ret);
+    return ret;
+}
+
+pType TypeRegistry::alias_for(pType type)
+{
+    assert(type != nullptr);
+    auto ret = make_type(std::format(L"AliasOf({})", type->name), TypeAlias { type });
+    types.emplace_back(ret);
+    return ret;
 }
 
 pType TypeRegistry::slice_of(pType type)
@@ -193,6 +299,25 @@ pType TypeRegistry::array_of(pType type, size_t size)
         }
     }
     auto ret = make_type(std::format(L"[{}]{}", size, type->name), Array { type, size });
+    types.emplace_back(ret);
+    return ret;
+}
+
+pType TypeRegistry::dyn_array_of(pType type)
+{
+    for (auto const &t : types) {
+        if (std::visit(overloads {
+                           [&type](DynArray const &descr) -> bool {
+                               return descr.array_of == type;
+                           },
+                           [](auto const &) -> bool {
+                               return false;
+                           } },
+                t->description)) {
+            return t;
+        }
+    }
+    auto ret = make_type(std::format(L"[*]{}", type->name), DynArray { type });
     types.emplace_back(ret);
     return ret;
 }

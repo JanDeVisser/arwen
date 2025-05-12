@@ -51,7 +51,7 @@ std::wostream &SyntaxNode::header_line(std::wostream &os)
     os << SyntaxNodeType_name(type) << " (" << location.index << ".." << location.index + location.length << ") ";
     header(std::wcout);
     if (bound_type != nullptr) {
-        os << " -> " << bound_type->name;
+        os << " -> " << bound_type->to_string();
     }
     return os;
 }
@@ -61,6 +61,12 @@ void SyntaxNode::dump(int indent)
     print_indent(indent);
     header_line(std::wcout);
     std::cout << std::endl;
+    if (ns != nullptr) {
+        for (auto const &[n, t] : ns->types) {
+            print_indent(indent + 4);
+            std::wcout << n << ": " << t->to_string() << "\n";
+        }
+    }
     dump_node(indent);
 }
 
@@ -74,6 +80,11 @@ void SyntaxNode::dump_node(int indent)
 }
 
 pSyntaxNode SyntaxNode::normalize(Parser &parser)
+{
+    return this->shared_from_this();
+}
+
+pSyntaxNode SyntaxNode::stamp(Parser &parser)
 {
     return this->shared_from_this();
 }
@@ -136,6 +147,13 @@ pSyntaxNode DeferStatement::normalize(Parser &parser)
         stmt->normalize(parser));
 }
 
+pSyntaxNode DeferStatement::stamp(Parser &parser)
+{
+    return make_node<DeferStatement>(
+        location,
+        stmt->stamp(parser));
+}
+
 pType DeferStatement::bind(Parser &parser)
 {
     auto stmt_type = bind_node(stmt, parser);
@@ -163,12 +181,13 @@ pType Dummy::bind(Parser &parser)
 pType bind_node(pSyntaxNode node, Parser &parser)
 {
     assert(node != nullptr);
-    if (node->bound_type && node->bound_type != TypeRegistry::undetermined) {
+    if (node->bound_type && !node->bound_type->is<Undetermined>()) {
         return node->bound_type;
     }
     auto ret = node->bind(parser);
-    if ((parser.pass > 0) && (ret == TypeRegistry::undetermined)) {
-        parser.append(node->location, "Cannot determine type");
+    if (ret == TypeRegistry::undetermined) {
+        parser.unbound_nodes.push_back(node);
+        parser.unbound++;
     }
     node->bound_type = ret;
     return ret;

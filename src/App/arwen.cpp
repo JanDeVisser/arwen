@@ -8,6 +8,7 @@
 #include "Util/TokenLocation.h"
 #include "Util/Utf8.h"
 #include <iostream>
+#include <limits>
 #include <ostream>
 #include <string_view>
 
@@ -68,9 +69,15 @@ void compile_file(std::string_view file_name)
         normalized->dump();
 
         std::wcout << "STAGE 3 - Binding. Pass ";
-        for (parser.pass = 0; parser.pass < 2; ++parser.pass) {
+        parser.pass = 0;
+        parser.unbound  = std::numeric_limits<int>::max();
+        int prev_pass;
+        do {
             std::wcout << parser.pass << " ";
             std::flush(std::wcout);
+            prev_pass = parser.unbound;
+            parser.unbound = 0;
+            parser.unbound_nodes.clear();
             auto bound_type = bind_node(normalized, parser);
             if (!bound_type) {
                 std::wcout << std::endl;
@@ -84,10 +91,19 @@ void compile_file(std::string_view file_name)
                     return;
                 }
             }
-        }
+            ++parser.pass;
+        } while (parser.unbound > 0 && parser.unbound < prev_pass);
         std::wcout << std::endl;
+        if (!parser.unbound_nodes.empty()) {
+            std::wcout << std::endl;
+            for (auto const &node : parser.unbound_nodes) {
+                std::wcerr << node->location.line << ':' << node->location.column << " ";
+                node->header_line(std::wcerr);
+                std::wcerr << std::endl;
+                return;
+            }
+        }
         normalized->dump();
-
     } else {
         std::cerr << "Could not open '" << file_name << "': " << contents_maybe.error().to_string() << std::endl;
     }

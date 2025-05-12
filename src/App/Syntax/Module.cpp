@@ -51,7 +51,24 @@ Module::Module(std::wstring name, std::wstring source, pSyntaxNode statement, pN
 
 pSyntaxNode Module::normalize(Parser &parser)
 {
-    return make_node<Module>(location, name, std::move(source), statements->normalize(parser), ns);
+    return make_node<Module>(
+        location,
+        name,
+        source,
+        normalize_node(statements, parser),
+        ns);
+}
+
+pSyntaxNode Module::stamp(Parser &parser)
+{
+    auto  new_ns = parser.push_new_namespace();
+    Defer pop_ns { [&parser]() { parser.pop_namespace(); } };
+    return make_node<Module>(
+        location,
+        name,
+        source,
+        stamp_node(statements, parser),
+        new_ns);
 }
 
 pType Module::bind(Parser &parser)

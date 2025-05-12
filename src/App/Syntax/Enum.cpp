@@ -33,6 +33,15 @@ pSyntaxNode EnumValue::normalize(Parser &parser)
         normalize_node(payload, parser));
 }
 
+pSyntaxNode EnumValue::stamp(Parser &parser)
+{
+    return make_node<EnumValue>(
+        location,
+        label,
+        stamp_node(value, parser),
+        stamp_node(payload, parser));
+}
+
 pType EnumValue::bind(Parser &parser)
 {
     UNREACHABLE();
@@ -72,6 +81,15 @@ pSyntaxNode Enum::normalize(Parser &parser)
         name,
         normalize_node(underlying_type, parser),
         normalize_nodes(values, parser));
+}
+
+pSyntaxNode Enum::stamp(Parser &parser)
+{
+    return make_node<Enum>(
+        location,
+        name,
+        stamp_node(underlying_type, parser),
+        stamp_nodes(values, parser));
 }
 
 pType Enum::bind(Parser &parser)

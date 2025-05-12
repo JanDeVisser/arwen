@@ -601,6 +601,12 @@ std::optional<Parser::OperatorDef> Parser::check_postfix_op()
 pTypeSpecification Parser::parse_type()
 {
     auto t = lexer.peek();
+    if (lexer.accept_symbol('&')) {
+        if (auto type = parse_type(); type != nullptr) {
+            return make_node<TypeSpecification>(t.location + type->location, ReferenceDescriptionNode { type });
+        }
+        return nullptr;
+    }
     if (lexer.accept_symbol('[')) {
         if (lexer.accept_symbol(']')) {
             if (auto type = parse_type(); type != nullptr) {
@@ -611,6 +617,16 @@ pTypeSpecification Parser::parse_type()
         if (lexer.accept_symbol('0')) {
             if (auto err = lexer.expect_symbol(']'); err.is_error()) {
                 append(err.error(), "Expected `]` to close `[0`");
+                return nullptr;
+            }
+            if (auto type = parse_type(); type != nullptr) {
+                return make_node<TypeSpecification>(t.location + type->location, ZeroTerminatedArrayDescriptionNode { type });
+            }
+            return nullptr;
+        }
+        if (lexer.accept_symbol('*')) {
+            if (auto err = lexer.expect_symbol(']'); err.is_error()) {
+                append(err.error(), "Expected `]` to close `[*`");
                 return nullptr;
             }
             if (auto type = parse_type(); type != nullptr) {
@@ -857,6 +873,30 @@ pSyntaxNode Parser::parse_func()
     } else {
         name = text_of(res.value());
     }
+
+    std::vector<pIdentifier> generics;
+    if (lexer.accept_symbol('<')) {
+        while (true) {
+            if (lexer.accept_symbol('>')) {
+                break;
+            }
+            std::wstring  generic_name;
+            TokenLocation start;
+            if (auto res = lexer.expect_identifier(); res.is_error()) {
+                append(res.error(), "Expected generic name");
+                return nullptr;
+            } else {
+                generics.emplace_back(make_node<Identifier>(res.value().location, text_of(res.value())));
+            }
+            if (lexer.accept_symbol('>')) {
+                break;
+            }
+            if (auto res = lexer.expect_symbol(','); res.is_error()) {
+                append(res.error(), "Expected ',' in function signature generic list");
+            }
+        }
+    }
+
     if (auto res = lexer.expect_symbol('('); res.is_error()) {
         append(res.error(), "Expected '(' in function definition");
     }
@@ -899,7 +939,12 @@ pSyntaxNode Parser::parse_func()
         append(lexer.peek(), "Expected return type");
         return nullptr;
     }
-    auto decl = make_node<FunctionDeclaration>(func.location + return_type->location, name, params, return_type);
+    auto decl = make_node<FunctionDeclaration>(
+        func.location + return_type->location,
+        name,
+        generics,
+        params,
+        return_type);
     if (lexer.accept_keyword(ArwenKeyword::ExternLink)) {
         if (auto res = lexer.expect_identifier(); res.is_error()) {
             append(res.error(), "Expected extern function name");
@@ -922,7 +967,9 @@ pSyntaxNode Parser::parse_func()
         return make_node<FunctionDefinition>(
             decl->location + impl->location,
             decl->name,
-            decl, impl, namespaces.back());
+            decl,
+            impl,
+            namespaces.back());
     }
     return nullptr;
 }
@@ -1231,6 +1278,11 @@ pFunctionDefinition Parser::find_function_by_arg_list(std::wstring const &name, 
     return namespaces.back()->find_function_by_arg_list(name, type);
 }
 
+std::vector<pFunctionDefinition> Parser::find_overloads(std::wstring const &name) const
+{
+    return namespaces.back()->find_overloads(name);
+}
+
 void Parser::register_variable(std::wstring name, pSyntaxNode node)
 {
     assert(!namespaces.empty());
@@ -1267,13 +1319,14 @@ void Parser::push_namespace(pNamespace const &ns)
     namespaces.emplace_back(ns);
 }
 
-void Parser::push_new_namespace()
+pNamespace const &Parser::push_new_namespace()
 {
     if (namespaces.empty()) {
         namespaces.emplace_back(std::make_shared<Namespace>(nullptr));
     } else {
         namespaces.emplace_back(std::make_shared<Namespace>(namespaces.back()));
     }
+    return namespaces.back();
 }
 
 void Parser::pop_namespace()

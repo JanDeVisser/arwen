@@ -28,6 +28,15 @@ pSyntaxNode IfStatement::normalize(Parser &parser)
         (else_branch != nullptr) ? else_branch->normalize(parser) : nullptr);
 }
 
+pSyntaxNode IfStatement::stamp(Parser &parser)
+{
+    return make_node<IfStatement>(
+        location,
+        condition->stamp(parser),
+        if_branch->stamp(parser),
+        (else_branch != nullptr) ? else_branch->stamp(parser) : nullptr);
+}
+
 pType IfStatement::bind(Parser &parser)
 {
     auto if_type = bind_node(if_branch, parser);

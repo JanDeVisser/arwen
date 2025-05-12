@@ -29,6 +29,14 @@ pSyntaxNode StructMember::normalize(Parser &parser)
         normalize_node(member_type, parser));
 }
 
+pSyntaxNode StructMember::stamp(Parser &parser)
+{
+    return make_node<StructMember>(
+        location,
+        label,
+        stamp_node(member_type, parser));
+}
+
 pType StructMember::bind(Parser &parser)
 {
     return nullptr;
@@ -47,6 +55,14 @@ Struct::Struct(std::wstring name, StructMembers members)
 }
 
 pSyntaxNode Struct::normalize(Parser &parser)
+{
+    return make_node<Struct>(
+        location,
+        name,
+        stamp_nodes(members, parser));
+}
+
+pSyntaxNode Struct::stamp(Parser &parser)
 {
     return make_node<Struct>(
         location,

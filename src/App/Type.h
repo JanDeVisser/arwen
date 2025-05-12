@@ -20,7 +20,8 @@
 
 namespace Arwen {
 
-using pType = std::shared_ptr<struct Type>;
+using pType = std::shared_ptr<const struct Type>;
+// using pConstType = std::shared_ptr<const struct Type>;
 
 struct IntType {
     bool     is_signed;
@@ -111,6 +112,20 @@ struct BindErrors {
     }
 };
 
+struct GenericParameter {
+    std::wstring name;
+
+    std::wstring to_string() const
+    {
+        return std::format(L"<{}>", name);
+    }
+};
+
+struct ReferenceType {
+    pType        referencing;
+    std::wstring to_string() const;
+};
+
 struct SliceType {
     pType        slice_of;
     std::wstring to_string() const;
@@ -124,6 +139,11 @@ struct ZeroTerminatedArray {
 struct Array {
     pType        array_of;
     size_t       size;
+    std::wstring to_string() const;
+};
+
+struct DynArray {
+    pType        array_of;
     std::wstring to_string() const;
 };
 
@@ -188,12 +208,15 @@ using TypeDescription = std::variant<
     NamespaceType,
     FunctionType,
     TypeList,
+    GenericParameter,
     IntType,
     FloatType,
     BoolType,
+    ReferenceType,
     SliceType,
     ZeroTerminatedArray,
     Array,
+    DynArray,
     RangeType,
     TypeAlias,
     EnumType,
@@ -229,15 +252,21 @@ struct Type : std::enable_shared_from_this<Type> {
             },
                 description));
     }
+
+    std::map<std::wstring, pType> infer_generic_arguments(pType const &param_type) const;
 };
 
 struct TypeRegistry {
     std::vector<pType> types;
 
     static TypeRegistry &the();
+    pType                generic_parameter(std::wstring name);
+    pType                referencing(pType type);
+    pType                alias_for(pType type);
     pType                slice_of(pType type);
     pType                zero_terminated_array_of(pType type);
     pType                array_of(pType type, size_t size);
+    pType                dyn_array_of(pType type);
     pType                optional_of(pType type);
     pType                error_of(pType success, pType error);
     pType                function_of(std::vector<pType> const &parameters, pType result);
@@ -270,7 +299,7 @@ template<typename DescrType>
 pType make_type(std::wstring n, DescrType descr)
 {
     // std::wcout << "Registering type " << n << ' ' << descr.to_string() << std::endl;
-    auto ret = std::make_shared<Type>(std::move(n), std::move(descr));
+    auto ret = std::make_shared<const Type>(std::move(n), std::move(descr));
     TypeRegistry::the().types.push_back(ret);
     return ret;
 }

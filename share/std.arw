@@ -1,0 +1,1 @@
+func append<T>(arr: &[*]T, elem: T) -> "arw_dynarr:append"

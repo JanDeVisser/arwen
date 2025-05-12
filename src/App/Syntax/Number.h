@@ -15,6 +15,7 @@ struct Num : ConstantExpression {
     using Integer = Num<uint64_t, SyntaxNodeType::Integer>;
     using SignedInteger = Num<int64_t, SyntaxNodeType::SignedInteger>;
     using Decimal = Num<double, SyntaxNodeType::Decimal>;
+    using This = Num<T, NodeType>;
 
     T value;
 
@@ -128,6 +129,11 @@ struct Num : ConstantExpression {
         default:
             return nullptr;
         }
+    }
+
+    pSyntaxNode stamp(Parser &parser) override
+    {
+        return make_node<This>(location, value);
     }
 
     pType bind(Parser &parser) override

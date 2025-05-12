@@ -26,6 +26,12 @@ TypeSpecification::TypeSpecification(TypeNameNode type)
 {
 }
 
+TypeSpecification::TypeSpecification(ReferenceDescriptionNode ref)
+    : SyntaxNode(SyntaxNodeType::TypeSpecification)
+    , description(ref)
+{
+}
+
 TypeSpecification::TypeSpecification(SliceDescriptionNode slice)
     : SyntaxNode(SyntaxNodeType::TypeSpecification)
     , description(slice)
@@ -39,6 +45,12 @@ TypeSpecification::TypeSpecification(ZeroTerminatedArrayDescriptionNode array)
 }
 
 TypeSpecification::TypeSpecification(ArrayDescriptionNode array)
+    : SyntaxNode(SyntaxNodeType::TypeSpecification)
+    , description(array)
+{
+}
+
+TypeSpecification::TypeSpecification(DynArrayDescriptionNode array)
     : SyntaxNode(SyntaxNodeType::TypeSpecification)
     , description(array)
 {
@@ -66,6 +78,9 @@ pSyntaxNode TypeSpecification::normalize(Parser &parser)
                                     }
                                     return TypeNameNode { d.name, args };
                                 },
+                                [this, &parser](ReferenceDescriptionNode const &d) -> TypeSpecificationDescription {
+                                    return ReferenceDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(d.referencing->normalize(parser)) };
+                                },
                                 [this, &parser](SliceDescriptionNode const &d) -> TypeSpecificationDescription {
                                     return SliceDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(d.slice_of->normalize(parser)) };
                                 },
@@ -73,7 +88,10 @@ pSyntaxNode TypeSpecification::normalize(Parser &parser)
                                     return ZeroTerminatedArrayDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(d.array_of->normalize(parser)) };
                                 },
                                 [this, &parser](ArrayDescriptionNode const &d) -> TypeSpecificationDescription {
-                                    return ArrayDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(d.array_of->normalize(parser)) };
+                                    return ArrayDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(d.array_of->normalize(parser)), d.size };
+                                },
+                                [this, &parser](DynArrayDescriptionNode const &d) -> TypeSpecificationDescription {
+                                    return DynArrayDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(d.array_of->normalize(parser)) };
                                 },
                                 [this, &parser](OptionalDescriptionNode const &d) -> TypeSpecificationDescription {
                                     return OptionalDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(d.optional_of->normalize(parser)) };
@@ -86,6 +104,11 @@ pSyntaxNode TypeSpecification::normalize(Parser &parser)
                                 },
                             },
         this->description);
+    return make_node<TypeSpecification>(location, description);
+}
+
+pSyntaxNode TypeSpecification::stamp(Parser &)
+{
     return make_node<TypeSpecification>(location, description);
 }
 
@@ -119,6 +142,9 @@ std::wstring TypeSpecification::to_string()
                               }
                               return ret;
                           },
+                          [](ReferenceDescriptionNode const &d) -> std::wstring {
+                              return std::format(L"&{}", d.referencing->to_string());
+                          },
                           [](SliceDescriptionNode const &d) -> std::wstring {
                               return std::format(L"[]{}", d.slice_of->to_string());
                           },
@@ -127,6 +153,9 @@ std::wstring TypeSpecification::to_string()
                           },
                           [](ArrayDescriptionNode const &d) -> std::wstring {
                               return std::format(L"[{}]{}", d.size, d.array_of->to_string());
+                          },
+                          [](DynArrayDescriptionNode const &d) -> std::wstring {
+                              return std::format(L"[*]{}", d.array_of->to_string());
                           },
                           [](OptionalDescriptionNode const &d) -> std::wstring {
                               return std::format(L"{}?", d.optional_of->to_string());
@@ -151,6 +180,9 @@ pType TypeSpecification::resolve(Parser &parser)
                               }
                               return t;
                           },
+                          [this, &parser](ReferenceDescriptionNode d) -> pType {
+                              return TypeRegistry::the().referencing(d.referencing->resolve(parser));
+                          },
                           [this, &parser](SliceDescriptionNode d) -> pType {
                               return TypeRegistry::the().slice_of(d.slice_of->resolve(parser));
                           },
@@ -159,6 +191,9 @@ pType TypeSpecification::resolve(Parser &parser)
                           },
                           [this, &parser](ArrayDescriptionNode d) -> pType {
                               return TypeRegistry::the().array_of(d.array_of->resolve(parser), d.size);
+                          },
+                          [this, &parser](DynArrayDescriptionNode d) -> pType {
+                              return TypeRegistry::the().dyn_array_of(d.array_of->resolve(parser));
                           },
                           [this, &parser](OptionalDescriptionNode d) -> pType {
                               return TypeRegistry::the().optional_of(d.optional_of->resolve(parser));

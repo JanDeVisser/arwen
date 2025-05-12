@@ -28,9 +28,21 @@ pSyntaxNode ForStatement::normalize(Parser &parser)
     return make_node<ForStatement>(
         location,
         range_variable,
-        range_expr->normalize(parser),
-        statement->normalize(parser),
+        normalize_node(range_expr, parser),
+        normalize_node(statement, parser),
         ns);
+}
+
+pSyntaxNode ForStatement::stamp(Parser &parser)
+{
+    auto  new_ns = parser.push_new_namespace();
+    Defer pop_ns { [&parser]() { parser.pop_namespace(); } };
+    return make_node<ForStatement>(
+        location,
+        range_variable,
+        stamp_node(range_expr, parser),
+        stamp_node(statement, parser),
+        new_ns);
 }
 
 pType ForStatement::bind(Parser &parser)
@@ -55,7 +67,7 @@ void ForStatement::dump_node(int indent)
     statement->dump(indent + 4);
 }
 
-std::wostream& ForStatement::header(std::wostream &os)
+std::wostream &ForStatement::header(std::wostream &os)
 {
     return os << range_variable;
 }
@@ -73,7 +85,15 @@ pSyntaxNode LoopStatement::normalize(Parser &parser)
     return make_node<LoopStatement>(
         location,
         label,
-        statement->normalize(parser));
+        normalize_node(statement, parser));
+}
+
+pSyntaxNode LoopStatement::stamp(Parser &parser)
+{
+    return make_node<LoopStatement>(
+        location,
+        label,
+        stamp_node(statement, parser));
 }
 
 pType LoopStatement::bind(Parser &parser)
@@ -86,7 +106,7 @@ void LoopStatement::dump_node(int indent)
     statement->dump(indent + 4);
 }
 
-std::wostream& LoopStatement::header(std::wostream &os)
+std::wostream &LoopStatement::header(std::wostream &os)
 {
     if (label) {
         os << *label;
@@ -108,8 +128,17 @@ pSyntaxNode WhileStatement::normalize(Parser &parser)
     return make_node<WhileStatement>(
         location,
         label,
-        condition->normalize(parser),
-        statement->normalize(parser));
+        normalize_node(condition, parser),
+        normalize_node(statement, parser));
+}
+
+pSyntaxNode WhileStatement::stamp(Parser &parser)
+{
+    return make_node<WhileStatement>(
+        location,
+        label,
+        stamp_node(condition, parser),
+        stamp_node(statement, parser));
 }
 
 pType WhileStatement::bind(Parser &parser)
@@ -123,7 +152,7 @@ void WhileStatement::dump_node(int indent)
     statement->dump(indent + 4);
 }
 
-std::wostream& WhileStatement::header(std::wostream &os)
+std::wostream &WhileStatement::header(std::wostream &os)
 {
     if (label) {
         os << *label;

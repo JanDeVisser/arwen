@@ -14,6 +14,11 @@ Break::Break(Label label)
 {
 }
 
+pSyntaxNode Break::stamp(Parser& parser)
+{
+    return make_node<Break>(location, label);
+}
+
 pType Break::bind(Parser &parser)
 {
     return TypeRegistry::void_;
@@ -31,6 +36,11 @@ Continue::Continue(Label label)
     : SyntaxNode(SyntaxNodeType::Continue)
     , label(std::move(label))
 {
+}
+
+pSyntaxNode Continue::stamp(Parser& parser)
+{
+    return make_node<Break>(location, label);
 }
 
 pType Continue::bind(Parser &parser)
@@ -54,7 +64,12 @@ Error::Error(pSyntaxNode expression)
 
 pSyntaxNode Error::normalize(Parser &parser)
 {
-    return make_node<Error>(location, expression->normalize(parser));
+    return make_node<Error>(location, normalize_node(expression, parser));
+}
+
+pSyntaxNode Error::stamp(Parser &parser)
+{
+    return make_node<Error>(location, stamp_node(expression, parser));
 }
 
 pType Error::bind(Parser &parser)
@@ -77,7 +92,12 @@ Return::Return(pSyntaxNode expression)
 
 pSyntaxNode Return::normalize(Parser &parser)
 {
-    return make_node<Return>(location, expression->normalize(parser));
+    return make_node<Return>(location, normalize_node(expression, parser));
+}
+
+pSyntaxNode Return::stamp(Parser &parser)
+{
+    return make_node<Return>(location, stamp_node(expression, parser));
 }
 
 pType Return::bind(Parser &parser)
@@ -104,7 +124,15 @@ pSyntaxNode Yield::normalize(Parser &parser)
     return make_node<Yield>(
         location,
         label,
-        statement->normalize(parser));
+        normalize_node(statement, parser));
+}
+
+pSyntaxNode Yield::stamp(Parser &parser)
+{
+    return make_node<Yield>(
+        location,
+        label,
+        stamp_node(statement, parser));
 }
 
 pType Yield::bind(Parser &parser)

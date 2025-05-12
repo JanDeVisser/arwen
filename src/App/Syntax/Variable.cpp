@@ -16,6 +16,11 @@ Identifier::Identifier(std::wstring_view identifier)
 {
 }
 
+pSyntaxNode Identifier::stamp(Parser &)
+{
+    return make_node<Identifier>(location, identifier);
+}
+
 pType Identifier::bind(Parser &parser)
 {
     auto const &type = parser.type_of(identifier);
@@ -91,7 +96,17 @@ pSyntaxNode VariableDeclaration::normalize(Parser &parser)
         location,
         name,
         type_name,
-        (initializer) ? initializer->normalize(parser) : nullptr,
+        (initializer) ? normalize_node(initializer, parser) : nullptr,
+        is_const);
+}
+
+pSyntaxNode VariableDeclaration::stamp(Parser &parser)
+{
+    return make_node<VariableDeclaration>(
+        location,
+        name,
+        type_name,
+        (initializer) ? stamp_node(initializer, parser) : nullptr,
         is_const);
 }
 

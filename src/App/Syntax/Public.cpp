@@ -24,7 +24,12 @@ PublicDeclaration::PublicDeclaration(std::wstring name, pSyntaxNode declaration)
 
 pSyntaxNode PublicDeclaration::normalize(Parser &parser)
 {
-    return make_node<PublicDeclaration>(location, name, declaration->normalize(parser));
+    return make_node<PublicDeclaration>(location, name, normalize_node(declaration, parser));
+}
+
+pSyntaxNode PublicDeclaration::stamp(Parser &parser)
+{
+    return make_node<PublicDeclaration>(location, name, stamp_node(declaration, parser));
 }
 
 pType PublicDeclaration::bind(Parser &parser)

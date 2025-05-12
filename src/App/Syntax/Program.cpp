@@ -24,6 +24,20 @@ Program::Program(std::wstring name)
 {
 }
 
+Program::Program(std::wstring name, std::map<std::wstring, pModule> modules)
+    : SyntaxNode(SyntaxNodeType::Program, std::make_shared<Namespace>())
+    , name(std::move(name))
+    , modules(std::move(modules))
+{
+}
+
+Program::Program(std::wstring name, std::map<std::wstring, pModule> modules, pNamespace ns)
+    : SyntaxNode(SyntaxNodeType::Program, ns)
+    , name(std::move(name))
+    , modules(std::move(modules))
+{
+}
+
 pSyntaxNode Program::normalize(Parser &parser)
 {
     for (auto &[name, mod] : modules) {
@@ -33,6 +47,19 @@ pSyntaxNode Program::normalize(Parser &parser)
         }
     }
     return shared_from_this();
+}
+
+pSyntaxNode Program::stamp(Parser &parser)
+{
+    auto new_ns = parser.push_new_namespace();
+    Defer pop_ns { [&parser]() { parser.pop_namespace(); }};
+    std::map<std::wstring, pModule> new_modules;
+    for (auto &[n, mod] : modules) {
+        auto new_mod = stamp_node(mod, parser);
+        new_ns->register_variable(n, new_mod);
+        new_modules[n] = new_mod;
+    }
+    return make_node<Program>(location, name, new_modules, new_ns);
 }
 
 pType Program::bind(Parser &parser)
