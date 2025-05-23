@@ -10,13 +10,12 @@
 #include <Util/Logging.h>
 
 #include <App/Parser.h>
-#include <App/Syntax/Number.h>
 #include <App/SyntaxNode.h>
 #include <ostream>
 
 namespace Arwen {
 
-EnumValue::EnumValue(std::wstring label, pConstantExpression value, pTypeSpecification payload)
+EnumValue::EnumValue(std::wstring label, pSyntaxNode value, pTypeSpecification payload)
     : SyntaxNode(SyntaxNodeType::EnumValue)
     , label(std::move(label))
     , value(std::move(value))
@@ -104,7 +103,7 @@ pType Enum::bind(Parser &parser)
                 return parser.bind_error(v->payload->location, L"Could not resolve type `{}`", v->payload->to_string());
             }
         }
-        size_t value = (v->value != nullptr) ? std::dynamic_pointer_cast<Integer>(v->value)->value : ix;
+        size_t value = (v->value != nullptr) ? as<int64_t>(std::dynamic_pointer_cast<Constant>(v->value)->bound_value.value()) : ix;
         enoom.values.emplace_back(v->label, value, payload);
         ++ix;
     }

@@ -25,7 +25,7 @@ pSyntaxNode Embed::normalize(Parser &parser)
     auto fname = as_utf8(file_name);
     if (auto contents_maybe = read_file_by_name<wchar_t>(fname); contents_maybe.has_value()) {
         auto const &contents = contents_maybe.value();
-        return make_node<DoubleQuotedString>(location, contents, false);
+        return make_node<Constant>(location, make_value(contents));
     } else {
         parser.append(location, "Could not open `{}`: {}", fname, contents_maybe.error().to_string());
         return nullptr;

@@ -84,7 +84,12 @@ pSyntaxNode SyntaxNode::normalize(Parser &parser)
     return this->shared_from_this();
 }
 
-pSyntaxNode SyntaxNode::stamp(Parser &parser)
+pType SyntaxNode::bind(Parser &)
+{
+    fatal("Node of type `{}` should have been elided during normalization", SyntaxNodeType_name(type));
+}
+
+pSyntaxNode SyntaxNode::stamp(Parser &)
 {
     return this->shared_from_this();
 }
@@ -98,43 +103,7 @@ pSyntaxNode SyntaxNode::coerce(pType const &target, Parser &)
     return nullptr;
 }
 
-ConstantExpression::ConstantExpression(SyntaxNodeType type)
-    : SyntaxNode(type)
-{
-}
-
-pSyntaxNode ConstantExpression::evaluate(Operator op, pConstantExpression const &rhs)
-{
-    switch (op) {
-#undef S
-#undef S
-#define S(O)          \
-    case Operator::O: \
-        return evaluate_##O(rhs);
-        Operators(S)
-#undef S
-            default : UNREACHABLE();
-    }
-}
-
-#undef S
-#undef S
-#define S(O)                                                                     \
-    pSyntaxNode ConstantExpression::evaluate_##O(pConstantExpression const &rhs) \
-    {                                                                            \
-        if (rhs != nullptr) {                                                    \
-            return make_node<BinaryExpression>(                                  \
-                this->location + rhs->location,                                  \
-                this->shared_from_this(), Operator::O, rhs);                     \
-        }                                                                        \
-        return make_node<UnaryExpression>(                                       \
-            this->location + rhs->location,                                      \
-            Operator::O, this->shared_from_this());                              \
-    }
-Operators(S)
-#undef S
-
-    DeferStatement::DeferStatement(pSyntaxNode stmt)
+DeferStatement::DeferStatement(pSyntaxNode stmt)
     : SyntaxNode(SyntaxNodeType::DeferStatement)
     , stmt(std::move(stmt))
 {

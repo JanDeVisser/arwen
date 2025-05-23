@@ -206,13 +206,13 @@ pType TypeSpecification::resolve(Parser &parser)
 }
 
 Void::Void()
-    : ConstantExpression(SyntaxNodeType::Void)
+    : SyntaxNode(SyntaxNodeType::Void)
 {
 }
 
-pType Void::bind(Parser &parser)
+pSyntaxNode Void::normalize(Parser &)
 {
-    return TypeRegistry::void_;
+    return make_node<Constant>(location, make_void());
 }
 
 }

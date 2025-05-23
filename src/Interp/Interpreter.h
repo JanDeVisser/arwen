@@ -4,12 +4,16 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <concepts>
 #include <cstdint>
+#include <set>
 #include <string>
 #include <variant>
 
+#include <Util/Logging.h>
+#include <Util/Utf8.h>
+
 #include <App/SyntaxNode.h>
+#include <App/Operator.h>
 #include <App/Type.h>
 
 namespace Arwen::Interpreter {
@@ -17,141 +21,93 @@ namespace Arwen::Interpreter {
 using namespace Util;
 using namespace Arwen;
 
-struct Value {
-    using PayloadValue = std::variant<std::monostate, std::wstring, bool, uint64_t, int64_t, double>;
-    using PayloadValues = std::vector<PayloadValue>;
-    using Payload = std::variant<PayloadValue, PayloadValues>;
+struct ValueStack {
+    std::vector<pType> type_stack {};
+    std::vector<Atom>  stack {};
 
-    Value(pType const &type);
-    Value(Value const &);
-
-    pType   type { TypeRegistry::void_ };
-    Payload payload;
-
-    Value() = default;
+    void evaluate(Operator op)
+    {
+        assert(type_stack.size() >= 2);
+        Value rhs = pop_value();
+        Value lhs = pop_value();
+        push(Arwen::Interpreter::evaluate(lhs, op, rhs));
+    }
 
     template<typename T>
-    Value(T val)
-        : Value(TypeRegistry::undetermined)
+    void push(T const &value)
     {
-        fatal("Unexpected payload type");
-    }
-
-    template<std::unsigned_integral T>
-    Value(T val)
-        : Value(TypeRegistry::u64)
-    {
-        payload.emplace<PayloadValue>(PayloadValue { static_cast<uint64_t>(val) });
-    }
-
-    template<std::signed_integral T>
-    Value(T val)
-        : Value(TypeRegistry::i64)
-    {
-        payload.emplace<PayloadValue>(PayloadValue { static_cast<int64_t>(val) });
-    }
-
-    template<std::floating_point T>
-    Value(T val)
-        : Value(TypeRegistry::f64)
-    {
-        payload.emplace<PayloadValue>(PayloadValue { val });
+        push(make_value(value));
     }
 
     template<>
-    Value(bool val)
-        : Value(TypeRegistry::string)
+    void push(Value const &val)
     {
-        payload.emplace<PayloadValue>(PayloadValue { val });
+        std::visit(overloads {
+                       [this, val](Atom const &atom) -> void {
+                           type_stack.push_back(val.type);
+                           this->push(atom);
+                       },
+                       [this, val](Atoms const &atoms) -> void {
+                           type_stack.push_back(val.type);
+                           for (auto const &atom : atoms) {
+                               this->push(atom);
+                           }
+                       } },
+            val.payload);
     }
 
     template<>
-    Value(std::wstring val)
-        : Value(TypeRegistry::string)
+    void push(Atom const &val)
     {
-        payload.emplace<PayloadValue>(PayloadValue { std::move(val) });
+        stack.emplace_back(val);
     }
 
-    Value &operator=(Value const &) = default;
-
-    template<typename Func>
-    Value evaluate_op(Value const &rhs, Func const &func)
+    pType pop_type()
     {
-        return std::visit(overloads {
-                              [this, &rhs, &func](PayloadValue const &lhs_payload, PayloadValue const &rhs_payload) -> Value {
-                                  return std::visit(overloads {
-                                                        [&func](std::integral auto const &lhs_value, std::integral auto const &rhs_value) -> Value {
-                                                            return func(lhs_value, rhs_value);
-                                                        },
-                                                        [&func](std::integral auto const &lhs_value, std::floating_point auto const &rhs_value) -> Value {
-                                                            return func(lhs_value, rhs_value);
-                                                        },
-                                                        [&func](std::floating_point auto const &lhs_value, std::floating_point auto const &rhs_value) -> Value {
-                                                            return func(lhs_value, rhs_value);
-                                                        },
-                                                        [&func](std::floating_point auto const &lhs_value, std::integral auto const &rhs_value) -> Value {
-                                                            return func(lhs_value, rhs_value);
-                                                        },
-                                                        [](auto const &lhs_value, auto const &rhs_value) -> Value {
-                                                            fatal("Cannot apply operator to non-numbers");
-                                                        } },
-                                      lhs_payload, rhs_payload);
-                              },
-                              [](auto const &lhs_payload, auto const &rhs_payload) -> Value {
-                                  fatal("Cannot apply operator to non-numbers");
-                              } },
-            payload, rhs.payload);
+        assert(!type_stack.empty());
+        auto ret = type_stack.back();
+        type_stack.pop_back();
+        return ret;
     }
 
-    template<typename Func>
-    Value evaluate_binary_op(Value const &rhs, Func const &func)
+    Atom pop_atom()
     {
-        return std::visit(overloads {
-                              [&func](PayloadValue const &lhs_payload, PayloadValue const &rhs_payload) -> Value {
-                                  return std::visit(overloads {
-                                                        [&func](std::integral auto const &lhs, std::integral auto const &rhs) -> Value {
-                                                            return func(lhs, rhs);
-                                                        },
-                                                        [&func](auto const &lhs, auto const &rhs) -> Value {
-                                                            fatal("Cannot apply operator to non-integers");
-                                                        } },
-                                      lhs_payload, rhs_payload);
-                              },
-                              [&func](auto const &lhs, auto const &rhs) -> Value {
-                                  fatal("Cannot apply operator to non-integers");
-                              } },
-            payload, rhs.payload);
+        assert(!stack.empty());
+        auto ret = stack.back();
+        stack.pop_back();
+        return ret;
     }
 
-    template<typename Func>
-    Value evaluate_logical_op(Value const &rhs, Func const &func)
+    Value pop_value()
     {
-        return std::visit(overloads {
-                              [&func](PayloadValue const &lhs_payload, PayloadValue const &rhs_payload) -> Value {
-                                  return std::visit(overloads {
-                                                        [&func](bool const &lhs, bool const &rhs) -> Value {
-                                                            return func(lhs, rhs);
-                                                        },
-                                                        [&func](auto const &lhs, auto const &rhs) -> Value {
-                                                            fatal("Cannot apply operator to non-booleans");
-                                                        } },
-                                      lhs_payload, rhs_payload);
-                              },
-                              [&func](auto const &lhs, auto const &rhs) -> Value {
-                                  fatal("Cannot apply operator to non-booleans");
-                              } },
-            payload, rhs.payload);
+        auto t = type_stack.back();
+        switch (t->kind()) {
+        case TypeKind::IntType:
+        case TypeKind::FloatType:
+        case TypeKind::BoolType:
+            return Value { pop_type(), pop_atom() };
+        case TypeKind::SliceType: {
+            auto size = pop_atom();
+            auto ptr = pop_atom();
+            return Value { pop_type(), Atoms { ptr, size } };
+        }
+        case TypeKind::DynArray: {
+            auto cap = pop_atom();
+            auto size = pop_atom();
+            auto ptr = pop_atom();
+            return Value { pop_type(), Atoms { ptr, size, cap } };
+        }
+        default:
+            UNREACHABLE();
+        }
     }
-
-    std::wstring to_string() const;
-    bool         is_zero() const;
-    Value        evaluate(Operator op, Value const &rhs);
-
-#undef S
-#define S(O) Value evaluate_##O(Value const &);
-    BinOps(S)
-#undef S
 };
+
+template<typename T>
+T pop(ValueStack &stack)
+{
+    return as<T>(stack.pop_value());
+}
 
 struct Scope {
     struct Interpreter           *interpreter;
@@ -167,7 +123,7 @@ struct Scope {
 
 struct Interpreter {
     std::vector<Scope>          scopes;
-    std::vector<Value>          stack;
+    ValueStack                  stack;
     std::optional<std::wstring> break_;
     std::optional<std::wstring> continue_;
 
@@ -178,5 +134,4 @@ struct Interpreter {
     Scope &execute(pSyntaxNode const &node);
     Scope &new_scope(pSyntaxNode const &node);
 };
-
 }

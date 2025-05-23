@@ -19,14 +19,64 @@
 #include <App/Parser.h>
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
+#include <App/Value.h>
 
 namespace Arwen {
 
+enum class PseudoType {
+    Self,
+    Lhs,
+    Rhs,
+};
+
+struct Operand {
+    std::variant<pType, TypeKind, PseudoType> type;
+
+    Operand(pType t)
+        : type(std::move(t))
+    {
+    }
+
+    Operand(TypeKind k)
+        : type(k)
+    {
+    }
+
+    Operand(PseudoType pseudo_type)
+        : type(pseudo_type)
+    {
+    }
+
+    bool matches(pType const &concrete, pType const &hint = nullptr) const
+    {
+        return std::visit(overloads {
+                              [&concrete](pType const &t) -> bool {
+                                  return concrete == t;
+                              },
+                              [&concrete](TypeKind k) -> bool {
+                                  return concrete->is(k);
+                              },
+                              [&hint, &concrete](PseudoType pseudo_type) -> bool {
+                                  assert(hint != nullptr);
+                                  return hint == concrete;
+                              },
+                          },
+            type);
+    }
+};
+
+using OpResult = std::variant<pType, PseudoType>;
+
 struct BinaryOperator {
-    pType    lhs;
+    Operand  lhs;
     Operator op;
-    pType    rhs;
-    pType    result;
+    Operand  rhs;
+    OpResult result;
+
+    bool matches(pType const &concrete_lhs, pType const &concrete_rhs) const
+    {
+        return lhs.matches(concrete_lhs, concrete_rhs) && rhs.matches(concrete_rhs, concrete_lhs);
+    }
 };
 
 static std::vector<BinaryOperator> binary_ops;
@@ -50,11 +100,19 @@ static std::map<Operator, Operator> assign_ops = {
     { Operator::AssignXor, Operator::BinaryXor },
 };
 
+struct UnaryOperator {
+    Operator op;
+    Operand  operand;
+    OpResult result;
+};
+
+static std::vector<UnaryOperator> unary_ops;
+
 BinaryExpression::BinaryExpression(pSyntaxNode lhs, Operator op, pSyntaxNode rhs)
     : SyntaxNode(SyntaxNodeType::BinaryExpression)
-    , lhs(lhs)
+    , lhs(std::move(lhs))
     , op(op)
-    , rhs(rhs)
+    , rhs(std::move(rhs))
 {
 }
 
@@ -117,15 +175,14 @@ pSyntaxNode BinaryExpression::normalize(Parser &parser)
         return make_node<MemberPath>(path[0]->location + path.back()->location, path)->normalize(parser);
     };
 
-    auto evaluate = [this, &parser](pSyntaxNode const &lhs, Operator op, pSyntaxNode const &rhs) -> pSyntaxNode {
-        auto lhs_const = std::dynamic_pointer_cast<ConstantExpression>(lhs);
-        auto rhs_const = std::dynamic_pointer_cast<ConstantExpression>(rhs);
-        if (lhs_const != nullptr && rhs_const != nullptr) {
-            if (auto ret = lhs_const->evaluate(op, rhs_const); ret != nullptr) {
-                return ret;
-            }
+    auto const_evaluate = [this, &parser](pSyntaxNode const &lhs, Operator op, pSyntaxNode const &rhs) -> pSyntaxNode {
+        auto lhs_const = std::dynamic_pointer_cast<Constant>(lhs);
+        auto rhs_const = std::dynamic_pointer_cast<Constant>(rhs);
+        if (lhs_const != nullptr && rhs_const != nullptr && lhs_const->bound_value && rhs_const->bound_value) {
+            auto ret = evaluate(lhs_const->bound_value.value(), op, rhs_const->bound_value.value());
+            return make_node<Constant>(lhs->location + rhs->location, ret);
         }
-        return make_node<BinaryExpression>(lhs->location + rhs->location, lhs, op, rhs);
+        return make_node<BinaryExpression>(location, lhs, op, rhs);
     };
 
     switch (op) {
@@ -171,7 +228,7 @@ pSyntaxNode BinaryExpression::normalize(Parser &parser)
             auto bin_expr = make_node<BinaryExpression>(location, lhs->normalize(parser), assign_ops[op], rhs->normalize(parser));
             return make_node<BinaryExpression>(location, lhs->normalize(parser), Operator::Assign, bin_expr->normalize(parser))->normalize(parser);
         }
-        return evaluate(lhs->normalize(parser), op, rhs->normalize(parser));
+        return const_evaluate(lhs->normalize(parser), op, rhs->normalize(parser));
     }
 }
 
@@ -184,157 +241,34 @@ pType BinaryExpression::bind(Parser &parser)
 {
     if (binary_ops.empty()) {
         binary_ops = {
-            { TypeRegistry::u8, Operator::Add, TypeRegistry::u8, TypeRegistry::u8 },
-            { TypeRegistry::i8, Operator::Add, TypeRegistry::i8, TypeRegistry::i8 },
-            { TypeRegistry::u16, Operator::Add, TypeRegistry::u16, TypeRegistry::u16 },
-            { TypeRegistry::i16, Operator::Add, TypeRegistry::i16, TypeRegistry::i16 },
-            { TypeRegistry::u32, Operator::Add, TypeRegistry::u32, TypeRegistry::u32 },
-            { TypeRegistry::i32, Operator::Add, TypeRegistry::i32, TypeRegistry::i32 },
-            { TypeRegistry::u64, Operator::Add, TypeRegistry::u64, TypeRegistry::u64 },
-            { TypeRegistry::i64, Operator::Add, TypeRegistry::i64, TypeRegistry::i64 },
-            { TypeRegistry::f32, Operator::Add, TypeRegistry::f32, TypeRegistry::f32 },
-            { TypeRegistry::f64, Operator::Add, TypeRegistry::f64, TypeRegistry::f64 },
-            { TypeRegistry::u8, Operator::Subtract, TypeRegistry::u8, TypeRegistry::u8 },
-            { TypeRegistry::i8, Operator::Subtract, TypeRegistry::i8, TypeRegistry::i8 },
-            { TypeRegistry::u16, Operator::Subtract, TypeRegistry::u16, TypeRegistry::u16 },
-            { TypeRegistry::i16, Operator::Subtract, TypeRegistry::i16, TypeRegistry::i16 },
-            { TypeRegistry::u32, Operator::Subtract, TypeRegistry::u32, TypeRegistry::u32 },
-            { TypeRegistry::i32, Operator::Subtract, TypeRegistry::i32, TypeRegistry::i32 },
-            { TypeRegistry::u64, Operator::Subtract, TypeRegistry::u64, TypeRegistry::u64 },
-            { TypeRegistry::i64, Operator::Subtract, TypeRegistry::i64, TypeRegistry::i64 },
-            { TypeRegistry::f32, Operator::Subtract, TypeRegistry::f32, TypeRegistry::f32 },
-            { TypeRegistry::f64, Operator::Subtract, TypeRegistry::f64, TypeRegistry::f64 },
-            { TypeRegistry::u8, Operator::Multiply, TypeRegistry::u8, TypeRegistry::u8 },
-            { TypeRegistry::i8, Operator::Multiply, TypeRegistry::i8, TypeRegistry::i8 },
-            { TypeRegistry::u16, Operator::Multiply, TypeRegistry::u16, TypeRegistry::u16 },
-            { TypeRegistry::i16, Operator::Multiply, TypeRegistry::i16, TypeRegistry::i16 },
-            { TypeRegistry::u32, Operator::Multiply, TypeRegistry::u32, TypeRegistry::u32 },
-            { TypeRegistry::i32, Operator::Multiply, TypeRegistry::i32, TypeRegistry::i32 },
-            { TypeRegistry::u64, Operator::Multiply, TypeRegistry::u64, TypeRegistry::u64 },
-            { TypeRegistry::i64, Operator::Multiply, TypeRegistry::i64, TypeRegistry::i64 },
-            { TypeRegistry::f32, Operator::Multiply, TypeRegistry::f32, TypeRegistry::f32 },
-            { TypeRegistry::f64, Operator::Multiply, TypeRegistry::f64, TypeRegistry::f64 },
-            { TypeRegistry::u8, Operator::Divide, TypeRegistry::u8, TypeRegistry::u8 },
-            { TypeRegistry::i8, Operator::Divide, TypeRegistry::i8, TypeRegistry::i8 },
-            { TypeRegistry::u16, Operator::Divide, TypeRegistry::u16, TypeRegistry::u16 },
-            { TypeRegistry::i16, Operator::Divide, TypeRegistry::i16, TypeRegistry::i16 },
-            { TypeRegistry::u32, Operator::Divide, TypeRegistry::u32, TypeRegistry::u32 },
-            { TypeRegistry::i32, Operator::Divide, TypeRegistry::i32, TypeRegistry::i32 },
-            { TypeRegistry::u64, Operator::Divide, TypeRegistry::u64, TypeRegistry::u64 },
-            { TypeRegistry::i64, Operator::Divide, TypeRegistry::i64, TypeRegistry::i64 },
-            { TypeRegistry::f32, Operator::Divide, TypeRegistry::f32, TypeRegistry::f32 },
-            { TypeRegistry::f64, Operator::Divide, TypeRegistry::f64, TypeRegistry::f64 },
-            { TypeRegistry::u8, Operator::Modulo, TypeRegistry::u8, TypeRegistry::u8 },
-            { TypeRegistry::i8, Operator::Modulo, TypeRegistry::i8, TypeRegistry::i8 },
-            { TypeRegistry::u16, Operator::Modulo, TypeRegistry::u16, TypeRegistry::u16 },
-            { TypeRegistry::i16, Operator::Modulo, TypeRegistry::i16, TypeRegistry::i16 },
-            { TypeRegistry::u32, Operator::Modulo, TypeRegistry::u32, TypeRegistry::u32 },
-            { TypeRegistry::i32, Operator::Modulo, TypeRegistry::i32, TypeRegistry::i32 },
-            { TypeRegistry::u64, Operator::Modulo, TypeRegistry::u64, TypeRegistry::u64 },
-            { TypeRegistry::i64, Operator::Modulo, TypeRegistry::i64, TypeRegistry::i64 },
-            { TypeRegistry::f32, Operator::Modulo, TypeRegistry::f32, TypeRegistry::f32 },
-            { TypeRegistry::f64, Operator::Modulo, TypeRegistry::f64, TypeRegistry::f64 },
-            { TypeRegistry::u8, Operator::Equals, TypeRegistry::u8, TypeRegistry::boolean },
-            { TypeRegistry::i8, Operator::Equals, TypeRegistry::i8, TypeRegistry::boolean },
-            { TypeRegistry::u16, Operator::Equals, TypeRegistry::u16, TypeRegistry::boolean },
-            { TypeRegistry::i16, Operator::Equals, TypeRegistry::i16, TypeRegistry::boolean },
-            { TypeRegistry::u32, Operator::Equals, TypeRegistry::u32, TypeRegistry::boolean },
-            { TypeRegistry::i32, Operator::Equals, TypeRegistry::i32, TypeRegistry::boolean },
-            { TypeRegistry::u64, Operator::Equals, TypeRegistry::u64, TypeRegistry::boolean },
-            { TypeRegistry::i64, Operator::Equals, TypeRegistry::i64, TypeRegistry::boolean },
-            { TypeRegistry::f32, Operator::Equals, TypeRegistry::f32, TypeRegistry::boolean },
-            { TypeRegistry::f64, Operator::Equals, TypeRegistry::f64, TypeRegistry::boolean },
-            { TypeRegistry::u8, Operator::NotEqual, TypeRegistry::u8, TypeRegistry::boolean },
-            { TypeRegistry::i8, Operator::NotEqual, TypeRegistry::i8, TypeRegistry::boolean },
-            { TypeRegistry::u16, Operator::NotEqual, TypeRegistry::u16, TypeRegistry::boolean },
-            { TypeRegistry::i16, Operator::NotEqual, TypeRegistry::i16, TypeRegistry::boolean },
-            { TypeRegistry::u32, Operator::NotEqual, TypeRegistry::u32, TypeRegistry::boolean },
-            { TypeRegistry::i32, Operator::NotEqual, TypeRegistry::i32, TypeRegistry::boolean },
-            { TypeRegistry::u64, Operator::NotEqual, TypeRegistry::u64, TypeRegistry::boolean },
-            { TypeRegistry::i64, Operator::NotEqual, TypeRegistry::i64, TypeRegistry::boolean },
-            { TypeRegistry::f32, Operator::NotEqual, TypeRegistry::f32, TypeRegistry::boolean },
-            { TypeRegistry::f64, Operator::NotEqual, TypeRegistry::f64, TypeRegistry::boolean },
-            { TypeRegistry::u8, Operator::Less, TypeRegistry::u8, TypeRegistry::boolean },
-            { TypeRegistry::i8, Operator::Less, TypeRegistry::i8, TypeRegistry::boolean },
-            { TypeRegistry::u16, Operator::Less, TypeRegistry::u16, TypeRegistry::boolean },
-            { TypeRegistry::i16, Operator::Less, TypeRegistry::i16, TypeRegistry::boolean },
-            { TypeRegistry::u32, Operator::Less, TypeRegistry::u32, TypeRegistry::boolean },
-            { TypeRegistry::i32, Operator::Less, TypeRegistry::i32, TypeRegistry::boolean },
-            { TypeRegistry::u64, Operator::Less, TypeRegistry::u64, TypeRegistry::boolean },
-            { TypeRegistry::i64, Operator::Less, TypeRegistry::i64, TypeRegistry::boolean },
-            { TypeRegistry::f32, Operator::Less, TypeRegistry::f32, TypeRegistry::boolean },
-            { TypeRegistry::f64, Operator::Less, TypeRegistry::f64, TypeRegistry::boolean },
-            { TypeRegistry::u8, Operator::LessEqual, TypeRegistry::u8, TypeRegistry::boolean },
-            { TypeRegistry::i8, Operator::LessEqual, TypeRegistry::i8, TypeRegistry::boolean },
-            { TypeRegistry::u16, Operator::LessEqual, TypeRegistry::u16, TypeRegistry::boolean },
-            { TypeRegistry::i16, Operator::LessEqual, TypeRegistry::i16, TypeRegistry::boolean },
-            { TypeRegistry::u32, Operator::LessEqual, TypeRegistry::u32, TypeRegistry::boolean },
-            { TypeRegistry::i32, Operator::LessEqual, TypeRegistry::i32, TypeRegistry::boolean },
-            { TypeRegistry::u64, Operator::LessEqual, TypeRegistry::u64, TypeRegistry::boolean },
-            { TypeRegistry::i64, Operator::LessEqual, TypeRegistry::i64, TypeRegistry::boolean },
-            { TypeRegistry::f32, Operator::LessEqual, TypeRegistry::f32, TypeRegistry::boolean },
-            { TypeRegistry::f64, Operator::LessEqual, TypeRegistry::f64, TypeRegistry::boolean },
-            { TypeRegistry::u8, Operator::Greater, TypeRegistry::u8, TypeRegistry::boolean },
-            { TypeRegistry::i8, Operator::Greater, TypeRegistry::i8, TypeRegistry::boolean },
-            { TypeRegistry::u16, Operator::Greater, TypeRegistry::u16, TypeRegistry::boolean },
-            { TypeRegistry::i16, Operator::Greater, TypeRegistry::i16, TypeRegistry::boolean },
-            { TypeRegistry::u32, Operator::Greater, TypeRegistry::u32, TypeRegistry::boolean },
-            { TypeRegistry::i32, Operator::Greater, TypeRegistry::i32, TypeRegistry::boolean },
-            { TypeRegistry::u64, Operator::Greater, TypeRegistry::u64, TypeRegistry::boolean },
-            { TypeRegistry::i64, Operator::Greater, TypeRegistry::i64, TypeRegistry::boolean },
-            { TypeRegistry::f32, Operator::Greater, TypeRegistry::f32, TypeRegistry::boolean },
-            { TypeRegistry::f64, Operator::Greater, TypeRegistry::f64, TypeRegistry::boolean },
-            { TypeRegistry::u8, Operator::GreaterEqual, TypeRegistry::u8, TypeRegistry::boolean },
-            { TypeRegistry::i8, Operator::GreaterEqual, TypeRegistry::i8, TypeRegistry::boolean },
-            { TypeRegistry::u16, Operator::GreaterEqual, TypeRegistry::u16, TypeRegistry::boolean },
-            { TypeRegistry::i16, Operator::GreaterEqual, TypeRegistry::i16, TypeRegistry::boolean },
-            { TypeRegistry::u32, Operator::GreaterEqual, TypeRegistry::u32, TypeRegistry::boolean },
-            { TypeRegistry::i32, Operator::GreaterEqual, TypeRegistry::i32, TypeRegistry::boolean },
-            { TypeRegistry::u64, Operator::GreaterEqual, TypeRegistry::u64, TypeRegistry::boolean },
-            { TypeRegistry::i64, Operator::GreaterEqual, TypeRegistry::i64, TypeRegistry::boolean },
-            { TypeRegistry::f32, Operator::GreaterEqual, TypeRegistry::f32, TypeRegistry::boolean },
-            { TypeRegistry::f64, Operator::GreaterEqual, TypeRegistry::f64, TypeRegistry::boolean },
-            { TypeRegistry::u8, Operator::BinaryAnd, TypeRegistry::u8, TypeRegistry::u8 },
-            { TypeRegistry::i8, Operator::BinaryAnd, TypeRegistry::i8, TypeRegistry::i8 },
-            { TypeRegistry::u16, Operator::BinaryAnd, TypeRegistry::u16, TypeRegistry::u16 },
-            { TypeRegistry::i16, Operator::BinaryAnd, TypeRegistry::i16, TypeRegistry::i16 },
-            { TypeRegistry::u32, Operator::BinaryAnd, TypeRegistry::u32, TypeRegistry::u32 },
-            { TypeRegistry::i32, Operator::BinaryAnd, TypeRegistry::i32, TypeRegistry::i32 },
-            { TypeRegistry::u64, Operator::BinaryAnd, TypeRegistry::u64, TypeRegistry::u64 },
-            { TypeRegistry::i64, Operator::BinaryOr, TypeRegistry::i64, TypeRegistry::i64 },
-            { TypeRegistry::u8, Operator::BinaryOr, TypeRegistry::u8, TypeRegistry::u8 },
-            { TypeRegistry::i8, Operator::BinaryOr, TypeRegistry::i8, TypeRegistry::i8 },
-            { TypeRegistry::u16, Operator::BinaryOr, TypeRegistry::u16, TypeRegistry::u16 },
-            { TypeRegistry::i16, Operator::BinaryOr, TypeRegistry::i16, TypeRegistry::i16 },
-            { TypeRegistry::u32, Operator::BinaryOr, TypeRegistry::u32, TypeRegistry::u32 },
-            { TypeRegistry::i32, Operator::BinaryOr, TypeRegistry::i32, TypeRegistry::i32 },
-            { TypeRegistry::u64, Operator::BinaryOr, TypeRegistry::u64, TypeRegistry::u64 },
-            { TypeRegistry::i64, Operator::BinaryOr, TypeRegistry::i64, TypeRegistry::i64 },
-            { TypeRegistry::i64, Operator::BinaryOr, TypeRegistry::i64, TypeRegistry::i64 },
-            { TypeRegistry::u8, Operator::BinaryXor, TypeRegistry::u8, TypeRegistry::u8 },
-            { TypeRegistry::i8, Operator::BinaryXor, TypeRegistry::i8, TypeRegistry::i8 },
-            { TypeRegistry::u16, Operator::BinaryXor, TypeRegistry::u16, TypeRegistry::u16 },
-            { TypeRegistry::i16, Operator::BinaryXor, TypeRegistry::i16, TypeRegistry::i16 },
-            { TypeRegistry::u32, Operator::BinaryXor, TypeRegistry::u32, TypeRegistry::u32 },
-            { TypeRegistry::i32, Operator::BinaryXor, TypeRegistry::i32, TypeRegistry::i32 },
-            { TypeRegistry::u64, Operator::BinaryXor, TypeRegistry::u64, TypeRegistry::u64 },
-            { TypeRegistry::i64, Operator::BinaryXor, TypeRegistry::i64, TypeRegistry::i64 },
-            { TypeRegistry::u8, Operator::ShiftLeft, TypeRegistry::u8, TypeRegistry::u8 },
-            { TypeRegistry::i8, Operator::ShiftLeft, TypeRegistry::u8, TypeRegistry::i8 },
-            { TypeRegistry::u16, Operator::ShiftLeft, TypeRegistry::u8, TypeRegistry::u16 },
-            { TypeRegistry::i16, Operator::ShiftLeft, TypeRegistry::u8, TypeRegistry::i16 },
-            { TypeRegistry::u32, Operator::ShiftLeft, TypeRegistry::u8, TypeRegistry::u32 },
-            { TypeRegistry::i32, Operator::ShiftLeft, TypeRegistry::u8, TypeRegistry::i32 },
-            { TypeRegistry::u64, Operator::ShiftLeft, TypeRegistry::u8, TypeRegistry::u64 },
-            { TypeRegistry::i64, Operator::ShiftLeft, TypeRegistry::u8, TypeRegistry::i64 },
-            { TypeRegistry::u8, Operator::ShiftRight, TypeRegistry::u8, TypeRegistry::u8 },
-            { TypeRegistry::i8, Operator::ShiftRight, TypeRegistry::u8, TypeRegistry::i8 },
-            { TypeRegistry::u16, Operator::ShiftRight, TypeRegistry::u8, TypeRegistry::u16 },
-            { TypeRegistry::i16, Operator::ShiftRight, TypeRegistry::u8, TypeRegistry::i16 },
-            { TypeRegistry::u32, Operator::ShiftRight, TypeRegistry::u8, TypeRegistry::u32 },
-            { TypeRegistry::i32, Operator::ShiftRight, TypeRegistry::u8, TypeRegistry::i32 },
-            { TypeRegistry::u64, Operator::ShiftRight, TypeRegistry::u8, TypeRegistry::u64 },
-            { TypeRegistry::i64, Operator::ShiftRight, TypeRegistry::u8, TypeRegistry::i64 },
+            { TypeKind::IntType, Operator::Add, PseudoType::Lhs, PseudoType::Lhs },
+            { TypeKind::FloatType, Operator::Add, PseudoType::Lhs, PseudoType::Lhs },
+            { TypeKind::IntType, Operator::Subtract, PseudoType::Lhs, PseudoType::Lhs },
+            { TypeKind::FloatType, Operator::Subtract, PseudoType::Lhs, PseudoType::Lhs },
+            { TypeKind::IntType, Operator::Multiply, PseudoType::Lhs, PseudoType::Lhs },
+            { TypeKind::FloatType, Operator::Multiply, PseudoType::Lhs, PseudoType::Lhs },
+            { TypeRegistry::string, Operator::Multiply, TypeKind::IntType, PseudoType::Lhs },
+            { TypeKind::IntType, Operator::Divide, PseudoType::Lhs, PseudoType::Lhs },
+            { TypeKind::FloatType, Operator::Divide, PseudoType::Lhs, PseudoType::Lhs },
+            { TypeKind::IntType, Operator::Modulo, PseudoType::Lhs, PseudoType::Lhs },
+            { TypeKind::FloatType, Operator::Modulo, PseudoType::Lhs, PseudoType::Lhs },
+            { TypeKind::IntType, Operator::Equals, PseudoType::Lhs, TypeRegistry::boolean },
+            { TypeKind::FloatType, Operator::Equals, PseudoType::Lhs, TypeRegistry::boolean },
+            { TypeKind::IntType, Operator::NotEqual, PseudoType::Lhs, TypeRegistry::boolean },
+            { TypeKind::FloatType, Operator::NotEqual, PseudoType::Lhs, TypeRegistry::boolean },
+            { TypeKind::IntType, Operator::Less, PseudoType::Lhs, TypeRegistry::boolean },
+            { TypeKind::FloatType, Operator::Less, PseudoType::Lhs, TypeRegistry::boolean },
+            { TypeKind::IntType, Operator::LessEqual, PseudoType::Lhs, TypeRegistry::boolean },
+            { TypeKind::FloatType, Operator::LessEqual, PseudoType::Lhs, TypeRegistry::boolean },
+            { TypeKind::IntType, Operator::Greater, PseudoType::Lhs, TypeRegistry::boolean },
+            { TypeKind::FloatType, Operator::Greater, PseudoType::Lhs, TypeRegistry::boolean },
+            { TypeKind::IntType, Operator::GreaterEqual, PseudoType::Lhs, TypeRegistry::boolean },
+            { TypeKind::FloatType, Operator::GreaterEqual, PseudoType::Lhs, TypeRegistry::boolean },
+            { TypeKind::IntType, Operator::BinaryAnd, PseudoType::Lhs, PseudoType::Lhs },
+            { TypeKind::IntType, Operator::BinaryOr, PseudoType::Lhs, PseudoType::Lhs },
+            { TypeKind::IntType, Operator::BinaryXor, PseudoType::Lhs, PseudoType::Lhs },
+            { TypeKind::IntType, Operator::ShiftLeft, TypeRegistry::u8, PseudoType::Lhs },
+            { TypeKind::IntType, Operator::ShiftRight, TypeRegistry::u8, PseudoType::Lhs },
             { TypeRegistry::boolean, Operator::LogicalAnd, TypeRegistry::boolean, TypeRegistry::boolean },
             { TypeRegistry::boolean, Operator::LogicalOr, TypeRegistry::boolean, TypeRegistry::boolean },
         };
@@ -402,7 +336,7 @@ pType BinaryExpression::bind(Parser &parser)
     }
 
     if (op == Operator::Cast) {
-        auto lhs_const = std::dynamic_pointer_cast<ConstantExpression>(lhs);
+        auto lhs_const = std::dynamic_pointer_cast<Constant>(lhs);
         if (lhs_const != nullptr && op == Operator::Cast) {
             if (auto rhs_type = std::dynamic_pointer_cast<TypeSpecification>(rhs); rhs_type != nullptr) {
                 if (auto type = rhs_type->resolve(parser); type != nullptr) {
@@ -430,29 +364,42 @@ pType BinaryExpression::bind(Parser &parser)
             lhs_type->description, rhs_type->description);
     }
 
-    for (auto const &o : binary_ops) {
-        if (o.op == op && o.lhs == lhs_type && o.rhs == rhs_type) {
-            return o.result;
-        }
-    }
-
-    for (auto const &o : binary_ops) {
-        if (o.op == op && o.lhs == lhs_type) {
-            auto coerced = rhs->coerce(o.rhs, parser);
-            if (coerced != nullptr) {
-                rhs = coerced;
-                return o.result;
+    auto check_operators = [](pType const &lhs_type, pType const &rhs_type) -> pType {
+        for (auto const &o : binary_ops) {
+            if (o.matches(lhs_type, rhs_type)) {
+                return std::visit(overloads {
+                                      [](pType const &result_type) -> pType {
+                                          return result_type;
+                                      },
+                                      [&lhs_type, &rhs_type](PseudoType pseudo_type) -> pType {
+                                          switch (pseudo_type) {
+                                          case PseudoType::Lhs:
+                                              return lhs_type;
+                                          case PseudoType::Rhs:
+                                              return rhs_type;
+                                          default:
+                                              UNREACHABLE();
+                                          }
+                                      } },
+                    o.result);
             }
         }
-    }
+        return nullptr;
+    };
 
-    for (auto const &o : binary_ops) {
-        if (o.op == op && o.rhs == rhs_type) {
-            auto coerced = rhs->coerce(o.lhs, parser);
-            if (coerced != nullptr) {
-                lhs = coerced;
-                return o.result;
-            }
+    if (auto result = check_operators(lhs_type, rhs_type); result != nullptr) {
+        return result;
+    }
+    if (auto rhs_coerced_to_lhs = rhs->coerce(lhs_type, parser); rhs_coerced_to_lhs != nullptr) {
+        if (auto result = check_operators(lhs_type, rhs_coerced_to_lhs->bound_type); result != nullptr) {
+            rhs = rhs_coerced_to_lhs;
+            return result;
+        }
+    }
+    if (auto lhs_coerced_to_rhs = lhs->coerce(rhs_type, parser); lhs_coerced_to_rhs != nullptr) {
+        if (auto result = check_operators(lhs_coerced_to_rhs->bound_type, rhs_type); result != nullptr) {
+            lhs = lhs_coerced_to_rhs;
+            return result;
         }
     }
 
@@ -475,14 +422,6 @@ void BinaryExpression::dump_node(int indent)
     rhs->dump(indent + 4);
 }
 
-struct UnaryOperator {
-    Operator op;
-    pType    operand;
-    pType    result;
-};
-
-static std::vector<UnaryOperator> unary_ops;
-
 UnaryExpression::UnaryExpression(Operator op, pSyntaxNode operand)
     : SyntaxNode(SyntaxNodeType::UnaryExpression)
     , op(op)
@@ -492,17 +431,12 @@ UnaryExpression::UnaryExpression(Operator op, pSyntaxNode operand)
 
 pSyntaxNode UnaryExpression::normalize(Parser &parser)
 {
-    auto evaluate = [this](TokenLocation const &location, Operator op, pSyntaxNode const &operand) -> pSyntaxNode {
-        auto operand_const = std::dynamic_pointer_cast<ConstantExpression>(operand);
-        if (operand_const != nullptr) {
-            if (auto ret = operand_const->evaluate(op); ret != nullptr) {
-                return ret;
-            }
-        }
-        return make_node<UnaryExpression>(location, op, operand);
-    };
-
-    return evaluate(location, op, operand->normalize(parser));
+    auto operand_const = std::dynamic_pointer_cast<Constant>(operand);
+    if (operand_const != nullptr) {
+        auto res = evaluate(op, operand_const->bound_value.value());
+        return make_node<Constant>(location, res);
+    }
+    return make_node<UnaryExpression>(location, op, operand);
 }
 
 pSyntaxNode UnaryExpression::stamp(Parser &parser)
@@ -514,35 +448,16 @@ pType UnaryExpression::bind(Parser &parser)
 {
     if (unary_ops.empty()) {
         unary_ops = {
-            { Operator::BinaryInvert, TypeRegistry::u8, TypeRegistry::u8 },
-            { Operator::BinaryInvert, TypeRegistry::i8, TypeRegistry::i8 },
-            { Operator::BinaryInvert, TypeRegistry::u16, TypeRegistry::u16 },
-            { Operator::BinaryInvert, TypeRegistry::i16, TypeRegistry::i16 },
-            { Operator::BinaryInvert, TypeRegistry::u32, TypeRegistry::u32 },
-            { Operator::BinaryInvert, TypeRegistry::i32, TypeRegistry::i32 },
-            { Operator::BinaryInvert, TypeRegistry::u64, TypeRegistry::u64 },
-            { Operator::BinaryInvert, TypeRegistry::i64, TypeRegistry::i64 },
-            { Operator::Idempotent, TypeRegistry::u8, TypeRegistry::u8 },
-            { Operator::Idempotent, TypeRegistry::i8, TypeRegistry::i8 },
-            { Operator::Idempotent, TypeRegistry::u16, TypeRegistry::u16 },
-            { Operator::Idempotent, TypeRegistry::i16, TypeRegistry::i16 },
-            { Operator::Idempotent, TypeRegistry::u32, TypeRegistry::u32 },
-            { Operator::Idempotent, TypeRegistry::i32, TypeRegistry::i32 },
-            { Operator::Idempotent, TypeRegistry::u64, TypeRegistry::u64 },
-            { Operator::Idempotent, TypeRegistry::i64, TypeRegistry::i64 },
-            { Operator::Idempotent, TypeRegistry::f32, TypeRegistry::f32 },
-            { Operator::Idempotent, TypeRegistry::f64, TypeRegistry::f64 },
-            { Operator::Negate, TypeRegistry::u8, TypeRegistry::u8 },
-            { Operator::Negate, TypeRegistry::i8, TypeRegistry::i8 },
-            { Operator::Negate, TypeRegistry::u16, TypeRegistry::u16 },
-            { Operator::Negate, TypeRegistry::i16, TypeRegistry::i16 },
-            { Operator::Negate, TypeRegistry::u32, TypeRegistry::u32 },
-            { Operator::Negate, TypeRegistry::i32, TypeRegistry::i32 },
-            { Operator::Negate, TypeRegistry::u64, TypeRegistry::u64 },
-            { Operator::Negate, TypeRegistry::i64, TypeRegistry::i64 },
-            { Operator::Negate, TypeRegistry::f32, TypeRegistry::f32 },
-            { Operator::Negate, TypeRegistry::f64, TypeRegistry::f64 },
+            { Operator::BinaryInvert, TypeKind::IntType, PseudoType::Self },
+            { Operator::Idempotent, TypeKind::IntType, PseudoType::Self },
+            { Operator::Idempotent, TypeKind::FloatType, PseudoType::Self },
+            { Operator::Negate, TypeKind::IntType, PseudoType::Self },
+            { Operator::Negate, TypeKind::FloatType, PseudoType::Self },
             { Operator::LogicalInvert, TypeRegistry::boolean, TypeRegistry::boolean },
+            { Operator::Length, TypeKind::SliceType, TypeRegistry::i32 },
+            { Operator::Length, TypeKind::Array, TypeRegistry::i32 },
+            { Operator::Length, TypeKind::DynArray, TypeRegistry::i32 },
+            { Operator::Length, TypeKind::ZeroTerminatedArray, TypeRegistry::i32 },
         };
     }
     auto operand_type = bind_node(operand, parser);
@@ -554,8 +469,20 @@ pType UnaryExpression::bind(Parser &parser)
         return parser.bind_error(operand->location, std::wstring { L"Type ambiguity" });
     }
     for (auto const &o : unary_ops) {
-        if (o.op == op && o.operand == operand_type) {
-            return o.result;
+        if (o.op == op && o.operand.matches(operand_type)) {
+            return std::visit(overloads {
+                                  [](pType const &result_type) -> pType {
+                                      return result_type;
+                                  },
+                                  [&operand_type](PseudoType pseudo_type) -> pType {
+                                      switch (pseudo_type) {
+                                      case PseudoType::Self:
+                                          return operand_type;
+                                      default:
+                                          UNREACHABLE();
+                                      }
+                                  } },
+                o.result);
         }
     }
     return parser.bind_error(

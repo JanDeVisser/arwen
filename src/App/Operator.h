@@ -80,6 +80,7 @@ enum class Associativity {
 
 #define BinOps(S)    \
     S(Add)           \
+    S(AddressOf)     \
     S(BinaryAnd)     \
     S(BinaryInvert)  \
     S(BinaryOr)      \
@@ -91,6 +92,7 @@ enum class Associativity {
     S(Greater)       \
     S(GreaterEqual)  \
     S(Idempotent)    \
+    S(Length)        \
     S(Less)          \
     S(LessEqual)     \
     S(LogicalAnd)    \

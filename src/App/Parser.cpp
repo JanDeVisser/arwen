@@ -28,6 +28,7 @@ using namespace Util;
 
 std::vector<Parser::OperatorDef> Parser::operators {
     { Operator::Add, '+', 11 },
+    { Operator::AddressOf, '@', 14, Position::Prefix, Associativity::Right },
     { Operator::Assign, '=', 1, Position::Infix, Associativity::Right },
     { Operator::AssignAnd, ArwenKeyword::AssignAnd, 1, Position::Infix, Associativity::Right },
     { Operator::AssignDecrement, ArwenKeyword::AssignDecrement, 1, Position::Infix, Associativity::Right },
@@ -48,9 +49,10 @@ std::vector<Parser::OperatorDef> Parser::operators {
     { Operator::Greater, '>', 8 },
     { Operator::GreaterEqual, ArwenKeyword::GreaterEqual, 8 },
     { Operator::Idempotent, '+', 14, Position::Prefix, Associativity::Right },
-    { Operator::LogicalInvert, '!', 14, Position::Prefix, Associativity::Right },
+    { Operator::Length, '#', 9, Position::Prefix, Associativity::Right },
     { Operator::Less, '<', 8 },
     { Operator::LessEqual, ArwenKeyword::LessEqual, 8 },
+    { Operator::LogicalInvert, '!', 14, Position::Prefix, Associativity::Right },
     { Operator::MemberAccess, '.', 15 },
     { Operator::Modulo, '%', 12 },
     { Operator::Multiply, '*', 12 },
@@ -792,7 +794,7 @@ pSyntaxNode Parser::parse_enum()
                 return nullptr;
             }
         }
-        pNumber value_node { nullptr };
+        pSyntaxNode value_node { nullptr };
         if (lexer.accept_symbol('=')) {
             auto value = lexer.peek();
             if (!value.matches(TokenKind::Number) || value.number_type() == NumberType::Decimal) {

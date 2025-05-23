@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include "SyntaxNode.h"
+
 #include <concepts>
 #include <map>
 #include <memory>
@@ -17,6 +19,7 @@
 
 #include <App/Operator.h>
 #include <App/Type.h>
+#include <App/Value.h>
 
 namespace Arwen {
 
@@ -28,10 +31,9 @@ using namespace Util;
     S(BoolConstant)        \
     S(Break)               \
     S(Call)                \
+    S(Constant)            \
     S(Continue)            \
-    S(Decimal)             \
     S(DeferStatement)      \
-    S(DoubleQuotedString)  \
     S(Dummy)               \
     S(Embed)               \
     S(Enum)                \
@@ -46,7 +48,6 @@ using namespace Util;
     S(IfStatement)         \
     S(Include)             \
     S(Import)              \
-    S(Integer)             \
     S(Insert)              \
     S(LoopStatement)       \
     S(MemberPath)          \
@@ -57,8 +58,6 @@ using namespace Util;
     S(PublicDeclaration)   \
     S(QuotedString)        \
     S(Return)              \
-    S(SignedInteger)       \
-    S(SingleQuotedString)  \
     S(Struct)              \
     S(StructMember)        \
     S(TypeSpecification)   \
@@ -125,7 +124,7 @@ struct SyntaxNode : std::enable_shared_from_this<SyntaxNode> {
 
     virtual ~SyntaxNode() = default;
     SyntaxNode() = delete;
-    SyntaxNode(SyntaxNodeType type, pNamespace ns = nullptr);
+    explicit SyntaxNode(SyntaxNodeType type, pNamespace ns = nullptr);
 
     void                   dump(int indent = 0);
     std::wostream         &header_line(std::wostream &os);
@@ -133,7 +132,7 @@ struct SyntaxNode : std::enable_shared_from_this<SyntaxNode> {
     virtual void           dump_node(int indent);
 
     virtual pSyntaxNode normalize(Parser &parser);
-    virtual pType       bind(Parser &parser) = 0;
+    virtual pType       bind(Parser &parser);
     virtual pSyntaxNode stamp(Parser &parser);
     virtual pSyntaxNode coerce(pType const &target, Parser &parser);
 };
@@ -211,7 +210,7 @@ static std::vector<std::shared_ptr<Node>> stamp_nodes(std::vector<std::shared_pt
     return normalized;
 }
 
-struct BinaryExpression : SyntaxNode {
+struct BinaryExpression final : SyntaxNode {
     pSyntaxNode lhs;
     Operator    op;
     pSyntaxNode rhs;
@@ -225,20 +224,7 @@ struct BinaryExpression : SyntaxNode {
     void           dump_node(int indent) override;
 };
 
-using pConstantExpression = std::shared_ptr<struct ConstantExpression>;
-
-struct ConstantExpression : SyntaxNode {
-    ConstantExpression(SyntaxNodeType type);
-    pSyntaxNode evaluate(Operator op, pConstantExpression const &rhs = nullptr);
-
-#undef S
-#undef S
-#define S(O) virtual pSyntaxNode evaluate_##O(pConstantExpression const &rhs = nullptr);
-    Operators(S)
-#undef S
-};
-
-struct Block : SyntaxNode {
+struct Block final : SyntaxNode {
     SyntaxNodes statements;
     SyntaxNodes deferred_statements;
 
@@ -251,26 +237,25 @@ struct Block : SyntaxNode {
     void        dump_node(int indent) override;
 };
 
-struct BoolConstant : ConstantExpression {
+struct BoolConstant final : SyntaxNode {
     bool value;
 
-    BoolConstant(bool value);
-    pType          bind(Parser &parser) override;
+    explicit BoolConstant(bool value);
+    pSyntaxNode    normalize(Parser &parser) override;
     std::wostream &header(std::wostream &os) override;
-    pSyntaxNode    evaluate_LogicalInvert(pConstantExpression const &) override;
 };
 
-struct Break : SyntaxNode {
+struct Break final : SyntaxNode {
     Label label;
 
-    Break(Label label);
+    explicit Break(Label label);
 
     pType          bind(Parser &parser) override;
     std::wostream &header(std::wostream &os) override;
     pSyntaxNode    stamp(Parser &parser) override;
 };
 
-struct Call : SyntaxNode {
+struct Call final : SyntaxNode {
     pSyntaxNode         callable;
     pExpressionList     arguments;
     pFunctionDefinition function;
@@ -279,6 +264,16 @@ struct Call : SyntaxNode {
     pType          bind(Parser &parser) override;
     pSyntaxNode    stamp(Parser &parser) override;
     void           dump_node(int indent) override;
+    std::wostream &header(std::wostream &os) override;
+};
+
+using pConstant = std::shared_ptr<struct Constant>;
+
+struct Constant final : SyntaxNode {
+    std::optional<Value> bound_value {};
+
+    explicit Constant(Value value);
+    pType          bind(Parser &parser) override;
     std::wostream &header(std::wostream &os) override;
 };
 
@@ -302,16 +297,6 @@ struct DeferStatement : SyntaxNode {
     void        dump_node(int indent) override;
 };
 
-struct DoubleQuotedString : ConstantExpression {
-    std::wstring string;
-
-    DoubleQuotedString(std::wstring_view str, bool strip_quotes);
-    pType          bind(Parser &parser) override;
-    pSyntaxNode    stamp(Parser &parser) override;
-    std::wostream &header(std::wostream &os) override;
-    pSyntaxNode    evaluate_Add(pConstantExpression const &rhs) override;
-};
-
 struct Dummy : SyntaxNode {
     Dummy();
     pType bind(Parser &parser) override;
@@ -327,11 +312,11 @@ struct Embed : SyntaxNode {
 };
 
 struct EnumValue : SyntaxNode {
-    std::wstring        label;
-    pConstantExpression value;
-    pTypeSpecification  payload;
+    std::wstring       label;
+    pSyntaxNode        value;
+    pTypeSpecification payload;
 
-    EnumValue(std::wstring label, pConstantExpression value, pTypeSpecification payload);
+    EnumValue(std::wstring label, pSyntaxNode value, pTypeSpecification payload);
     pSyntaxNode    normalize(Parser &parser) override;
     pType          bind(Parser &parser) override;
     pSyntaxNode    stamp(Parser &parser) override;
@@ -517,13 +502,12 @@ struct Module : SyntaxNode {
 
 using pModule = std::shared_ptr<struct Module>;
 
-struct Number : ConstantExpression {
+struct Number : SyntaxNode {
     std::wstring number;
     NumberType   number_type;
 
     Number(std::wstring_view number, NumberType type);
     pSyntaxNode    normalize(Parser &parser) override;
-    pType          bind(Parser &parser) override;
     std::wostream &header(std::wostream &os) override;
 };
 
@@ -543,7 +527,7 @@ struct Program : SyntaxNode {
     std::wstring                    name;
     std::map<std::wstring, pModule> modules {};
 
-    Program(std::wstring name);
+    explicit Program(std::wstring name);
     Program(std::wstring name, std::map<std::wstring, pModule> modules);
     Program(std::wstring name, std::map<std::wstring, pModule> modules, pNamespace ns);
     pSyntaxNode    normalize(Parser &parser) override;
@@ -564,37 +548,26 @@ struct PublicDeclaration : SyntaxNode {
     void        dump_node(int indent) override;
 };
 
-struct QuotedString : SyntaxNode {
+struct QuotedString final : SyntaxNode {
     std::wstring string;
     QuoteType    quote_type;
 
     QuotedString(std::wstring_view str, QuoteType type);
-    pType          bind(Parser &parser) override;
-    pSyntaxNode    stamp(Parser &parser) override;
     std::wostream &header(std::wostream &os) override;
     pSyntaxNode    normalize(Parser &parser) override;
 };
 
-struct Return : SyntaxNode {
+struct Return final : SyntaxNode {
     pSyntaxNode expression;
 
-    Return(pSyntaxNode expression);
+    explicit Return(pSyntaxNode expression);
     pSyntaxNode normalize(Parser &parser) override;
     pType       bind(Parser &parser) override;
     pSyntaxNode stamp(Parser &parser) override;
     void        dump_node(int indent) override;
 };
 
-struct SingleQuotedString : ConstantExpression {
-    std::wstring string;
-
-    SingleQuotedString(std::wstring_view str, bool strip_quotes);
-    pType          bind(Parser &parser) override;
-    pSyntaxNode    stamp(Parser &parser) override;
-    std::wostream &header(std::wostream &os) override;
-};
-
-struct StructMember : SyntaxNode {
+struct StructMember final : SyntaxNode {
     std::wstring       label;
     pTypeSpecification member_type;
 
@@ -713,12 +686,12 @@ struct VariableDeclaration : SyntaxNode {
     void           dump_node(int indent) override;
 };
 
-struct Void : ConstantExpression {
+struct Void final : SyntaxNode {
     Void();
-    pType bind(Parser &parser) override;
+    pSyntaxNode normalize(Parser &parser) override;
 };
 
-struct WhileStatement : SyntaxNode {
+struct WhileStatement final : SyntaxNode {
     Label       label;
     pSyntaxNode condition;
     pSyntaxNode statement;
@@ -731,7 +704,7 @@ struct WhileStatement : SyntaxNode {
     void           dump_node(int indent) override;
 };
 
-struct Yield : SyntaxNode {
+struct Yield final : SyntaxNode {
     Label       label;
     pSyntaxNode statement;
 

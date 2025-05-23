@@ -6,7 +6,6 @@
 
 #pragma once
 
-#include "Util/Utf8.h"
 #include <cstring>
 #include <format>
 #include <iostream>
@@ -15,6 +14,8 @@
 #include <sys/signal.h>
 
 #include <config.h>
+
+#include <Util/Utf8.h>
 
 namespace Util {
 

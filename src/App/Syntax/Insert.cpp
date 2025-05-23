@@ -69,7 +69,7 @@ pSyntaxNode Insert::normalize(Parser &parser)
         Scope                          &scope = interpreter.new_scope(script);
         scope.values.emplace(L"output", Value { TypeRegistry::string });
         interpreter.execute(script);
-        auto output = std::get<std::wstring>(std::get<Value::PayloadValue>(scope.value(L"output").payload));
+        auto output = as<std::wstring>(scope.value(L"output"));
 
         // trace(L"@insert({})", output);
         Parser include_parser;

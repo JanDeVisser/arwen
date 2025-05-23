@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <format>
 #include <map>
@@ -14,14 +15,74 @@
 #include <variant>
 #include <vector>
 
+#include <Util/Align.h>
+#include <Util/Logging.h>
 #include <Util/Utf8.h>
 
 #include <App/Operator.h>
 
 namespace Arwen {
 
+#define TypeKinds(S)       \
+    S(Undetermined)        \
+    S(Ambiguous)           \
+    S(BindErrors)          \
+    S(VoidType)            \
+    S(PointerType)         \
+    S(NamespaceType)       \
+    S(FunctionType)        \
+    S(TypeList)            \
+    S(GenericParameter)    \
+    S(IntType)             \
+    S(FloatType)           \
+    S(BoolType)            \
+    S(ReferenceType)       \
+    S(SliceType)           \
+    S(ZeroTerminatedArray) \
+    S(Array)               \
+    S(DynArray)            \
+    S(RangeType)           \
+    S(TypeAlias)           \
+    S(EnumType)            \
+    S(OptionalType)        \
+    S(ErrorType)           \
+    S(StructType)
+
+enum class TypeKind {
+#undef S
+#define S(K) K,
+    TypeKinds(S)
+#undef S
+};
+
 using pType = std::shared_ptr<const struct Type>;
 // using pConstType = std::shared_ptr<const struct Type>;
+
+struct Slice {
+    void   *ptr { nullptr };
+    int64_t size { 0 };
+};
+
+struct DynamicArray {
+    void   *ptr { nullptr };
+    int64_t size { 0 };
+    int64_t capacity { 0 };
+};
+
+struct StaticArray {
+    void   *ptr { nullptr };
+    int64_t size { 0 };
+};
+
+#define BitWidths(S) \
+    S(8)             \
+    S(16)            \
+    S(32)            \
+    S(64)
+
+#define FloatBitWidths(S) \
+    S(32, float)          \
+    S(64, double)
 
 struct IntType {
     bool     is_signed;
@@ -42,6 +103,16 @@ struct IntType {
     {
         return std::format(L"{:c}{}", (is_signed) ? 'i' : 'u', width_bits);
     }
+
+    intptr_t size_of() const
+    {
+        return width_bits / 8;
+    }
+
+    intptr_t align_of() const
+    {
+        return width_bits / 8;
+    }
 };
 
 struct FloatType {
@@ -54,12 +125,32 @@ struct FloatType {
     {
         return std::format(L"f{}", width_bits);
     }
+
+    intptr_t size_of() const
+    {
+        return width_bits / 8;
+    }
+
+    intptr_t align_of() const
+    {
+        return width_bits / 8;
+    }
 };
 
 struct BoolType {
     std::wstring to_string() const
     {
         return L"Bool";
+    }
+
+    intptr_t size_of() const
+    {
+        return 1;
+    }
+
+    intptr_t align_of() const
+    {
+        return 1;
     }
 };
 
@@ -68,12 +159,49 @@ struct VoidType {
     {
         return L"Void";
     }
+
+    intptr_t size_of() const
+    {
+        return 0;
+    }
+
+    intptr_t align_of() const
+    {
+        return 0;
+    }
+};
+
+struct PointerType {
+    std::wstring to_string() const
+    {
+        return L"Pointer";
+    }
+
+    intptr_t size_of() const
+    {
+        return sizeof(void*);
+    }
+
+    intptr_t align_of() const
+    {
+        return alignof(void*);
+    }
 };
 
 struct NamespaceType {
     std::wstring to_string() const
     {
         return L"Namespace";
+    }
+
+    intptr_t size_of() const
+    {
+        return 0;
+    }
+
+    intptr_t align_of() const
+    {
+        return 0;
     }
 };
 
@@ -82,18 +210,40 @@ struct FunctionType {
     pType              result;
 
     std::wstring to_string() const;
+
+    intptr_t size_of() const
+    {
+        return sizeof(void *);
+    }
+
+    intptr_t align_of() const
+    {
+        return alignof(void *);
+    }
 };
 
 struct TypeList {
     std::vector<pType> types;
 
     std::wstring to_string() const;
+    intptr_t     size_of() const;
+    intptr_t     align_of() const;
 };
 
 struct Undetermined {
     std::wstring to_string() const
     {
         return L"Undetermined";
+    }
+
+    intptr_t size_of() const
+    {
+        return 0;
+    }
+
+    intptr_t align_of() const
+    {
+        return 0;
     }
 };
 
@@ -102,6 +252,16 @@ struct Ambiguous {
     {
         return L"Ambiguous";
     }
+
+    intptr_t size_of() const
+    {
+        return 0;
+    }
+
+    intptr_t align_of() const
+    {
+        return 0;
+    }
 };
 
 struct BindErrors {
@@ -109,6 +269,16 @@ struct BindErrors {
     std::wstring            to_string() const
     {
         return L"BindErrors";
+    }
+
+    intptr_t size_of() const
+    {
+        return 0;
+    }
+
+    intptr_t align_of() const
+    {
+        return 0;
     }
 };
 
@@ -119,42 +289,100 @@ struct GenericParameter {
     {
         return std::format(L"<{}>", name);
     }
+
+    intptr_t size_of() const
+    {
+        return 0;
+    }
+
+    intptr_t align_of() const
+    {
+        return 0;
+    }
 };
 
 struct ReferenceType {
     pType        referencing;
     std::wstring to_string() const;
+
+    intptr_t size_of() const
+    {
+        return sizeof(void *);
+    }
+
+    intptr_t align_of() const
+    {
+        return alignof(void *);
+    }
 };
 
 struct SliceType {
     pType        slice_of;
     std::wstring to_string() const;
+
+    intptr_t size_of() const
+    {
+        return sizeof(Slice);
+    }
+
+    intptr_t align_of() const
+    {
+        return alignof(Slice);
+    }
 };
 
 struct ZeroTerminatedArray {
     pType        array_of;
     std::wstring to_string() const;
+
+    intptr_t size_of() const
+    {
+        return sizeof(void *);
+    }
+
+    intptr_t align_of() const
+    {
+        return alignof(void *);
+    }
 };
 
 struct Array {
-    pType        array_of;
-    size_t       size;
+    pType  array_of;
+    size_t size;
+
     std::wstring to_string() const;
+    intptr_t     size_of() const;
+    intptr_t     align_of() const;
 };
 
 struct DynArray {
     pType        array_of;
     std::wstring to_string() const;
+
+    intptr_t size_of() const
+    {
+        return sizeof(DynamicArray);
+    }
+
+    intptr_t align_of() const
+    {
+        return alignof(DynamicArray);
+    }
 };
 
 struct RangeType {
-    pType        range_of;
+    pType range_of;
+
     std::wstring to_string() const;
+    intptr_t     size_of() const;
+    intptr_t     align_of() const;
 };
 
 struct TypeAlias {
     pType        alias_of;
     std::wstring to_string() const;
+    intptr_t     size_of() const;
+    intptr_t     align_of() const;
 };
 
 struct EnumType {
@@ -165,9 +393,12 @@ struct EnumType {
     };
     using Values = std::vector<Value>;
 
-    pType        underlying_type;
-    Values       values;
+    pType  underlying_type;
+    Values values;
+
     std::wstring to_string() const;
+    intptr_t     size_of() const;
+    intptr_t     align_of() const;
 };
 
 struct StructType {
@@ -180,6 +411,8 @@ struct StructType {
 
     Fields       fields;
     std::wstring to_string() const;
+    intptr_t     size_of() const;
+    intptr_t     align_of() const;
 
     auto field(std::wstring_view field_name)
     {
@@ -190,39 +423,28 @@ struct StructType {
 };
 
 struct OptionalType {
-    pType        type;
+    pType type;
+
     std::wstring to_string() const;
+    intptr_t     size_of() const;
+    intptr_t     align_of() const;
 };
 
 struct ErrorType {
-    pType        success;
-    pType        error;
+    pType success;
+    pType error;
+
     std::wstring to_string() const;
+    intptr_t     size_of() const;
+    intptr_t     align_of() const;
 };
 
 using TypeDescription = std::variant<
-    Undetermined,
-    Ambiguous,
-    BindErrors,
-    VoidType,
-    NamespaceType,
-    FunctionType,
-    TypeList,
-    GenericParameter,
-    IntType,
-    FloatType,
-    BoolType,
-    ReferenceType,
-    SliceType,
-    ZeroTerminatedArray,
-    Array,
-    DynArray,
-    RangeType,
-    TypeAlias,
-    EnumType,
-    OptionalType,
-    ErrorType,
-    StructType>;
+#undef S
+#define S(K) K,
+    TypeKinds(S)
+#undef S
+        std::monostate>;
 
 struct Type : std::enable_shared_from_this<Type> {
     std::wstring                  name;
@@ -242,15 +464,56 @@ struct Type : std::enable_shared_from_this<Type> {
         return std::holds_alternative<DescrType>(description);
     }
 
+    bool is(TypeKind kind) const
+    {
+        return description.index() == static_cast<int>(kind);
+    }
+
+    TypeKind kind() const
+    {
+        return static_cast<TypeKind>(description.index());
+    }
+
     std::wstring to_string() const
     {
         return std::format(
             L"{}: {}",
             name,
-            std::visit([](auto const &descr) -> std::wstring {
-                return descr.to_string();
-            },
+            std::visit(overloads {
+                           [](std::monostate const &) -> std::wstring {
+                               UNREACHABLE();
+                               return L"";
+                           },
+                           [](auto const &descr) -> std::wstring {
+                               return descr.to_string();
+                           } },
                 description));
+    }
+
+    intptr_t size_of() const
+    {
+        return std::visit(overloads {
+                              [](std::monostate const &) -> intptr_t {
+                                  UNREACHABLE();
+                                  return 0;
+                              },
+                              [](auto const &descr) -> intptr_t {
+                                  return descr.size_of();
+                              } },
+            description);
+    }
+
+    intptr_t align_of() const
+    {
+        return std::visit(overloads {
+                              [](std::monostate const &) -> intptr_t {
+                                  UNREACHABLE();
+                                  return 0;
+                              },
+                              [](auto const &descr) -> intptr_t {
+                                  return descr.align_of();
+                              } },
+            description);
     }
 
     std::map<std::wstring, pType> infer_generic_arguments(pType const &param_type) const;
@@ -287,6 +550,7 @@ struct TypeRegistry {
     static pType cstring;
     static pType character;
     static pType void_;
+    static pType pointer;
     static pType undetermined;
     static pType ambiguous;
 
@@ -299,7 +563,7 @@ template<typename DescrType>
 pType make_type(std::wstring n, DescrType descr)
 {
     // std::wcout << "Registering type " << n << ' ' << descr.to_string() << std::endl;
-    auto ret = std::make_shared<const Type>(std::move(n), std::move(descr));
+    auto ret = std::make_shared<Type const>(std::move(n), std::move(descr));
     TypeRegistry::the().types.push_back(ret);
     return ret;
 }
@@ -323,5 +587,4 @@ pType make_error(TokenLocation location, std::wformat_string<Args...> const mess
 {
     return make_error(std::move(location), std::vformat(message.get(), std::make_wformat_args(args...)));
 }
-
 }

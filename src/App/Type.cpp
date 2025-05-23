@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <algorithm>
 #include <cstdint>
 #include <format>
 #include <functional>
@@ -49,6 +50,7 @@ pType TypeRegistry::string { nullptr };
 pType TypeRegistry::cstring { nullptr };
 pType TypeRegistry::character { nullptr };
 pType TypeRegistry::void_ { nullptr };
+pType TypeRegistry::pointer { nullptr };
 pType TypeRegistry::ambiguous { nullptr };
 pType TypeRegistry::undetermined { nullptr };
 
@@ -72,6 +74,28 @@ std::wstring TypeList::to_string() const
     return std::format(L"({})", join(types, std::wstring_view { L", " }, [](pType const &t) { return type_name(t); }));
 }
 
+intptr_t TypeList::size_of() const
+{
+    intptr_t ret { 0 };
+    std::for_each(
+        types.begin(),
+        types.end(), [&ret](pType const &t) {
+            ret = alignat(ret, t->align_of()) + t->size_of();
+        });
+    return ret;
+}
+
+intptr_t TypeList::align_of() const
+{
+    intptr_t ret { 0 };
+    std::for_each(
+        types.begin(),
+        types.end(), [&ret](pType const &t) {
+            ret = std::max(ret, t->align_of());
+        });
+    return ret;
+}
+
 std::wstring ReferenceType::to_string() const
 {
     return std::format(L"&{}", type_name(referencing));
@@ -92,6 +116,16 @@ std::wstring Array::to_string() const
     return std::format(L"ArrayOf({}[{}])", type_name(array_of), size);
 }
 
+intptr_t Array::size_of() const
+{
+    return size * array_of->size_of();
+}
+
+intptr_t Array::align_of() const
+{
+    return array_of->align_of();
+}
+
 std::wstring DynArray::to_string() const
 {
     return std::format(L"DynArrayOf({})", type_name(array_of));
@@ -102,9 +136,29 @@ std::wstring RangeType::to_string() const
     return std::format(L"RangeOf({})", type_name(range_of));
 }
 
+intptr_t RangeType::size_of() const
+{
+    return 3 * range_of->size_of();
+}
+
+intptr_t RangeType::align_of() const
+{
+    return range_of->align_of();
+}
+
 std::wstring TypeAlias::to_string() const
 {
     return std::format(L"AliasOf({})", type_name(alias_of));
+}
+
+intptr_t TypeAlias::size_of() const
+{
+    return alias_of->size_of();
+}
+
+intptr_t TypeAlias::align_of() const
+{
+    return alias_of->align_of();
 }
 
 std::wstring EnumType::to_string() const
@@ -112,9 +166,60 @@ std::wstring EnumType::to_string() const
     return std::format(L"Enum({} values)", values.size());
 }
 
+
+intptr_t EnumType::size_of() const
+{
+    intptr_t maxsize { 0 };
+    std::for_each(
+        values.begin(),
+        values.end(),
+        [&maxsize, this](Value const &value) -> void {
+            if (value.payload != nullptr) {
+                maxsize = std::max(alignat(value.payload->size_of(), align_of()), maxsize);
+            }
+        });
+    return alignat(underlying_type->size_of(), align_of()) + maxsize;
+}
+
+intptr_t EnumType::align_of() const
+{
+    intptr_t ret { underlying_type->align_of() };
+    std::for_each(
+        values.begin(),
+        values.end(),
+        [&ret](Value const &value) -> void {
+            ret = std::max((value.payload != nullptr) ? value.payload->align_of() : 0, ret);
+        });
+    return ret;
+}
+
 std::wstring StructType::to_string() const
 {
     return std::format(L"Struct({} fields)", fields.size());
+}
+
+intptr_t StructType::size_of() const
+{
+    intptr_t size { 0 };
+    std::for_each(
+        fields.begin(),
+        fields.end(),
+        [&size](Field const &fld) -> void {
+            size = alignat(size, fld.type->align_of()) + fld.type->size_of();
+        });
+    return size;
+}
+
+intptr_t StructType::align_of() const
+{
+    intptr_t ret { 0 };
+    std::for_each(
+        fields.begin(),
+        fields.end(),
+        [&ret](Field const &fld) -> void {
+            ret = std::max(fld.type->align_of(), ret);
+        });
+    return ret;
 }
 
 std::wstring OptionalType::to_string() const
@@ -122,9 +227,29 @@ std::wstring OptionalType::to_string() const
     return std::format(L"OptionalOf({})", type_name(type));
 }
 
+intptr_t OptionalType::size_of() const
+{
+    return TypeRegistry::boolean->size_of() + type->size_of();
+}
+
+intptr_t OptionalType::align_of() const
+{
+    return type->align_of();
+}
+
 std::wstring ErrorType::to_string() const
 {
     return std::format(L"Error({}/{})", type_name(success), type_name(error));
+}
+
+intptr_t ErrorType::size_of() const
+{
+    return TypeRegistry::boolean->size_of() + std::max(success->size_of(), error->size_of());
+}
+
+intptr_t ErrorType::align_of() const
+{
+    return std::max(success->align_of(), error->align_of());
 }
 
 std::map<std::wstring, pType> Type::infer_generic_arguments(pType const &param_type) const
@@ -189,6 +314,7 @@ TypeRegistry::TypeRegistry()
     cstring = make_type(L"cstring", ZeroTerminatedArray { TypeRegistry::u8 });
     character = make_type(L"char", TypeAlias { TypeRegistry::u32 });
     void_ = make_type(L"void", VoidType {});
+    pointer = make_type(L"pointer", PointerType {});
     ambiguous = make_type(L"%ambiguous", Ambiguous {});
     undetermined = make_type(L"%undetermined", Undetermined {});
 }

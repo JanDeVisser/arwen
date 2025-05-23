@@ -45,6 +45,7 @@ include_directories("${PROJECT_BINARY_DIR}" "${PROJECT_SOURCE_DIR}")
 add_library(
         Util
         STATIC
+        src/Util/Align.h
         src/Util/Checked.h
         src/Util/Error.cpp
         #       src/Util/Integer.h
@@ -80,6 +81,7 @@ add_executable(
         src/App/SyntaxNode.cpp
         src/App/Syntax/Block.cpp
         src/App/Syntax/Branch.cpp
+        src/App/Syntax/Constant.cpp
         src/App/Syntax/Embed.cpp
         src/App/Syntax/Enum.cpp
         src/App/Syntax/Expression.cpp
@@ -90,17 +92,15 @@ add_executable(
         src/App/Syntax/Loop.cpp
         src/App/Syntax/Module.cpp
         src/App/Syntax/Namespace.cpp
-        src/App/Syntax/Number.cpp
         src/App/Syntax/Program.cpp
         src/App/Syntax/Public.cpp
         src/App/Syntax/Return.cpp
-        src/App/Syntax/String.cpp
         src/App/Syntax/Struct.cpp
         src/App/Syntax/Type.cpp
         src/App/Syntax/Variable.cpp
         src/App/Type.cpp
+        src/App/Value.cpp
         src/Interp/Interpreter.cpp
-        src/Interp/Value.cpp
 )
 
 target_link_libraries(

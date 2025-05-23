@@ -2,7 +2,7 @@ const x := 1 + 2
 
 y := "fu" + "bar"
 
-z := "; " + @embed("test/foo.arw") + " ;"
+z := "; " + @embed("foo.arw") + " ;"
 
 a : = 2 * 3.14
 b := 3.14 / 2
