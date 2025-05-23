@@ -179,12 +179,12 @@ struct PointerType {
 
     intptr_t size_of() const
     {
-        return sizeof(void*);
+        return sizeof(void *);
     }
 
     intptr_t align_of() const
     {
-        return alignof(void*);
+        return alignof(void *);
     }
 };
 
