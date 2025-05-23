@@ -1,3 +1,5 @@
 build/
 .cache/
 .zed/
+cmake-build-debug/
+.idea/

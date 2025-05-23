@@ -75,12 +75,12 @@ pSyntaxNode Number::normalize(Parser &)
     default: {
         using T = int64_t;
         auto const value = string_to_integer<T>(number)
-                          .or_else([this]() -> std::optional<T> {
-                              std::wcerr << "Could not convert string '" << number << "' to integer. This is unexpected" << std::endl;
-                              abort();
-                              return { 0 };
-                          })
-                          .value();
+                               .or_else([this]() -> std::optional<T> {
+                                   std::wcerr << "Could not convert string '" << number << "' to integer. This is unexpected" << std::endl;
+                                   abort();
+                                   return { 0 };
+                               })
+                               .value();
         return make_node<Constant>(location, Value { value });
     }
     }

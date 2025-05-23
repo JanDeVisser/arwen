@@ -12,8 +12,8 @@
 #include <Util/Logging.h>
 #include <Util/Utf8.h>
 
-#include <App/SyntaxNode.h>
 #include <App/Operator.h>
+#include <App/SyntaxNode.h>
 #include <App/Type.h>
 
 namespace Arwen::Interpreter {
