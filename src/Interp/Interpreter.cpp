@@ -46,6 +46,16 @@ Value execute_node(Scope &scope, std::shared_ptr<BinaryExpression> const &node)
         scope.reassign(ident->identifier, rhs);
         return rhs;
     }
+    if (node->op == Operator::Cast) {
+        scope.execute(node->lhs);
+        auto lhs = scope.interpreter->stack.pop_value();
+        auto rhs_type = std::dynamic_pointer_cast<TypeSpecification>(node->rhs);
+        assert(rhs_type != nullptr && rhs_type->bound_type != nullptr);
+        if (auto const coerced_maybe = lhs.coerce(rhs_type->bound_type); coerced_maybe) {
+            return coerced_maybe.value();
+        }
+        fatal(L"Could not convert value to `{}`", rhs_type->bound_type->to_string());
+    }
     scope.execute(node->lhs);
     scope.execute(node->rhs);
     auto rhs = scope.interpreter->stack.pop_value();

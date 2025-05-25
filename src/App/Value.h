@@ -63,7 +63,8 @@ struct Atom {
     Atom &operator=(Atom const &) = default;
     bool  operator==(Atom const &) const = default;
 
-    pType type() const;
+    [[nodiscard]] pType type() const;
+    [[nodiscard]] std::optional<Atom> coerce(pType const& to_type) const;
 };
 
 using Atoms = std::vector<Atom>;
@@ -116,27 +117,29 @@ struct Value {
     BitWidths(S)
 #undef S
 
-        Value(float val)
+        explicit Value(float val)
         : Value(TypeRegistry::f32, val)
     {
     }
 
-    Value(double val)
+    explicit Value(double val)
         : Value(TypeRegistry::f64, val)
     {
     }
 
-    Value(bool val)
+    explicit Value(bool val)
         : Value(TypeRegistry::boolean, val)
     {
     }
 
-    Value(Atom atom)
+    explicit Value(Atom atom)
         : Value(atom.type(), atom)
     {
     }
 
     Value &operator=(Value const &) = default;
+
+    [[nodiscard]] std::optional<Value> coerce(pType const& to_type) const;
 };
 
 template<typename T>

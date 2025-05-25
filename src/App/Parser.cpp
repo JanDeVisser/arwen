@@ -95,6 +95,15 @@ static BindingPower binding_power(Parser::OperatorDef op)
     }
 }
 
+Parser::Parser()
+    : root(std::make_shared<Namespace>(nullptr))
+{
+    push_namespace(root);
+    for (auto const& t : TypeRegistry::the().types) {
+        root->register_type(t->name, t);
+    }
+}
+
 pSyntaxNode Parser::parse_file(std::wstring const &text, pNamespace ns)
 {
     this->text = text;

@@ -14,6 +14,61 @@
 
 namespace Arwen {
 
+template<typename T>
+pType resolve(T const &, Parser &)
+{
+    fatal("No resolve method for `{}`", typeid(T).name());
+}
+
+template<>
+pType resolve(TypeNameNode const &d, Parser &parser)
+{
+    auto t = parser.find_type(d.name);
+    if (t == nullptr) {
+        return nullptr;
+    }
+    while (t != nullptr && t->is<TypeAlias>()) {
+        t = std::get<TypeAlias>(t->description).alias_of;
+    }
+    return t;
+}
+
+template<>
+pType resolve(ReferenceDescriptionNode const &d, Parser &parser)
+{
+    return TypeRegistry::the().referencing(d.referencing->resolve(parser));
+}
+
+pType resolve(SliceDescriptionNode const &d, Parser &parser)
+{
+    return TypeRegistry::the().slice_of(d.slice_of->resolve(parser));
+}
+
+pType resolve(ZeroTerminatedArrayDescriptionNode const &d, Parser &parser)
+{
+    return TypeRegistry::the().zero_terminated_array_of(d.array_of->resolve(parser));
+}
+
+pType resolve(ArrayDescriptionNode const &d, Parser &parser)
+{
+    return TypeRegistry::the().array_of(d.array_of->resolve(parser), d.size);
+}
+
+pType resolve(DynArrayDescriptionNode const &d, Parser &parser)
+{
+    return TypeRegistry::the().dyn_array_of(d.array_of->resolve(parser));
+}
+
+pType resolve(OptionalDescriptionNode const &d, Parser &parser)
+{
+    return TypeRegistry::the().optional_of(d.optional_of->resolve(parser));
+}
+
+pType resolve(ErrorDescriptionNode const &d, Parser &parser)
+{
+    return TypeRegistry::the().error_of(d.success->resolve(parser), d.error->resolve(parser));
+}
+
 TypeSpecification::TypeSpecification(TypeSpecificationDescription description)
     : SyntaxNode(SyntaxNodeType::TypeSpecification)
     , description(description)
@@ -121,7 +176,7 @@ pType TypeSpecification::bind(Parser &parser)
     return ret;
 }
 
-std::wostream& TypeSpecification::header(std::wostream &os)
+std::wostream &TypeSpecification::header(std::wostream &os)
 {
     return os << to_string();
 }
@@ -169,39 +224,10 @@ std::wstring TypeSpecification::to_string()
 
 pType TypeSpecification::resolve(Parser &parser)
 {
-    return std::visit(overloads {
-                          [this, &parser](TypeNameNode d) -> pType {
-                              auto t = parser.find_type(d.name);
-                              if (t == nullptr) {
-                                  return nullptr;
-                              }
-                              while (t != nullptr && t->is<TypeAlias>()) {
-                                  t = std::get<TypeAlias>(t->description).alias_of;
-                              }
-                              return t;
-                          },
-                          [this, &parser](ReferenceDescriptionNode d) -> pType {
-                              return TypeRegistry::the().referencing(d.referencing->resolve(parser));
-                          },
-                          [this, &parser](SliceDescriptionNode d) -> pType {
-                              return TypeRegistry::the().slice_of(d.slice_of->resolve(parser));
-                          },
-                          [this, &parser](ZeroTerminatedArrayDescriptionNode d) -> pType {
-                              return TypeRegistry::the().zero_terminated_array_of(d.array_of->resolve(parser));
-                          },
-                          [this, &parser](ArrayDescriptionNode d) -> pType {
-                              return TypeRegistry::the().array_of(d.array_of->resolve(parser), d.size);
-                          },
-                          [this, &parser](DynArrayDescriptionNode d) -> pType {
-                              return TypeRegistry::the().dyn_array_of(d.array_of->resolve(parser));
-                          },
-                          [this, &parser](OptionalDescriptionNode d) -> pType {
-                              return TypeRegistry::the().optional_of(d.optional_of->resolve(parser));
-                          },
-                          [this, &parser](ErrorDescriptionNode d) -> pType {
-                              return TypeRegistry::the().error_of(d.success->resolve(parser), d.error->resolve(parser));
-                          },
-                      },
+    return std::visit(
+        [this, &parser](auto const &d) -> pType {
+            return Arwen::resolve(d, parser);
+        },
         this->description);
 }
 

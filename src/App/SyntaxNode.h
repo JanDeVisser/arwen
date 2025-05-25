@@ -527,8 +527,7 @@ struct Program : SyntaxNode {
     std::wstring                    name;
     std::map<std::wstring, pModule> modules {};
 
-    explicit Program(std::wstring name);
-    Program(std::wstring name, std::map<std::wstring, pModule> modules);
+    Program(std::wstring name, pNamespace ns);
     Program(std::wstring name, std::map<std::wstring, pModule> modules, pNamespace ns);
     pSyntaxNode    normalize(Parser &parser) override;
     pSyntaxNode    stamp(Parser &parser) override;
@@ -599,33 +598,33 @@ struct TypeNameNode {
 };
 
 struct ReferenceDescriptionNode {
-    pTypeSpecification referencing;
+    pTypeSpecification  referencing;
 };
 
 struct SliceDescriptionNode {
-    pTypeSpecification slice_of;
+    pTypeSpecification  slice_of;
 };
 
 struct ZeroTerminatedArrayDescriptionNode {
-    pTypeSpecification array_of;
+    pTypeSpecification  array_of;
 };
 
 struct ArrayDescriptionNode {
-    pTypeSpecification array_of;
-    size_t             size;
+    pTypeSpecification  array_of;
+    size_t              size;
 };
 
 struct DynArrayDescriptionNode {
-    pTypeSpecification array_of;
+    pTypeSpecification  array_of;
 };
 
 struct OptionalDescriptionNode {
-    pTypeSpecification optional_of;
+    pTypeSpecification  optional_of;
 };
 
 struct ErrorDescriptionNode {
-    pTypeSpecification success;
-    pTypeSpecification error;
+    pTypeSpecification  success;
+    pTypeSpecification  error;
 };
 
 using TypeSpecificationDescription = std::variant<

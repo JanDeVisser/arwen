@@ -41,7 +41,90 @@ pType Atom::type() const
     return atom_types[payload.index()];
 }
 
+std::optional<Atom> Atom::coerce(pType const &to_type) const
+{
+    auto const &cur_type = type();
+    if (cur_type == to_type) {
+        return Atom { *this };
+    }
+    return std::visit(overloads {
+                          [&cur_type, &to_type](std::integral auto const &v) -> std::optional<Atom> {
+                              if (to_type->is<IntType>()) {
+                                  auto const &[is_signed, width_bits, max_value, min_value] = std::get<IntType>(to_type->description);
+                                  if (static_cast<uint64_t>(v) > max_value) {
+                                      return {};
+                                  }
+                                  if (static_cast<int64_t>(v) < min_value) {
+                                      return {};
+                                  }
+#undef S
+#define S(W)                                             \
+    if (width_bits == W) {                               \
+        if (is_signed) {                                 \
+            return Atom { static_cast<int##W##_t>(v) };  \
+        } else {                                         \
+            return Atom { static_cast<uint##W##_t>(v) }; \
+        }                                                \
+    }
+                                  BitWidths(S)
+#undef S
+                              }
+                              if (to_type->is<FloatType>()) {
+                                  auto const &[width_bits] = std::get<FloatType>(to_type->description);
+#undef S
+#define S(W, T)                            \
+    if (width_bits == W) {                 \
+        return Atom { static_cast<T>(v) }; \
+    }
+                                  FloatBitWidths(S)
+#undef S
+                              }
+                              if (to_type->is<PointerType>() && cur_type == TypeRegistry::u64) {
+                                  return Atom { reinterpret_cast<void *>(v) };
+                              }
+                              return {};
+                          },
+                          [&cur_type, &to_type](std::floating_point auto const &v) -> std::optional<Atom> {
+                              if (to_type->is<IntType>()) {
+                                  auto const &[is_signed, width_bits, max_value, min_value] = std::get<IntType>(to_type->description);
+                                  if (static_cast<uint64_t>(v) > max_value) {
+                                      return {};
+                                  }
+                                  if (static_cast<int64_t>(v) < min_value) {
+                                      return {};
+                                  }
+#undef S
+#define S(W)                                             \
+    if (width_bits == W) {                               \
+        if (is_signed) {                                 \
+            return Atom { static_cast<int##W##_t>(v) };  \
+        } else {                                         \
+            return Atom { static_cast<uint##W##_t>(v) }; \
+        }                                                \
+    }
+                                  BitWidths(S)
+#undef S
+                              }
+                              if (to_type->is<FloatType>()) {
+                                  auto const &[width_bits] = std::get<FloatType>(to_type->description);
+#undef S
+#define S(W, T)                            \
+    if (width_bits == W) {                 \
+        return Atom { static_cast<T>(v) }; \
+    }
+                                  FloatBitWidths(S)
+#undef S
+                              }
+                              return {};
+                          },
+                          [](auto const &) -> std::optional<Atom> {
+                              return {};
+                          } },
+        payload);
+}
+
 static bool is_zero(Atom const &atom);
+
 #undef S
 #define S(O) static Atom evaluate_##O(Atom const &lhs, Atom const &rhs);
 BinOps(S)
@@ -329,6 +412,24 @@ Atom evaluate(Operator op, Atom const &operand)
 #undef S
             default : UNREACHABLE();
     }
+}
+
+std::optional<Value> Value::coerce(pType const &to_type) const
+{
+    if (type == to_type) {
+        return Value { *this };
+    }
+    return std::visit(overloads {
+                          [this, &to_type](Atom const &atom) -> std::optional<Value> {
+                              if (auto const coerced_maybe = atom.coerce(to_type); coerced_maybe) {
+                                  return Value { *coerced_maybe };
+                              }
+                              return {};
+                          },
+                          [](auto const&) -> std::optional<Value> {
+                              fatal("Cannot apply operator to compound values");
+                          } },
+        payload);
 }
 
 static Value evaluate_on_atoms(Value const &lhs, Operator op, Value const &rhs)

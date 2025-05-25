@@ -18,16 +18,9 @@
 
 namespace Arwen {
 
-Program::Program(std::wstring name)
-    : SyntaxNode(SyntaxNodeType::Program, std::make_shared<Namespace>())
+Program::Program(std::wstring name, pNamespace ns)
+    : SyntaxNode(SyntaxNodeType::Program, ns)
     , name(std::move(name))
-{
-}
-
-Program::Program(std::wstring name, std::map<std::wstring, pModule> modules)
-    : SyntaxNode(SyntaxNodeType::Program, std::make_shared<Namespace>())
-    , name(std::move(name))
-    , modules(std::move(modules))
 {
 }
 
@@ -69,9 +62,6 @@ pType Program::bind(Parser &parser)
     pType ret { nullptr };
     if (parser.pass == 0) {
         assert(ns->types.empty());
-        for (auto const& t : TypeRegistry::the().types) {
-            ns->register_type(t->name, t);
-        }
         for (auto &[_, mod] : modules) {
             ns->register_variable(mod->name, mod);
         }

@@ -61,12 +61,13 @@ struct Parser {
     ParseLevel                      level { ParseLevel::Module };
     std::vector<ArwenError>         errors;
     std::vector<pSyntaxNode>        unbound_nodes;
+    pNamespace                      root;
     std::vector<pNamespace>         namespaces;
     std::shared_ptr<Program>        program;
     int                             pass { 0 };
     int                             unbound { 0 };
 
-    Parser() = default;
+    Parser();
 
     pSyntaxNode                parse_file(std::wstring const &text, pNamespace ns);
     pModule                    parse_module(std::string_view name, std::wstring text);

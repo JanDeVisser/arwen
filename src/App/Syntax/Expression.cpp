@@ -32,22 +32,22 @@ enum class PseudoType {
 struct Operand {
     std::variant<pType, TypeKind, PseudoType> type;
 
-    Operand(pType t)
+    Operand(pType t) // NOLINT(*-explicit-constructor)
         : type(std::move(t))
     {
     }
 
-    Operand(TypeKind k)
+    Operand(TypeKind k) // NOLINT(*-explicit-constructor)
         : type(k)
     {
     }
 
-    Operand(PseudoType pseudo_type)
+    Operand(PseudoType pseudo_type) // NOLINT(*-explicit-constructor)
         : type(pseudo_type)
     {
     }
 
-    bool matches(pType const &concrete, pType const &hint = nullptr) const
+    [[nodiscard]] bool matches(pType const &concrete, pType const &hint = nullptr) const
     {
         return std::visit(overloads {
                               [&concrete](pType const &t) -> bool {
@@ -73,7 +73,7 @@ struct BinaryOperator {
     Operand  rhs;
     OpResult result;
 
-    bool matches(pType const &concrete_lhs, pType const &concrete_rhs) const
+    [[nodiscard]] bool matches(pType const &concrete_lhs, pType const &concrete_rhs) const
     {
         return lhs.matches(concrete_lhs, concrete_rhs) && rhs.matches(concrete_rhs, concrete_lhs);
     }
@@ -121,7 +121,7 @@ pSyntaxNode BinaryExpression::normalize(Parser &parser)
     auto make_expression_list = [this, &parser]() -> pSyntaxNode {
         SyntaxNodes                      nodes;
         std::function<void(pSyntaxNode)> flatten;
-        flatten = [&nodes, &flatten](pSyntaxNode n) {
+        flatten = [&nodes, &flatten](pSyntaxNode const &n) {
             if (auto binex = std::dynamic_pointer_cast<BinaryExpression>(n); binex) {
                 if (binex->op == Operator::Sequence) {
                     nodes.push_back(binex->lhs);
@@ -176,13 +176,26 @@ pSyntaxNode BinaryExpression::normalize(Parser &parser)
     };
 
     auto const_evaluate = [this, &parser](pSyntaxNode const &lhs, Operator op, pSyntaxNode const &rhs) -> pSyntaxNode {
-        auto lhs_const = std::dynamic_pointer_cast<Constant>(lhs);
-        auto rhs_const = std::dynamic_pointer_cast<Constant>(rhs);
-        if (lhs_const != nullptr && rhs_const != nullptr && lhs_const->bound_value && rhs_const->bound_value) {
+        auto const &lhs_const = std::dynamic_pointer_cast<Constant>(lhs);
+        if (lhs_const == nullptr || !lhs_const->bound_value) {
+            return shared_from_this();
+        }
+        if (op == Operator::Cast) {
+            if (auto const rhs_type = std::dynamic_pointer_cast<TypeSpecification>(rhs); rhs_type != nullptr) {
+                if (auto const cast_type = rhs_type->resolve(parser); cast_type != nullptr) {
+                    if (auto const coerced_maybe = lhs_const->bound_value.value().coerce(cast_type); coerced_maybe) {
+                        return make_node<Constant>(lhs->location + rhs->location, *coerced_maybe);
+                    }
+                    parser.append(location, L"Cannot cast value to `{}`", rhs_type->to_string());
+                    return nullptr;
+                }
+            }
+        }
+        if (auto const &rhs_const = std::dynamic_pointer_cast<Constant>(rhs); rhs_const != nullptr && rhs_const->bound_value) {
             auto ret = evaluate(lhs_const->bound_value.value(), op, rhs_const->bound_value.value());
             return make_node<Constant>(lhs->location + rhs->location, ret);
         }
-        return make_node<BinaryExpression>(location, lhs, op, rhs);
+        return shared_from_this();
     };
 
     switch (op) {
