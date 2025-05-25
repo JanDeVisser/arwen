@@ -99,7 +99,7 @@ Parser::Parser()
     : root(std::make_shared<Namespace>(nullptr))
 {
     push_namespace(root);
-    for (auto const& t : TypeRegistry::the().types) {
+    for (auto const &t : TypeRegistry::the().types) {
         root->register_type(t->name, t);
     }
 }

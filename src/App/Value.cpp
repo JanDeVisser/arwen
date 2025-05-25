@@ -426,7 +426,7 @@ std::optional<Value> Value::coerce(pType const &to_type) const
                               }
                               return {};
                           },
-                          [](auto const&) -> std::optional<Value> {
+                          [](auto const &) -> std::optional<Value> {
                               fatal("Cannot apply operator to compound values");
                           } },
         payload);
