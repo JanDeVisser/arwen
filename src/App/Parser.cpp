@@ -62,6 +62,7 @@ std::vector<Parser::OperatorDef> Parser::operators {
     { Operator::Sequence, ',', 1 },
     { Operator::ShiftLeft, ArwenKeyword::ShiftLeft, 10 },
     { Operator::ShiftRight, ArwenKeyword::ShiftRight, 10 },
+    { Operator::Sizeof, ArwenKeyword::Sizeof, 9, Position::Prefix, Associativity::Right },
     { Operator::Subscript, '[', 15, Position::Postfix },
     { Operator::Subscript, ']', 15, Position::Closing },
     { Operator::Subtract, '-', 11 },
@@ -423,6 +424,18 @@ pSyntaxNode Parser::parse_primary()
         }
         if (token.matches_keyword(ArwenKeyword::Include)) {
             return parse_include();
+        }
+        if (auto const op_maybe = check_prefix_op(); op_maybe) {
+            auto &op = *op_maybe;
+            auto  bp = binding_power(op);
+            auto  op_token = lexer.lex();
+            auto  operand = (op.op == Operator::Sizeof) ? parse_type() : parse_expression(bp.right);
+            if (!operand) {
+                append(token, "Expected operand following prefix operator '{}'", Operator_name(op.op));
+                return nullptr;
+            }
+            ret = make_node<UnaryExpression>(op_token.location + operand->location, op.op, operand);
+            break;
         }
         append(token, "Unexpected keyword '{}' parsing primary expression", ArwenKeyword_name(token.keyword()));
         return nullptr;

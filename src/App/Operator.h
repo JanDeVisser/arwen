@@ -55,6 +55,7 @@ using Precedence = uint16_t;
     S(Return, "return")        \
     S(ShiftLeft, "<<")         \
     S(ShiftRight, ">>")        \
+    S(Sizeof, "#::")           \
     S(Struct, "struct")        \
     S(While, "while")          \
     S(Yield, "yield")
@@ -107,6 +108,7 @@ enum class Associativity {
     S(Sequence)      \
     S(ShiftLeft)     \
     S(ShiftRight)    \
+    S(Sizeof)        \
     S(Subscript)     \
     S(Subtract)
 

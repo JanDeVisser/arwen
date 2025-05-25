@@ -159,7 +159,9 @@ pSyntaxNode TypeSpecification::normalize(Parser &parser)
                                 },
                             },
         this->description);
-    return make_node<TypeSpecification>(location, description);
+    auto ret = make_node<TypeSpecification>(location, description);
+    ret->bound_type = resolve(parser);
+    return ret;
 }
 
 pSyntaxNode TypeSpecification::stamp(Parser &)
@@ -224,11 +226,14 @@ std::wstring TypeSpecification::to_string()
 
 pType TypeSpecification::resolve(Parser &parser)
 {
-    return std::visit(
-        [this, &parser](auto const &d) -> pType {
-            return Arwen::resolve(d, parser);
-        },
-        this->description);
+    if (bound_type == nullptr) {
+        bound_type = std::visit(
+            [this, &parser](auto const &d) -> pType {
+                return Arwen::resolve(d, parser);
+            },
+            this->description);
+    }
+    return bound_type;
 }
 
 Void::Void()
@@ -240,5 +245,4 @@ pSyntaxNode Void::normalize(Parser &)
 {
     return make_node<Constant>(location, make_void());
 }
-
 }

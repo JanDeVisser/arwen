@@ -388,6 +388,11 @@ Atom evaluate_LogicalInvert(Atom const &lhs, Atom const &rhs)
         [](auto x, auto) { return !x; });
 }
 
+Atom evaluate_Sizeof(Atom const &lhs, Atom const &)
+{
+    return Atom { lhs.type()->size_of() };
+}
+
 Atom evaluate(Atom const &lhs, Operator op, Atom const &rhs)
 {
     switch (op) {
@@ -492,6 +497,8 @@ Value evaluate(Value const &lhs, Operator op, Value const &rhs)
         default:
         }
     }
+    case Operator::Sizeof:
+        return Value { static_cast<int64_t>(lhs.type->size_of()) };
     default:
     }
     return evaluate_on_atoms(lhs, op, rhs);

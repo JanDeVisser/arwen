@@ -449,6 +449,13 @@ pSyntaxNode UnaryExpression::normalize(Parser &parser)
         auto res = evaluate(op, operand_const->bound_value.value());
         return make_node<Constant>(location, res);
     }
+    if (op == Operator::Sizeof) {
+        if (auto const &operand_as_type = std::dynamic_pointer_cast<TypeSpecification>(operand); operand_as_type != nullptr) {
+            if (auto type_maybe = operand_as_type->resolve(parser); type_maybe != nullptr) {
+                return make_node<Constant>(location, static_cast<int64_t>(type_maybe->size_of()));
+            }
+        }
+    }
     return make_node<UnaryExpression>(location, op, operand);
 }
 
