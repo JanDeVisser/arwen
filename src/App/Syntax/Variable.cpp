@@ -50,7 +50,7 @@ StampedIdentifier::StampedIdentifier(std::wstring_view const identifier, TypeSpe
 
 pSyntaxNode StampedIdentifier::stamp(Parser &)
 {
-    return make_node<StampedIdentifier>(location, identifier,  arguments);
+    return make_node<StampedIdentifier>(location, identifier, arguments);
 }
 
 pType StampedIdentifier::bind(Parser &parser)
@@ -68,7 +68,7 @@ pType StampedIdentifier::bind(Parser &parser)
     return type;
 }
 
-std::wostream& StampedIdentifier::header(std::wostream &os)
+std::wostream &StampedIdentifier::header(std::wostream &os)
 {
     return os << identifier;
 }

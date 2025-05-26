@@ -801,7 +801,7 @@ public:
         return m_lookback.size();
     }
 
-    void push_back(Bookmark const& bookmark)
+    void push_back(Bookmark const &bookmark)
     {
         while (m_lookback.size() != bookmark) {
             push_back(m_lookback.back());

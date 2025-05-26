@@ -107,10 +107,10 @@ pFunctionDefinition Namespace::find_function_by_arg_list(std::wstring const &nam
     return nullptr;
 }
 
-std::vector<pFunctionDefinition> Namespace::find_overloads(std::wstring const& name, TypeSpecifications const& type_args) const
+std::vector<pFunctionDefinition> Namespace::find_overloads(std::wstring const &name, TypeSpecifications const &type_args) const
 {
     std::function<void(std::shared_ptr<const Namespace> const &, std::vector<pFunctionDefinition>&)> find_them;
-    find_them = [&name,&find_them,&type_args](std::shared_ptr<const Namespace> const &ns, std::vector<pFunctionDefinition> &overloads) -> void {
+    find_them = [&name, &find_them, &type_args](std::shared_ptr<Namespace const> const &ns, std::vector<pFunctionDefinition> &overloads) -> void {
         for (auto it = ns->functions.find(name); it != ns->functions.end() && it->first == name; ++it) {
             if (auto const &func_def = it->second; func_def->declaration->generics.size() >= type_args.size()) {
                 overloads.push_back(func_def);

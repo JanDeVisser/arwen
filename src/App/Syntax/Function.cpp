@@ -263,10 +263,10 @@ Call::Call(pSyntaxNode callable, pExpressionList args)
 
 std::wostream &Call::header(std::wostream &os)
 {
-    if (auto const &id = std::dynamic_pointer_cast<Identifier>(this->callable); id !=  nullptr) {
+    if (auto const &id = std::dynamic_pointer_cast<Identifier>(this->callable); id != nullptr) {
         return os << id->identifier;
     }
-    if (auto const &id = std::dynamic_pointer_cast<StampedIdentifier>(this->callable); id !=  nullptr) {
+    if (auto const &id = std::dynamic_pointer_cast<StampedIdentifier>(this->callable); id != nullptr) {
         return os << id->identifier;
     }
     fatal("Invalid callable type");
@@ -345,14 +345,14 @@ pType Call::bind(Parser &parser)
     for (auto const &func_def : overloads) {
         if (!func_def->declaration->generics.empty()) {
             std::map<std::wstring, pType> generic_args;
-            for (auto const&[param_name, arg_type] : std::ranges::views::zip(func_def->declaration->generics, type_args)) {
+            for (auto const &[param_name, arg_type] : std::ranges::views::zip(func_def->declaration->generics, type_args)) {
                 generic_args[param_name->identifier] = arg_type->resolve(parser);
             }
-            for (auto const&[param, arg] : std::ranges::views::zip(func_def->declaration->parameters, arguments->expressions)) {
-                auto const& param_type = param->bound_type;
-                auto const& arg_type = arg->bound_type;
+            for (auto const &[param, arg] : std::ranges::views::zip(func_def->declaration->parameters, arguments->expressions)) {
+                auto const &param_type = param->bound_type;
+                auto const &arg_type = arg->bound_type;
                 for (auto const inferred = arg_type->infer_generic_arguments(param_type); auto const &[name, arg_type] : inferred) {
-                    if (generic_args.contains(name) &&generic_args[name] != arg_type) {
+                    if (generic_args.contains(name) && generic_args[name] != arg_type) {
                         return parser.bind_error(
                             location,
                             std::format(L"Ambiguous values inferred for generic parameter  `{}`: `{}` and `{}`", name, arg_types->to_string(), generic_args[name]->to_string()));

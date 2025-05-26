@@ -111,7 +111,7 @@ struct Namespace : std::enable_shared_from_this<Namespace> {
     pFunctionDefinition              find_function(std::wstring const &name, pType const &type) const;
     pFunctionDefinition              find_function_by_arg_list(std::wstring const &name, pType const &type) const;
     FunctionConstIter                find_function_here(std::wstring name, pType const &type) const;
-    std::vector<pFunctionDefinition> find_overloads(std::wstring const &name, TypeSpecifications const& type_args) const;
+    std::vector<pFunctionDefinition> find_overloads(std::wstring const &name, TypeSpecifications const &type_args) const;
     pSyntaxNode                      find_variable(std::wstring const &name) const;
     pType                            type_of(std::wstring const &name) const;
     void                             register_variable(std::wstring name, pSyntaxNode node);
@@ -424,8 +424,8 @@ struct FunctionDefinition final : SyntaxNode {
     pType               bind(Parser &parser) override;
     pSyntaxNode         stamp(Parser &parser) override;
     void                dump_node(int indent) override;
-    pFunctionDefinition instantiate(Parser &parser, std::vector<pType> const& generic_args) const;
-    pFunctionDefinition instantiate(Parser &parser, std::map<std::wstring, pType> const& generic_args) const;
+    pFunctionDefinition instantiate(Parser &parser, std::vector<pType> const &generic_args) const;
+    pFunctionDefinition instantiate(Parser &parser, std::map<std::wstring, pType> const &generic_args) const;
 };
 
 struct Identifier final : SyntaxNode {

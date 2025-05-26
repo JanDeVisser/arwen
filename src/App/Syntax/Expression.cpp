@@ -349,7 +349,7 @@ pType BinaryExpression::bind(Parser &parser)
     }
 
     if (op == Operator::Cast) {
-        if (auto const& lhs_const = std::dynamic_pointer_cast<Constant>(lhs); lhs_const != nullptr) {
+        if (auto const &lhs_const = std::dynamic_pointer_cast<Constant>(lhs); lhs_const != nullptr) {
             if (auto const &rhs_type_node = std::dynamic_pointer_cast<TypeSpecification>(rhs); rhs_type_node != nullptr) {
                 if (auto type = rhs_type_node->resolve(parser); type != nullptr) {
                     if (auto const &casted = lhs_const->coerce(type, parser); casted != nullptr) {
