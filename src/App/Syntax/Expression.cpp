@@ -139,7 +139,7 @@ pSyntaxNode BinaryExpression::normalize(Parser &parser)
 
     auto make_member_path = [this, &parser]() -> pSyntaxNode {
         Identifiers path;
-        auto        add_identifier = [&parser, &path](pSyntaxNode n) -> bool {
+        auto        add_identifier = [&parser, &path](pSyntaxNode const &n) -> bool {
             if (auto ident = std::dynamic_pointer_cast<Identifier>(n); ident == nullptr) {
                 parser.append(n->location, "Member path segment must be identifier");
                 return false;
@@ -150,7 +150,7 @@ pSyntaxNode BinaryExpression::normalize(Parser &parser)
         };
 
         std::function<void(pSyntaxNode)> flatten;
-        flatten = [&parser, &path, &flatten, &add_identifier](pSyntaxNode n) {
+        flatten = [&parser, &path, &flatten, &add_identifier](pSyntaxNode const &n) {
             if (auto binex = std::dynamic_pointer_cast<BinaryExpression>(n); binex) {
                 if (binex->op == Operator::MemberAccess) {
                     if (!add_identifier(binex->lhs)) {
@@ -178,7 +178,7 @@ pSyntaxNode BinaryExpression::normalize(Parser &parser)
     auto const_evaluate = [this, &parser](pSyntaxNode const &lhs, Operator op, pSyntaxNode const &rhs) -> pSyntaxNode {
         auto const &lhs_const = std::dynamic_pointer_cast<Constant>(lhs);
         if (lhs_const == nullptr || !lhs_const->bound_value) {
-            return shared_from_this();
+            return make_node<BinaryExpression>(location, lhs, op, rhs);
         }
         if (op == Operator::Cast) {
             if (auto const rhs_type = std::dynamic_pointer_cast<TypeSpecification>(rhs); rhs_type != nullptr) {
@@ -195,7 +195,7 @@ pSyntaxNode BinaryExpression::normalize(Parser &parser)
             auto ret = evaluate(lhs_const->bound_value.value(), op, rhs_const->bound_value.value());
             return make_node<Constant>(lhs->location + rhs->location, ret);
         }
-        return shared_from_this();
+        return make_node<BinaryExpression>(location, lhs, op, rhs);
     };
 
     switch (op) {
@@ -349,12 +349,10 @@ pType BinaryExpression::bind(Parser &parser)
     }
 
     if (op == Operator::Cast) {
-        auto lhs_const = std::dynamic_pointer_cast<Constant>(lhs);
-        if (lhs_const != nullptr && op == Operator::Cast) {
-            if (auto rhs_type = std::dynamic_pointer_cast<TypeSpecification>(rhs); rhs_type != nullptr) {
-                if (auto type = rhs_type->resolve(parser); type != nullptr) {
-                    if (auto casted = lhs_const->coerce(type, parser); casted != nullptr) {
-                        lhs_type = lhs->bound_type = type;
+        if (auto const& lhs_const = std::dynamic_pointer_cast<Constant>(lhs); lhs_const != nullptr) {
+            if (auto const &rhs_type_node = std::dynamic_pointer_cast<TypeSpecification>(rhs); rhs_type_node != nullptr) {
+                if (auto type = rhs_type_node->resolve(parser); type != nullptr) {
+                    if (auto const &casted = lhs_const->coerce(type, parser); casted != nullptr) {
                         return type;
                     }
                 }
@@ -435,10 +433,10 @@ void BinaryExpression::dump_node(int indent)
     rhs->dump(indent + 4);
 }
 
-UnaryExpression::UnaryExpression(Operator op, pSyntaxNode operand)
+UnaryExpression::UnaryExpression(Operator const op, pSyntaxNode operand)
     : SyntaxNode(SyntaxNodeType::UnaryExpression)
     , op(op)
-    , operand(operand)
+    , operand(std::move(operand))
 {
 }
 
@@ -487,6 +485,9 @@ pType UnaryExpression::bind(Parser &parser)
     }
     if (operand_type == TypeRegistry::ambiguous) {
         return parser.bind_error(operand->location, std::wstring { L"Type ambiguity" });
+    }
+    if (op == Operator::Sizeof) {
+        return TypeRegistry::i64;
     }
     for (auto const &o : unary_ops) {
         if (o.op == op && o.operand.matches(operand_type)) {

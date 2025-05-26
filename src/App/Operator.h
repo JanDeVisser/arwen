@@ -39,6 +39,7 @@ using Precedence = uint16_t;
     S(Equals, "==")            \
     S(Error, "error")          \
     S(ExternLink, "->")        \
+    S(False, "false")          \
     S(For, "for")              \
     S(Func, "func")            \
     S(GreaterEqual, ">=")      \
@@ -50,6 +51,7 @@ using Precedence = uint16_t;
     S(LogicalOr, "||")         \
     S(Loop, "loop")            \
     S(NotEqual, "!=")          \
+    S(Null, "null")            \
     S(Public, "public")        \
     S(Range, "..")             \
     S(Return, "return")        \
@@ -57,6 +59,7 @@ using Precedence = uint16_t;
     S(ShiftRight, ">>")        \
     S(Sizeof, "#::")           \
     S(Struct, "struct")        \
+    S(True, "true")            \
     S(While, "while")          \
     S(Yield, "yield")
 

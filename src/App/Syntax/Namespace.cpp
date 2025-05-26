@@ -53,7 +53,7 @@ pType Namespace::type_of(std::wstring const &name) const
         return nullptr;
     }
     if (n->bound_type == nullptr) {
-        n->bound_type = TypeRegistry::the().undetermined;
+        n->bound_type = TypeRegistry::undetermined;
     }
     return n->bound_type;
 }
@@ -107,13 +107,14 @@ pFunctionDefinition Namespace::find_function_by_arg_list(std::wstring const &nam
     return nullptr;
 }
 
-std::vector<pFunctionDefinition> Namespace::find_overloads(std::wstring const& name) const
+std::vector<pFunctionDefinition> Namespace::find_overloads(std::wstring const& name, TypeSpecifications const& type_args) const
 {
     std::function<void(std::shared_ptr<const Namespace> const &, std::vector<pFunctionDefinition>&)> find_them;
-    find_them = [&name,&find_them](std::shared_ptr<const Namespace> const &ns, std::vector<pFunctionDefinition> &overloads) -> void {
-        for (auto it = ns->functions.find(name); it != ns->functions.end(); ++it) {
-            auto const &func_def = (*it).second;
-            overloads.push_back(func_def);
+    find_them = [&name,&find_them,&type_args](std::shared_ptr<const Namespace> const &ns, std::vector<pFunctionDefinition> &overloads) -> void {
+        for (auto it = ns->functions.find(name); it != ns->functions.end() && it->first == name; ++it) {
+            if (auto const &func_def = it->second; func_def->declaration->generics.size() >= type_args.size()) {
+                overloads.push_back(func_def);
+            }
         }
         if (ns->parent != nullptr) {
             find_them(ns->parent, overloads);

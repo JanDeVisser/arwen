@@ -109,7 +109,7 @@ struct Parser {
     bool                             has_function(std::wstring const &name, pType const &type) const;
     pFunctionDefinition              find_function(std::wstring const &name, pType const &type) const;
     pFunctionDefinition              find_function_by_arg_list(std::wstring const &name, pType const &type) const;
-    std::vector<pFunctionDefinition> find_overloads(std::wstring const &name) const;
+    std::vector<pFunctionDefinition> find_overloads(std::wstring const &name, TypeSpecifications const& type_args) const;
     void                             register_variable(std::wstring name, pSyntaxNode node);
     void                             register_function(std::wstring name, pFunctionDefinition node);
     void                             unregister_function(std::wstring name, pFunctionDefinition node);

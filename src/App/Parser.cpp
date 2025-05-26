@@ -414,8 +414,26 @@ pSyntaxNode Parser::parse_primary()
         break;
     }
     case TokenKind::Identifier: {
-        ret = make_node<Identifier>(token.location, text_of(token));
         lexer.lex();
+        auto bm = lexer.bookmark();
+        if (lexer.accept_symbol('<')) {
+            TypeSpecifications specs;
+            while (true) {
+                auto spec = parse_type();
+                if (spec == nullptr) {
+                    break;
+                }
+                specs.push_back(spec);
+                if (lexer.accept_symbol('>')) {
+                    return make_node<StampedIdentifier>(token.location + lexer.location(), text_of(token), specs);
+                }
+                if (!lexer.accept_symbol(',')) {
+                    break;
+                }
+            }
+        }
+        lexer.push_back(bm);
+        ret = make_node<Identifier>(token.location, text_of(token));
         break;
     }
     case TokenKind::Keyword:
@@ -424,6 +442,12 @@ pSyntaxNode Parser::parse_primary()
         }
         if (token.matches_keyword(ArwenKeyword::Include)) {
             return parse_include();
+        }
+        if (token.matches_keyword(ArwenKeyword::False)) {
+            return make_node<BoolConstant>(token.location, false);
+        }
+        if (token.matches_keyword(ArwenKeyword::True)) {
+            return make_node<BoolConstant>(token.location, true);
         }
         if (auto const op_maybe = check_prefix_op(); op_maybe) {
             auto &op = *op_maybe;
@@ -1302,9 +1326,9 @@ pFunctionDefinition Parser::find_function_by_arg_list(std::wstring const &name, 
     return namespaces.back()->find_function_by_arg_list(name, type);
 }
 
-std::vector<pFunctionDefinition> Parser::find_overloads(std::wstring const &name) const
+std::vector<pFunctionDefinition> Parser::find_overloads(std::wstring const &name, TypeSpecifications const &type_args) const
 {
-    return namespaces.back()->find_overloads(name);
+    return namespaces.back()->find_overloads(name, type_args);
 }
 
 void Parser::register_variable(std::wstring name, pSyntaxNode node)

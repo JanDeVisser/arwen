@@ -5,6 +5,7 @@
  */
 
 #include <memory>
+#include <ranges>
 #include <string>
 
 #include <Util/Defer.h>
@@ -179,7 +180,20 @@ void FunctionDefinition::dump_node(int indent)
     implementation->dump(indent + 4);
 }
 
-pFunctionDefinition FunctionDefinition::instantiate(Parser &parser, std::map<std::wstring, pType> generic_args)
+pFunctionDefinition FunctionDefinition::instantiate(Parser &parser, std::vector<pType> const &generic_args) const
+{
+    if (generic_args.size() != declaration->generics.size()) {
+        parser.append(location, "Incompatible number of generic arguments");
+        return nullptr;
+    }
+    std::map<std::wstring, pType> generic_args_map;
+    for (auto const &[param, arg] : std::ranges::views::zip(declaration->generics, generic_args)) {
+        generic_args_map[param->identifier] = arg;
+    }
+    return instantiate(parser, generic_args_map);
+}
+
+pFunctionDefinition FunctionDefinition::instantiate(Parser &parser, std::map<std::wstring, pType> const &generic_args) const
 {
     assert(!declaration->generics.empty() && declaration->generics.size() == generic_args.size());
     pFunctionDefinition new_func;
@@ -209,8 +223,8 @@ pFunctionDefinition FunctionDefinition::instantiate(Parser &parser, std::map<std
     }
     bind_node(new_func, parser);
     assert(new_func->declaration->bound_type != nullptr && !new_func->declaration->bound_type->is<Undetermined>());
-    std::wcout << "\ninstantiated " << name << ":\n";
-    new_func->dump();
+    // std::wcout << "\ninstantiated " << name << ":\n";
+    // new_func->dump();
     return new_func;
 }
 
@@ -241,7 +255,7 @@ Call::Call(pSyntaxNode callable, pExpressionList args)
     , callable(std::move(callable))
     , arguments(std::move(args))
 {
-    if (auto id = std::dynamic_pointer_cast<Identifier>(this->callable); id == nullptr) {
+    if (this->callable->type != SyntaxNodeType::Identifier && this->callable->type != SyntaxNodeType::StampedIdentifier) {
         NYI("Callable must be a function name");
     }
     assert(this->arguments != nullptr);
@@ -249,9 +263,13 @@ Call::Call(pSyntaxNode callable, pExpressionList args)
 
 std::wostream &Call::header(std::wostream &os)
 {
-    auto id = std::dynamic_pointer_cast<Identifier>(this->callable);
-    assert(id != nullptr);
-    return os << id->identifier;
+    if (auto const &id = std::dynamic_pointer_cast<Identifier>(this->callable); id !=  nullptr) {
+        return os << id->identifier;
+    }
+    if (auto const &id = std::dynamic_pointer_cast<StampedIdentifier>(this->callable); id !=  nullptr) {
+        return os << id->identifier;
+    }
+    fatal("Invalid callable type");
 }
 
 void Call::dump_node(int ident)
@@ -280,50 +298,67 @@ pType Call::bind(Parser &parser)
     if (!arg_types->is<TypeList>()) {
         return arg_types;
     }
-    auto const &type_descr = std::get<TypeList>(arg_types->description);
-
-    auto id = std::dynamic_pointer_cast<Identifier>(this->callable);
-    assert(id != nullptr);
+    auto const        &type_descr = std::get<TypeList>(arg_types->description);
+    std::wstring       name;
+    TypeSpecifications type_args {};
+    if (auto const &id = std::dynamic_pointer_cast<Identifier>(this->callable); id != nullptr) {
+        name = id->identifier;
+    } else if (auto const &stamped_id = std::dynamic_pointer_cast<StampedIdentifier>(this->callable); stamped_id != nullptr) {
+        name = stamped_id->identifier;
+        type_args = stamped_id->arguments;
+    }
     // function = parser.find_function_by_arg_list(id->identifier, arg_types);
     // if (function != nullptr) {
     //     return std::get<FunctionType>(function->bound_type->description).result;
     // }
-    auto overloads = parser.find_overloads(id->identifier);
-    for (auto const &func_def : overloads) {
-        if (func_def->declaration->parameters.size() != arguments->expressions.size()) {
-            continue;
-        }
-        if (func_def->declaration->bound_type == nullptr || func_def->declaration->bound_type->is<Undetermined>()) {
-            continue;
-        }
-        if (func_def->declaration->generics.empty()) {
-            auto const &func_type_descr = std::get<FunctionType>(func_def->declaration->bound_type->description);
-            if (func_type_descr.parameters == type_descr.types) {
-                if (function == nullptr) {
-                    function = func_def;
-                } else {
-                    return parser.bind_error(
-                        location,
-                        std::format(L"Ambiguous function `{}{}`", id->identifier, arg_types->to_string()));
+    auto const overloads = parser.find_overloads(name, type_args);
+    if (type_args.empty()) {
+        for (auto const &func_def : overloads) {
+            if (func_def->declaration->parameters.size() != arguments->expressions.size()) {
+                continue;
+            }
+            if (func_def->declaration->bound_type == nullptr || func_def->declaration->bound_type->is<Undetermined>()) {
+                continue;
+            }
+            if (func_def->declaration->generics.empty()) {
+                auto const &func_type_descr = std::get<FunctionType>(func_def->declaration->bound_type->description);
+                if (func_type_descr.parameters == type_descr.types) {
+                    if (function == nullptr) {
+                        function = func_def;
+                    } else {
+                        return parser.bind_error(
+                            location,
+                            std::format(L"Ambiguous function `{}{}`", name, arg_types->to_string()));
+                    }
                 }
             }
         }
-    }
-    if (function != nullptr) {
-        bind_node(function, parser);
-        if (function->bound_type->is<Undetermined>()) {
-            return function->bound_type;
+        if (function != nullptr) {
+            bind_node(function, parser);
+            if (function->bound_type->is<Undetermined>()) {
+                return function->bound_type;
+            }
+            auto const &func_type_descr = std::get<FunctionType>(function->declaration->bound_type->description);
+            return func_type_descr.result;
         }
-        auto const &func_type_descr = std::get<FunctionType>(function->declaration->bound_type->description);
-        return func_type_descr.result;
     }
     for (auto const &func_def : overloads) {
         if (!func_def->declaration->generics.empty()) {
             std::map<std::wstring, pType> generic_args;
-            for (auto ix = 0; ix < arguments->expressions.size(); ++ix) {
-                auto arg_type = arguments->expressions[ix]->bound_type;
-                auto param_type = func_def->declaration->parameters[ix]->bound_type;
-                generic_args.merge(arg_type->infer_generic_arguments(param_type));
+            for (auto const&[param_name, arg_type] : std::ranges::views::zip(func_def->declaration->generics, type_args)) {
+                generic_args[param_name->identifier] = arg_type->resolve(parser);
+            }
+            for (auto const&[param, arg] : std::ranges::views::zip(func_def->declaration->parameters, arguments->expressions)) {
+                auto const& param_type = param->bound_type;
+                auto const& arg_type = arg->bound_type;
+                for (auto const inferred = arg_type->infer_generic_arguments(param_type); auto const &[name, arg_type] : inferred) {
+                    if (generic_args.contains(name) &&generic_args[name] != arg_type) {
+                        return parser.bind_error(
+                            location,
+                            std::format(L"Ambiguous values inferred for generic parameter  `{}`: `{}` and `{}`", name, arg_types->to_string(), generic_args[name]->to_string()));
+                    }
+                    generic_args[name] = arg_type;
+                }
             }
             auto all_inferred { true };
             for (auto const &generic_param : func_def->declaration->generics) {
@@ -340,7 +375,7 @@ pType Call::bind(Parser &parser)
             } else {
                 return parser.bind_error(
                     location,
-                    std::format(L"Ambiguous function `{}{}`", id->identifier, arg_types->to_string()));
+                    std::format(L"Ambiguous function `{}{}`", name, arg_types->to_string()));
             }
         }
     }
@@ -356,7 +391,7 @@ pType Call::bind(Parser &parser)
     }
     return parser.bind_error(
         location,
-        std::format(L"Unresolved function `{}{}`", id->identifier, arg_types->to_string()));
+        std::format(L"Unresolved function `{}{}`", name, arg_types->to_string()));
 }
 
 }

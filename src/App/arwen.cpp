@@ -54,6 +54,7 @@ void compile_file(std::string_view file_name)
         }
         parser.program->modules[mod->name] = mod;
         parser.errors.clear();
+        parser.program->dump();
 
         std::wcout << "STAGE 2 - Folding" << std::endl;
         parser.namespaces.clear();

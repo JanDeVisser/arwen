@@ -241,8 +241,4 @@ Void::Void()
 {
 }
 
-pSyntaxNode Void::normalize(Parser &)
-{
-    return make_node<Constant>(location, make_void());
-}
 }

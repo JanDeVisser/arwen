@@ -726,6 +726,7 @@ public:
     using LexerResult = Types::LexerResult;
     using SkipToken = Types::SkipToken;
     using LexerError = Error<LexerErrorMessage>;
+    using Bookmark = size_t;
 
     Lexer() = default;
 
@@ -793,6 +794,19 @@ public:
         m_lookback.push_back(ret);
         last_location = ret.location;
         return ret;
+    }
+
+    [[nodiscard]] Bookmark bookmark() const
+    {
+        return m_lookback.size();
+    }
+
+    void push_back(Bookmark const& bookmark)
+    {
+        while (m_lookback.size() != bookmark) {
+            push_back(m_lookback.back());
+            m_lookback.pop_back();
+        }
     }
 
     Token const &lookback(size_t pos)

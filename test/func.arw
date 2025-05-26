@@ -1,15 +1,21 @@
-func foo(x: i32) i32
+func foo(x: i64) i64
 {
 	return x * 2
 }
 
-func bar(quux: []int) bool/string
+func bar(quux: []i32) bool/string
 {
     return true
 }
 
+func baz() void
+{
+   r := 42
+}
+
 func main() i32
 {
+    baz()
 	foo(12)
  	return 0
 }

@@ -10,7 +10,7 @@
 
 namespace Arwen {
 
-Identifier::Identifier(std::wstring_view identifier)
+Identifier::Identifier(std::wstring_view const identifier)
     : SyntaxNode(SyntaxNodeType::Identifier)
     , identifier(identifier)
 {
@@ -37,6 +37,38 @@ pType Identifier::bind(Parser &parser)
 }
 
 std::wostream& Identifier::header(std::wostream &os)
+{
+    return os << identifier;
+}
+
+StampedIdentifier::StampedIdentifier(std::wstring_view const identifier, TypeSpecifications arguments)
+    : SyntaxNode(SyntaxNodeType::StampedIdentifier)
+    , identifier(identifier)
+    , arguments(std::move(arguments))
+{
+}
+
+pSyntaxNode StampedIdentifier::stamp(Parser &)
+{
+    return make_node<StampedIdentifier>(location, identifier,  arguments);
+}
+
+pType StampedIdentifier::bind(Parser &parser)
+{
+    auto const &type = parser.type_of(identifier);
+    if (type == nullptr) {
+        if (parser.pass == 0) {
+            return TypeRegistry::undetermined;
+        } else {
+            return parser.bind_error(
+                location,
+                std::format(L"Unresolved identifier `{}`", identifier));
+        }
+    }
+    return type;
+}
+
+std::wostream& StampedIdentifier::header(std::wostream &os)
 {
     return os << identifier;
 }

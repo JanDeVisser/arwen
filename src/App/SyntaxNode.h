@@ -58,6 +58,7 @@ using namespace Util;
     S(PublicDeclaration)   \
     S(QuotedString)        \
     S(Return)              \
+    S(StampedIdentifier)   \
     S(Struct)              \
     S(StructMember)        \
     S(TypeSpecification)   \
@@ -102,7 +103,7 @@ struct Namespace : std::enable_shared_from_this<Namespace> {
     VariableMap variables {};
     pNamespace  parent { nullptr };
 
-    Namespace(pNamespace parent = nullptr);
+    explicit Namespace(pNamespace parent = nullptr);
     pType                            find_type(std::wstring const &name) const;
     void                             register_type(std::wstring name, pType type);
     void                             register_function(std::wstring name, pFunctionDefinition fnc);
@@ -110,7 +111,7 @@ struct Namespace : std::enable_shared_from_this<Namespace> {
     pFunctionDefinition              find_function(std::wstring const &name, pType const &type) const;
     pFunctionDefinition              find_function_by_arg_list(std::wstring const &name, pType const &type) const;
     FunctionConstIter                find_function_here(std::wstring name, pType const &type) const;
-    std::vector<pFunctionDefinition> find_overloads(std::wstring const &name) const;
+    std::vector<pFunctionDefinition> find_overloads(std::wstring const &name, TypeSpecifications const& type_args) const;
     pSyntaxNode                      find_variable(std::wstring const &name) const;
     pType                            type_of(std::wstring const &name) const;
     void                             register_variable(std::wstring name, pSyntaxNode node);
@@ -413,7 +414,7 @@ struct FunctionDeclaration : SyntaxNode {
 
 using pFunctionDeclaration = std::shared_ptr<FunctionDeclaration>;
 
-struct FunctionDefinition : SyntaxNode {
+struct FunctionDefinition final : SyntaxNode {
     std::wstring         name;
     pFunctionDeclaration declaration;
     pSyntaxNode          implementation;
@@ -423,19 +424,20 @@ struct FunctionDefinition : SyntaxNode {
     pType               bind(Parser &parser) override;
     pSyntaxNode         stamp(Parser &parser) override;
     void                dump_node(int indent) override;
-    pFunctionDefinition instantiate(Parser &parser, std::map<std::wstring, pType> generic_args);
+    pFunctionDefinition instantiate(Parser &parser, std::vector<pType> const& generic_args) const;
+    pFunctionDefinition instantiate(Parser &parser, std::map<std::wstring, pType> const& generic_args) const;
 };
 
-struct Identifier : SyntaxNode {
+struct Identifier final : SyntaxNode {
     std::wstring identifier;
 
-    Identifier(std::wstring_view identifier);
+    explicit Identifier(std::wstring_view identifier);
     pType          bind(Parser &parser) override;
     pSyntaxNode    stamp(Parser &parser) override;
     std::wostream &header(std::wostream &os) override;
 };
 
-struct IfStatement : SyntaxNode {
+struct IfStatement final : SyntaxNode {
     pSyntaxNode condition;
     pSyntaxNode if_branch;
     pSyntaxNode else_branch;
@@ -447,33 +449,33 @@ struct IfStatement : SyntaxNode {
     void        dump_node(int indent) override;
 };
 
-struct Import : SyntaxNode {
+struct Import final : SyntaxNode {
     std::wstring name;
 
-    Import(std::wstring name);
+    explicit Import(std::wstring name);
     pSyntaxNode    normalize(Parser &parser) override;
     pType          bind(Parser &parser) override;
     std::wostream &header(std::wostream &os) override;
 };
 
-struct Include : SyntaxNode {
+struct Include final : SyntaxNode {
     std::wstring file_name;
 
-    Include(std::wstring_view file_name);
+    explicit Include(std::wstring_view file_name);
     pSyntaxNode    normalize(Parser &parser) override;
     pType          bind(Parser &parser) override;
     std::wostream &header(std::wostream &os) override;
 };
 
-struct Insert : SyntaxNode {
+struct Insert final : SyntaxNode {
     std::wstring script_text;
 
-    Insert(std::wstring_view script_text);
+    explicit Insert(std::wstring_view script_text);
     pSyntaxNode normalize(Parser &parser) override;
     pType       bind(Parser &parser) override;
 };
 
-struct LoopStatement : SyntaxNode {
+struct LoopStatement final : SyntaxNode {
     Label       label;
     pSyntaxNode statement;
 
@@ -485,7 +487,7 @@ struct LoopStatement : SyntaxNode {
     void           dump_node(int indent) override;
 };
 
-struct Module : SyntaxNode {
+struct Module final : SyntaxNode {
     std::wstring name;
     std::wstring source;
     pSyntaxNode  statements;
@@ -566,6 +568,16 @@ struct Return final : SyntaxNode {
     void        dump_node(int indent) override;
 };
 
+struct StampedIdentifier final : SyntaxNode {
+    std::wstring       identifier;
+    TypeSpecifications arguments;
+
+    explicit StampedIdentifier(std::wstring_view identifier, TypeSpecifications arguments);
+    pType          bind(Parser &parser) override;
+    pSyntaxNode    stamp(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
+};
+
 struct StructMember final : SyntaxNode {
     std::wstring       label;
     pTypeSpecification member_type;
@@ -580,7 +592,7 @@ struct StructMember final : SyntaxNode {
 using pStructMember = std::shared_ptr<StructMember>;
 using StructMembers = std::vector<pStructMember>;
 
-struct Struct : SyntaxNode {
+struct Struct final : SyntaxNode {
     std::wstring  name;
     StructMembers members;
 
@@ -687,7 +699,6 @@ struct VariableDeclaration : SyntaxNode {
 
 struct Void final : SyntaxNode {
     Void();
-    pSyntaxNode normalize(Parser &parser) override;
 };
 
 struct WhileStatement final : SyntaxNode {
