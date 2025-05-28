@@ -83,6 +83,25 @@ pType FunctionDeclaration::bind(Parser &parser)
     return TypeRegistry::the().function_of(parameter_types, result_type);
 }
 
+static pType bind_declaration(pFunctionDeclaration const &declaration, pNamespace const &ns, Parser &parser)
+{
+    for (auto const &generic_param : declaration->generics) {
+        if (auto const &generic = ns->find_type(generic_param->identifier); generic != nullptr) {
+            assert(generic->is<GenericParameter>());
+            continue;
+        }
+        ns->register_type(generic_param->identifier, TypeRegistry::the().generic_parameter(generic_param->identifier));
+    }
+    {
+        parser.push_namespace(ns);
+        Defer pop_namespace { [&parser]() { parser.pop_namespace(); } };
+        if (auto t = bind_node(declaration, parser); t->is<BindErrors>() || t->is<Undetermined>()) {
+            return t;
+        }
+    }
+    return declaration->bound_type;
+}
+
 std::wostream &FunctionDeclaration::header(std::wostream &os)
 {
     os << name;
@@ -118,12 +137,14 @@ FunctionDefinition::FunctionDefinition(std::wstring name, pFunctionDeclaration d
 
 pSyntaxNode FunctionDefinition::normalize(Parser &parser)
 {
-    return make_node<FunctionDefinition>(
+    auto const ret = make_node<FunctionDefinition>(
         location,
         name,
         normalize_node(declaration, parser),
         normalize_node(implementation, parser),
         ns);
+    parser.register_function(name, ret);
+    return ret;
 }
 
 pSyntaxNode FunctionDefinition::stamp(Parser &parser)
@@ -138,23 +159,9 @@ pSyntaxNode FunctionDefinition::stamp(Parser &parser)
 
 pType FunctionDefinition::bind(Parser &parser)
 {
-    pType t;
-    if (parser.pass == 0) {
-        for (auto const &generic_param : declaration->generics) {
-            ns->register_type(generic_param->identifier, TypeRegistry::the().generic_parameter(generic_param->identifier));
-        }
-    }
-    {
-        parser.push_namespace(ns);
-        Defer pop_namespace { [&parser]() { parser.pop_namespace(); } };
-        if (t = bind_node(declaration, parser); t->is<BindErrors>() || t->is<Undetermined>()) {
-            return t;
-        }
-    }
+    pType t = bind_declaration(declaration, ns, parser);
     assert(t->is<FunctionType>());
-    if (auto found = ns->parent->find_function(name, t); found == nullptr) {
-        parser.register_function(name, std::dynamic_pointer_cast<FunctionDefinition>(shared_from_this()));
-    } else if (found != shared_from_this()) {
+    if (auto found = ns->parent->find_function(name, t); found != nullptr && found != shared_from_this()) {
         return parser.bind_error(location, L"Duplicate overload for function `{}` with type `{}`", name, t->to_string());
     }
     if (!declaration->generics.empty()) {
@@ -311,39 +318,35 @@ pType Call::bind(Parser &parser)
     // if (function != nullptr) {
     //     return std::get<FunctionType>(function->bound_type->description).result;
     // }
-    auto const overloads = parser.find_overloads(name, type_args);
-    if (type_args.empty()) {
-        for (auto const &func_def : overloads) {
-            if (func_def->declaration->parameters.size() != arguments->expressions.size()) {
-                continue;
-            }
+
+    auto match_non_generic_function = [this, &type_descr, &parser, &name, &arg_types](pFunctionDefinition const &func_def) -> pType {
+        if (func_def->declaration->generics.empty()) {
             if (func_def->declaration->bound_type == nullptr || func_def->declaration->bound_type->is<Undetermined>()) {
-                continue;
-            }
-            if (func_def->declaration->generics.empty()) {
-                auto const &func_type_descr = std::get<FunctionType>(func_def->declaration->bound_type->description);
-                if (func_type_descr.parameters == type_descr.types) {
-                    if (function == nullptr) {
-                        function = func_def;
-                    } else {
-                        return parser.bind_error(
-                            location,
-                            std::format(L"Ambiguous function `{}{}`", name, arg_types->to_string()));
-                    }
+                if (auto const &decl_type = bind_declaration(func_def->declaration, parser.namespaces.back(), parser); !decl_type->is<FunctionType>()) {
+                    return TypeRegistry::void_;
                 }
             }
-        }
-        if (function != nullptr) {
-            bind_node(function, parser);
-            if (function->bound_type->is<Undetermined>()) {
-                return function->bound_type;
+            auto const &func_type_descr = std::get<FunctionType>(func_def->declaration->bound_type->description);
+            if (func_type_descr.parameters == type_descr.types) {
+                if (function == nullptr) {
+                    function = func_def;
+                    return TypeRegistry::void_;
+                }
+                return parser.bind_error(
+                    location,
+                    std::format(L"Ambiguous function `{}{}`", name, arg_types->to_string()));
             }
-            auto const &func_type_descr = std::get<FunctionType>(function->declaration->bound_type->description);
-            return func_type_descr.result;
         }
-    }
-    for (auto const &func_def : overloads) {
+        return TypeRegistry::void_;
+    };
+
+    auto match_generic_function = [this, &parser, &name, &type_args, &arg_types](pFunctionDefinition const &func_def) -> pType {
         if (!func_def->declaration->generics.empty()) {
+            if (func_def->declaration->bound_type == nullptr || func_def->declaration->bound_type->is<Undetermined>()) {
+                if (auto const &decl_type = bind_declaration(func_def->declaration, parser.namespaces.back(), parser); !decl_type->is<FunctionType>()) {
+                    return TypeRegistry::void_;
+                }
+            }
             std::map<std::wstring, pType> generic_args;
             for (auto const &[param_name, arg_type] : std::ranges::views::zip(func_def->declaration->generics, type_args)) {
                 generic_args[param_name->identifier] = arg_type->resolve(parser);
@@ -368,18 +371,54 @@ pType Call::bind(Parser &parser)
                 }
             }
             if (!all_inferred) {
-                continue;
+                return TypeRegistry::void_;
             }
             if (function == nullptr) {
                 function = func_def->instantiate(parser, generic_args);
+                return TypeRegistry::void_;
             } else {
                 return parser.bind_error(
                     location,
                     std::format(L"Ambiguous function `{}{}`", name, arg_types->to_string()));
             }
         }
+        return TypeRegistry::void_;
+    };
+
+    auto const overloads = parser.find_overloads(name, type_args);
+    if (type_args.empty()) {
+        for (auto const &func_def : overloads) {
+            if (func_def->declaration->parameters.size() != arguments->expressions.size()) {
+                continue;
+            }
+            if (auto const ret = match_non_generic_function(func_def); ret->is<BindErrors>()) {
+                return ret;
+            }
+        }
+        if (function == nullptr) {
+            for (auto const &func_def : overloads) {
+                if (func_def->declaration->parameters.size() != arguments->expressions.size()) {
+                    continue;
+                }
+                if (auto const ret = match_generic_function(func_def); ret->is<BindErrors>()) {
+                    return ret;
+                }
+            }
+        }
+    } else {
+        for (auto const &func_def : overloads) {
+            if (func_def->declaration->parameters.size() != arguments->expressions.size()) {
+                continue;
+            }
+            if (auto const ret = match_generic_function(func_def); ret->is<BindErrors>()) {
+                return ret;
+            }
+        }
     }
     if (function != nullptr) {
+        if (function->bound_type == nullptr || function->bound_type->is<Undetermined>()) {
+            bind_node(function, parser);
+        }
         if (function->bound_type->is<Undetermined>()) {
             return function->bound_type;
         }

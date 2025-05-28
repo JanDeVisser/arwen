@@ -147,7 +147,7 @@ pType Dummy::bind(Parser &parser)
     return TypeRegistry::void_;
 }
 
-pType bind_node(pSyntaxNode node, Parser &parser)
+pType bind_node(pSyntaxNode const &node, Parser &parser)
 {
     assert(node != nullptr);
     if (node->bound_type && !node->bound_type->is<Undetermined>()) {

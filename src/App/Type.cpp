@@ -339,7 +339,6 @@ pType TypeRegistry::generic_parameter(std::wstring name)
         }
     }
     auto ret = make_type(std::format(L"{}", name), GenericParameter { std::move(name) });
-    types.emplace_back(ret);
     return ret;
 }
 
@@ -359,7 +358,6 @@ pType TypeRegistry::referencing(pType type)
         }
     }
     auto ret = make_type(std::format(L"&{}", type->name), ReferenceType { type });
-    types.emplace_back(ret);
     return ret;
 }
 
@@ -367,7 +365,6 @@ pType TypeRegistry::alias_for(pType type)
 {
     assert(type != nullptr);
     auto ret = make_type(std::format(L"AliasOf({})", type->name), TypeAlias { type });
-    types.emplace_back(ret);
     return ret;
 }
 
@@ -387,7 +384,6 @@ pType TypeRegistry::slice_of(pType type)
         }
     }
     auto ret = make_type(std::format(L"[]{}", type->name), SliceType { type });
-    types.emplace_back(ret);
     return ret;
 }
 
@@ -406,7 +402,6 @@ pType TypeRegistry::zero_terminated_array_of(pType type)
         }
     }
     auto ret = make_type(std::format(L"[0]{}", type->name), ZeroTerminatedArray { type });
-    types.emplace_back(ret);
     return ret;
 }
 
@@ -425,7 +420,6 @@ pType TypeRegistry::array_of(pType type, size_t size)
         }
     }
     auto ret = make_type(std::format(L"[{}]{}", size, type->name), Array { type, size });
-    types.emplace_back(ret);
     return ret;
 }
 
@@ -444,7 +438,6 @@ pType TypeRegistry::dyn_array_of(pType type)
         }
     }
     auto ret = make_type(std::format(L"[*]{}", type->name), DynArray { type });
-    types.emplace_back(ret);
     return ret;
 }
 
@@ -463,7 +456,6 @@ pType TypeRegistry::optional_of(pType type)
         }
     }
     auto ret = make_type(std::format(L"{}?", type->name), OptionalType { type });
-    types.emplace_back(ret);
     return ret;
 }
 
@@ -482,7 +474,6 @@ pType TypeRegistry::error_of(pType success, pType error)
         }
     }
     auto ret = make_type(std::format(L"{}/{}", success->name, error->name), ErrorType { success, error });
-    types.emplace_back(ret);
     return ret;
 }
 
@@ -510,15 +501,23 @@ pType TypeRegistry::function_of(std::vector<pType> const &parameters, pType resu
                 [](pType const &t) -> std::wstring { return t->name; }),
             result->name),
         FunctionType { parameters, result });
-    types.emplace_back(ret);
     return ret;
 }
 
 pType TypeRegistry::typelist_of(std::vector<pType> const &typelist)
 {
+    auto types_string = [](std::vector<pType> const &typelist) -> std::wstring {
+        return std::format(
+            L"({})",
+            join(
+                typelist,
+                std::wstring_view { L"," },
+                [](pType const &t) -> std::wstring_view { return std::wstring_view { t->name }; }));
+    };
+
     for (auto const &t : types) {
         if (std::visit(overloads {
-                           [&typelist](TypeList const descr) -> bool {
+                           [&typelist](TypeList const &descr) -> bool {
                                return descr.types == typelist;
                            },
                            [](auto const &) -> bool {
@@ -529,15 +528,7 @@ pType TypeRegistry::typelist_of(std::vector<pType> const &typelist)
         }
     }
 
-    auto ret = make_type(
-        std::format(
-            L"({})",
-            join(
-                typelist,
-                std::wstring_view { L"," },
-                [](pType const &t) -> std::wstring_view { return std::wstring_view { t->name }; })),
-        TypeList { typelist });
-    types.emplace_back(ret);
+    auto ret = make_type(types_string(typelist), TypeList { typelist });
     return ret;
 }
 

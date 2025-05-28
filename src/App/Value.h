@@ -6,8 +6,11 @@
 
 #pragma once
 
+#include "Util/JSON.h"
+
 #include <concepts>
 #include <cstdint>
+#include <ranges>
 #include <set>
 #include <string>
 #include <variant>
@@ -63,8 +66,8 @@ struct Atom {
     Atom &operator=(Atom const &) = default;
     bool  operator==(Atom const &) const = default;
 
-    [[nodiscard]] pType type() const;
-    [[nodiscard]] std::optional<Atom> coerce(pType const& to_type) const;
+    [[nodiscard]] pType               type() const;
+    [[nodiscard]] std::optional<Atom> coerce(pType const &to_type) const;
 };
 
 using Atoms = std::vector<Atom>;
@@ -78,6 +81,20 @@ struct Value {
 
     Value() = default;
     Value(Value const &) = default;
+
+    Value(Value &other)
+        : type(other.type)
+    {
+        std::visit(overloads {
+                       [this](Atom const &atom) {
+                           this->payload = atom;
+                       },
+                       [this](Atoms const &atoms) {
+                           Atoms mine { atoms };
+                           this->payload = atoms;
+                       } },
+            other.payload);
+    }
 
     explicit Value(pType const &type)
         : Value(type, Atoms {})
@@ -104,30 +121,57 @@ struct Value {
     {
     }
 
-#undef S
-#define S(W)                             \
-    Value(int##W##_t val)                \
-        : Value(TypeRegistry::i##W, val) \
-    {                                    \
-    }                                    \
-    Value(uint##W##_t val)               \
-        : Value(TypeRegistry::u##W, val) \
-    {                                    \
+    Value(int8_t const val)
+        : Value(TypeRegistry::i8, val)
+    {
     }
-    BitWidths(S)
-#undef S
 
-        explicit Value(float val)
+    Value(uint8_t const val)
+        : Value(TypeRegistry::u8, val)
+    {
+    }
+
+    Value(int16_t const val)
+        : Value(TypeRegistry::i16, val)
+    {
+    }
+
+    Value(uint16_t const val)
+        : Value(TypeRegistry::u16, val)
+    {
+    }
+
+    Value(int32_t const val)
+        : Value(TypeRegistry::i32, val)
+    {
+    }
+
+    Value(uint32_t const val)
+        : Value(TypeRegistry::u32, val)
+    {
+    }
+
+    Value(int64_t const val)
+        : Value(TypeRegistry::i64, val)
+    {
+    }
+
+    Value(uint64_t const val)
+        : Value(TypeRegistry::u64, val)
+    {
+    }
+
+    explicit Value(float const val)
         : Value(TypeRegistry::f32, val)
     {
     }
 
-    explicit Value(double val)
+    explicit Value(double const val)
         : Value(TypeRegistry::f64, val)
     {
     }
 
-    explicit Value(bool val)
+    explicit Value(bool const val)
         : Value(TypeRegistry::boolean, val)
     {
     }
@@ -137,9 +181,9 @@ struct Value {
     {
     }
 
-    Value &operator=(Value const &) = default;
+    // Value &operator=(Value const &) = default;
 
-    [[nodiscard]] std::optional<Value> coerce(pType const& to_type) const;
+    [[nodiscard]] std::optional<Value> coerce(pType const &to_type) const;
 };
 
 template<typename T>
@@ -252,6 +296,47 @@ template<>
 inline Value make_value(pType const &type, DynamicArray const &val)
 {
     return Value { type, Atoms { Atom { val.ptr }, Atom { val.size }, Atom { val.capacity } } };
+}
+
+template<>
+inline Value make_value(pType const &type, StaticArray const &val)
+{
+    return Value { type, Atoms { Atom { val.ptr }, Atom { val.size } } };
+}
+
+template<>
+inline Value make_value(pType const &type)
+{
+    switch (type->kind()) {
+    case TypeKind::IntType: {
+        switch (auto const &d = std::get<IntType>(type->description); d.width_bits) {
+#undef S
+#define S(W) \
+    case W:  \
+        return (d.is_signed) ? Value(static_cast<int##W##_t>(0)) : Value(static_cast<uint##W##_t>(0));
+            BitWidths(S) default : UNREACHABLE();
+        }
+    }
+    case TypeKind::FloatType: {
+        switch (auto const &d = std::get<FloatType>(type->description); d.width_bits) {
+#undef S
+#define S(W, T) \
+    case W:     \
+        return Value(static_cast<T>(0));
+            FloatBitWidths(S) default : UNREACHABLE();
+        }
+    }
+    case TypeKind::BoolType:
+        return Value(false);
+    case TypeKind::SliceType:
+        return make_value(type, Slice { nullptr, 0 });
+    case TypeKind::DynArray:
+        return make_value(type, DynamicArray { nullptr, 0, 0 });
+    case TypeKind::Array:
+        return make_value(type, StaticArray { nullptr, 0 });
+    default:
+        UNREACHABLE();
+    }
 }
 
 inline Value make_void()

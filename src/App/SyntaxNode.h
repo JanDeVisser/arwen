@@ -726,7 +726,7 @@ struct Yield final : SyntaxNode {
     void           dump_node(int indent) override;
 };
 
-pType bind_node(pSyntaxNode node, Parser &parser);
+pType bind_node(pSyntaxNode const &node, Parser &parser);
 
 }
 

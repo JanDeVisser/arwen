@@ -16,8 +16,8 @@ namespace Arwen {
 
 Block::Block(SyntaxNodes statements, SyntaxNodes deferred, pNamespace const &ns)
     : SyntaxNode(SyntaxNodeType::Block, ns)
-    , statements(statements)
-    , deferred_statements(deferred)
+    , statements(std::move(statements))
+    , deferred_statements(std::move(deferred))
 {
     if (this->ns == nullptr) {
         assert(this->ns != nullptr);
@@ -26,7 +26,7 @@ Block::Block(SyntaxNodes statements, SyntaxNodes deferred, pNamespace const &ns)
 
 Block::Block(SyntaxNodes statements, pNamespace const &ns)
     : SyntaxNode(SyntaxNodeType::Block, ns)
-    , statements(statements)
+    , statements(std::move(statements))
 {
     if (this->ns == nullptr) {
         assert(this->ns != nullptr);
@@ -42,6 +42,9 @@ pSyntaxNode Block::normalize(Parser &parser)
         if (new_stmt == nullptr) {
             parser.append(location, "Folding statement failed");
             return nullptr;
+        }
+        if (new_stmt->ns != nullptr) {
+            new_stmt->ns->parent = ns;
         }
         if (auto defer = std::dynamic_pointer_cast<DeferStatement>(new_stmt); defer != nullptr) {
             deferred_statements.push_back(defer->stmt);

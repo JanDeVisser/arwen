@@ -49,11 +49,9 @@ pSyntaxNode Insert::normalize(Parser &parser)
                 false
             )
         );
+        block->ns->parent = parser.namespaces.back();
         script = script->normalize(insert_parser);
         insert_parser.pass = 0;
-        for (auto const& t : TypeRegistry::the().types) {
-            script->ns->register_type(t->name, t);
-        }
         while (script->bound_type == nullptr || script->bound_type == TypeRegistry::undetermined) {
             bind_node(script, insert_parser);
             if (!insert_parser.errors.empty()) {
@@ -64,6 +62,8 @@ pSyntaxNode Insert::normalize(Parser &parser)
             }
             ++insert_parser.pass;
         }
+        std::cout << "Running compile time script\n\n";
+        script->dump();
 
         Arwen::Interpreter::Interpreter interpreter {};
         Scope                          &scope = interpreter.new_scope(script);

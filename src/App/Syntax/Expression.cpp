@@ -219,8 +219,7 @@ pSyntaxNode BinaryExpression::normalize(Parser &parser)
             location,
             new_lhs,
             op,
-            new_rhs)
-            ->normalize(parser);
+            new_rhs);
     }
     case Operator::Call: {
         auto arg_list = rhs->normalize(parser);

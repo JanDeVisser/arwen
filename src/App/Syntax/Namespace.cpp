@@ -68,7 +68,7 @@ Namespace::FunctionConstIter Namespace::find_function_here(std::wstring name, pT
 {
     assert(type->is<FunctionType>());
     for (auto it = functions.find(name); it != functions.end(); ++it) {
-        if ((*it).second->bound_type == type) {
+        if (it->second->bound_type == type) {
             return it;
         }
     }
@@ -79,7 +79,7 @@ pFunctionDefinition Namespace::find_function(std::wstring const &name, pType con
 {
     assert(type->is<FunctionType>());
     if (auto here = find_function_here(name, type); here != functions.end()) {
-        return (*here).second;
+        return here->second;
     }
     if (parent != nullptr) {
         return parent->find_function(name, type);
