@@ -6,66 +6,74 @@
 
 #pragma once
 
+#include <filesystem>
+#include <map>
 #include <memory>
-#include <optional>
 #include <string>
-#include <unordered_map>
-#include <vector>
 
-namespace Obelix {
+#include <Util/Result.h>
 
-constexpr static char const* OBL_DIR = "OBL_DIR";
-constexpr static char const* OBL_INIT = "_obl_init";
+namespace Util {
+
+namespace fs = std::filesystem;
+
+constexpr static auto const *ARW_DIR = "ARW_DIR";
+constexpr static auto const *ARW_INIT = "_arw_init";
 
 typedef void (*void_t)();
 
-typedef void* lib_handle_t;
+typedef void *lib_handle_t;
 
-struct ResolveResult {
-    ResolveResult() = default;
-    explicit ResolveResult(void* res, std::optional<std::string> message = {});
+struct LibHandle {
+    lib_handle_t handle;
 
-    union {
-        void* result { nullptr };
-        lib_handle_t handle;
-        void_t function;
-    };
+    LibHandle(void *h)
+        : handle(h)
+    {
+    }
 
-    int errorcode { 0 };
+    // ReSharper disable once CppNonExplicitConversionOperator
+    operator void *() const { return handle; }
+};
+
+struct DLError {
     std::string message {};
+    DLError() = default;
+    DLError(char const *m);
+    DLError(std::string m);
 };
 
 class Resolver {
 public:
     ~Resolver() = default;
-    static Resolver& get_resolver() noexcept;
-    ResolveResult open(std::string const&);
-    ResolveResult resolve(std::string const&);
+    static Resolver           &get_resolver() noexcept;
+    Result<LibHandle, DLError> open(std::string const &);
+    Result<void_t, DLError>    resolve(std::string const &);
 
 private:
     class Library {
     public:
         explicit Library(std::string img);
         ~Library();
-        std::string to_string();
-        static std::string platform_image(std::string const&);
-        [[nodiscard]] bool is_valid() const { return m_my_result.errorcode == 0; }
-        [[nodiscard]] ResolveResult const& result() const { return m_my_result; }
-        ResolveResult get_function(std::string const&);
+        std::string                              to_string();
+        static fs::path                          platform_image(std::string const &);
+        [[nodiscard]] bool                       is_valid() const { return m_my_result.message.empty(); }
+        [[nodiscard]] Result<LibHandle, DLError> result() const;
+        Result<void_t, DLError>                  get_function(std::string const &);
 
     private:
-        ResolveResult open();
-        ResolveResult try_open(std::string const&);
+        Result<LibHandle, DLError>               open();
+        [[nodiscard]] Result<LibHandle, DLError> try_open(fs::path const &) const;
 
-        lib_handle_t m_handle { nullptr };
-        std::string m_image {};
-        ResolveResult m_my_result;
-        std::unordered_map<std::string, ResolveResult> m_functions {};
+        LibHandle                     m_handle { nullptr };
+        std::string                   m_image {};
+        DLError                       m_my_result;
+        std::map<std::string, void_t> m_functions {};
         friend Resolver;
     };
 
     Resolver() = default;
-    std::unordered_map<std::string, std::shared_ptr<Library>> m_images;
+    std::map<std::string, std::shared_ptr<Library>> m_images;
 };
 
 }

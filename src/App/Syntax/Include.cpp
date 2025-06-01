@@ -34,7 +34,7 @@ pSyntaxNode Include::normalize(Parser &parser)
             return nullptr;
         }
         if (node) {
-            node = node->normalize(parser);
+            node = normalize_node(node, parser);
             if (node) {
                 node->location = location;
             }

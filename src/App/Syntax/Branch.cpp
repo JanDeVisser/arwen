@@ -23,9 +23,9 @@ pSyntaxNode IfStatement::normalize(Parser &parser)
 {
     return make_node<IfStatement>(
         location,
-        condition->normalize(parser),
-        if_branch->normalize(parser),
-        (else_branch != nullptr) ? else_branch->normalize(parser) : nullptr);
+        normalize_node(condition, parser),
+        normalize_node(if_branch, parser),
+        (else_branch != nullptr) ? normalize_node(else_branch, parser) : nullptr);
 }
 
 pSyntaxNode IfStatement::stamp(Parser &parser)

@@ -38,7 +38,7 @@ pSyntaxNode Block::normalize(Parser &parser)
     assert(ns != nullptr);
     SyntaxNodes normalized;
     for (auto const &stmt : statements) {
-        auto new_stmt = stmt->normalize(parser);
+        auto new_stmt = normalize_node(stmt, parser);
         if (new_stmt == nullptr) {
             parser.append(location, "Folding statement failed");
             return nullptr;

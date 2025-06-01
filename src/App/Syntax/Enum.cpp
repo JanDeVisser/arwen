@@ -73,7 +73,7 @@ pSyntaxNode Enum::normalize(Parser &parser)
 {
     EnumValues vals {};
     for (auto const &v : values) {
-        vals.emplace_back(std::dynamic_pointer_cast<EnumValue>(v->normalize(parser)));
+        vals.emplace_back(std::dynamic_pointer_cast<EnumValue>(normalize_node(v, parser)));
     }
     return make_node<Enum>(
         location,

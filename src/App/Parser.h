@@ -105,19 +105,20 @@ struct Parser {
     pSyntaxNode                parse_while();
     pSyntaxNode                parse_yield();
 
-    pType                            type_of(std::wstring const &name) const;
-    bool                             has_function(std::wstring const &name, pType const &type) const;
-    pFunctionDefinition              find_function(std::wstring const &name, pType const &type) const;
-    pFunctionDefinition              find_function_by_arg_list(std::wstring const &name, pType const &type) const;
-    std::vector<pFunctionDefinition> find_overloads(std::wstring const &name, TypeSpecifications const &type_args) const;
-    void                             register_variable(std::wstring name, pSyntaxNode node);
-    void                             register_function(std::wstring name, pFunctionDefinition node);
-    void                             unregister_function(std::wstring name, pFunctionDefinition node);
-    pType                            find_type(std::wstring const &name) const;
-    void                             register_type(std::wstring name, pType type);
-    void                             push_namespace(pNamespace const &ns);
-    pNamespace const                &push_new_namespace();
-    void                             pop_namespace();
+    [[nodiscard]] pType                            type_of(std::wstring const &name) const;
+    [[nodiscard]] bool                             has_function(std::wstring const &name, pType const &type) const;
+    [[nodiscard]] pFunctionDefinition              find_function(std::wstring const &name, pType const &type) const;
+    [[nodiscard]] pFunctionDefinition              find_function_by_arg_list(std::wstring const &name, pType const &type) const;
+    [[nodiscard]] std::vector<pFunctionDefinition> find_overloads(std::wstring const &name, TypeSpecifications const &type_args) const;
+    void                                           register_variable(std::wstring name, pSyntaxNode node);
+    [[nodiscard]] bool                             has_variable(std::wstring const &name) const;
+    void                                           register_function(std::wstring name, pFunctionDefinition node);
+    void                                           unregister_function(std::wstring name, pFunctionDefinition node);
+    [[nodiscard]] pType                            find_type(std::wstring const &name) const;
+    void                                           register_type(std::wstring name, pType type);
+    void                                           push_namespace(pNamespace const &ns);
+    pNamespace const                              &push_new_namespace();
+    void                                           pop_namespace();
 
     void append(LexerErrorMessage const &lexer_error);
     void append(LexerErrorMessage const &lexer_error, char const *message);

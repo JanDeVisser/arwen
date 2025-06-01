@@ -71,13 +71,13 @@ pType FunctionDeclaration::bind(Parser &parser)
     std::vector<pType> parameter_types;
     for (auto const &param : parameters) {
         auto param_type = bind_node(param, parser);
-        if (param_type == TypeRegistry::ambiguous || param_type == TypeRegistry::undetermined) {
+        if (param->status != Status::Bound) {
             return param_type;
         }
         parameter_types.push_back(param_type);
     }
     auto result_type = bind_node(return_type, parser);
-    if (result_type == TypeRegistry::ambiguous || result_type == TypeRegistry::undetermined) {
+    if (return_type->status != Status::Bound) {
         return result_type;
     }
     return TypeRegistry::the().function_of(parameter_types, result_type);
@@ -94,8 +94,8 @@ static pType bind_declaration(pFunctionDeclaration const &declaration, pNamespac
     }
     {
         parser.push_namespace(ns);
-        Defer pop_namespace { [&parser]() { parser.pop_namespace(); } };
-        if (auto t = bind_node(declaration, parser); t->is<BindErrors>() || t->is<Undetermined>()) {
+        Defer pop_namespace { [&parser] { parser.pop_namespace(); } };
+        if (auto t = bind_node(declaration, parser); declaration->status != SyntaxNode::Status::Bound) {
             return t;
         }
     }
@@ -116,7 +116,7 @@ std::wostream &FunctionDeclaration::header(std::wostream &os)
     return os << ": " << return_type->to_string();
 }
 
-void FunctionDeclaration::dump_node(int indent)
+void FunctionDeclaration::dump_node(int const indent)
 {
     for (auto const &gen : generics) {
         gen->dump(indent + 4);
@@ -160,22 +160,25 @@ pSyntaxNode FunctionDefinition::stamp(Parser &parser)
 pType FunctionDefinition::bind(Parser &parser)
 {
     pType t = bind_declaration(declaration, ns, parser);
+    if (declaration->status != Status::Bound) {
+        return t;
+    }
     assert(t->is<FunctionType>());
-    if (auto found = ns->parent->find_function(name, t); found != nullptr && found != shared_from_this()) {
+    if (auto const &found = ns->parent->find_function(name, t); found != nullptr && found != shared_from_this()) {
         return parser.bind_error(location, L"Duplicate overload for function `{}` with type `{}`", name, t->to_string());
     }
     if (!declaration->generics.empty()) {
         return TypeRegistry::void_;
     }
     parser.push_namespace(ns);
-    Defer pop_namespace { [&parser]() { parser.pop_namespace(); } };
+    Defer pop_namespace { [&parser] { parser.pop_namespace(); } };
     bound_type = t; // Cheating? Needed when function is called recursively.
-    if (parser.pass == 0) {
-        for (auto const &param : declaration->parameters) {
+    for (auto const &param : declaration->parameters) {
+        if (!parser.has_variable(param->name)) {
             parser.register_variable(param->name, param);
         }
     }
-    if (auto impl_type = bind_node(implementation, parser); t->is<Undetermined>() || t->is<BindErrors>()) {
+    if (auto impl_type = bind_node(implementation, parser); implementation->status != Status::Bound) {
         return impl_type;
     }
     return t;
@@ -221,15 +224,17 @@ pFunctionDefinition FunctionDefinition::instantiate(Parser &parser, std::map<std
         auto new_impl = stamp_node(implementation, parser);
         assert(new_impl != nullptr);
 
-        new_func = make_node<FunctionDefinition>(
-            location,
-            new_decl->name,
-            new_decl,
-            new_impl,
-            new_ns);
+        new_func = normalize_node(
+            make_node<FunctionDefinition>(
+                location,
+                new_decl->name,
+                new_decl,
+                new_impl,
+                new_ns),
+            parser);
     }
     bind_node(new_func, parser);
-    assert(new_func->declaration->bound_type != nullptr && !new_func->declaration->bound_type->is<Undetermined>());
+    // assert(new_func->declaration->bound_type != nullptr && !new_func->declaration->bound_type->is<Undetermined>());
     // std::wcout << "\ninstantiated " << name << ":\n";
     // new_func->dump();
     return new_func;
@@ -240,6 +245,11 @@ Parameter::Parameter(std::wstring name, pTypeSpecification type_name)
     , name(std::move(name))
     , type_name(std::move(type_name))
 {
+}
+
+pSyntaxNode Parameter::normalize(Parser &parser)
+{
+    return make_node<Parameter>(location, name, normalize_node(type_name, parser));
 }
 
 pType Parameter::bind(Parser &parser)
@@ -281,8 +291,8 @@ std::wostream &Call::header(std::wostream &os)
 
 void Call::dump_node(int ident)
 {
-    callable->dump_node(ident + 4);
-    arguments->dump_node(ident + 4);
+    callable->dump(ident + 4);
+    arguments->dump(ident + 4);
 }
 
 pSyntaxNode Call::stamp(Parser &parser)
@@ -293,12 +303,15 @@ pSyntaxNode Call::stamp(Parser &parser)
 pType Call::bind(Parser &parser)
 {
     if (function != nullptr) {
+        if (function->status == Status::Initialized) {
+            function = normalize_node(function, parser);
+        }
         bind_node(function, parser);
-        if (function->bound_type->is<Undetermined>()) {
+        if (function->status != Status::Bound) {
             return function->bound_type;
         }
-        auto const &func_type_descr = std::get<FunctionType>(function->declaration->bound_type->description);
-        return func_type_descr.result;
+        auto const &[_, result] = std::get<FunctionType>(function->declaration->bound_type->description);
+        return result;
     }
 
     auto arg_types = bind_node(arguments, parser);
@@ -385,9 +398,19 @@ pType Call::bind(Parser &parser)
         return TypeRegistry::void_;
     };
 
-    auto const overloads = parser.find_overloads(name, type_args);
+    std::vector<pFunctionDefinition> bound_overloads;
+    {
+        auto const overloads = parser.find_overloads(name, type_args);
+        for (auto func_def : overloads) {
+            if (func_def->status == Status::Initialized) {
+                func_def = normalize_node(func_def,  parser);
+            }
+            bind_node(func_def, parser);
+            bound_overloads.push_back(func_def);
+        }
+    }
     if (type_args.empty()) {
-        for (auto const &func_def : overloads) {
+        for (auto const &func_def : bound_overloads) {
             if (func_def->declaration->parameters.size() != arguments->expressions.size()) {
                 continue;
             }
@@ -396,7 +419,7 @@ pType Call::bind(Parser &parser)
             }
         }
         if (function == nullptr) {
-            for (auto const &func_def : overloads) {
+            for (auto const &func_def : bound_overloads) {
                 if (func_def->declaration->parameters.size() != arguments->expressions.size()) {
                     continue;
                 }
@@ -406,7 +429,7 @@ pType Call::bind(Parser &parser)
             }
         }
     } else {
-        for (auto const &func_def : overloads) {
+        for (auto const &func_def : bound_overloads) {
             if (func_def->declaration->parameters.size() != arguments->expressions.size()) {
                 continue;
             }
@@ -421,6 +444,11 @@ pType Call::bind(Parser &parser)
         }
         if (function->bound_type->is<Undetermined>()) {
             return function->bound_type;
+        }
+        if (auto const impl_type = bind_node(function->implementation, parser); impl_type == nullptr || impl_type->is<Undetermined>()) {
+            return TypeRegistry::undetermined;
+        } else if (impl_type->is<BindErrors>()) {
+            return impl_type;
         }
         auto const &func_type_descr = std::get<FunctionType>(function->declaration->bound_type->description);
         return func_type_descr.result;

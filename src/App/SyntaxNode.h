@@ -6,8 +6,6 @@
 
 #pragma once
 
-#include "SyntaxNode.h"
-
 #include <concepts>
 #include <map>
 #include <memory>
@@ -52,6 +50,7 @@ using namespace Util;
     S(LoopStatement)       \
     S(MemberPath)          \
     S(Module)              \
+    S(Nullptr)             \
     S(Number)              \
     S(Parameter)           \
     S(Program)             \
@@ -104,22 +103,36 @@ struct Namespace : std::enable_shared_from_this<Namespace> {
     pNamespace  parent { nullptr };
 
     explicit Namespace(pNamespace parent = nullptr);
+    bool                             is_registered(std::wstring const &name) const;
     pType                            find_type(std::wstring const &name) const;
+    bool                             has_type(std::wstring const &name) const;
     void                             register_type(std::wstring name, pType type);
     void                             register_function(std::wstring name, pFunctionDefinition fnc);
+    bool                             has_function(std::wstring const &name) const;
     void                             unregister_function(std::wstring name, pFunctionDefinition fnc);
     pFunctionDefinition              find_function(std::wstring const &name, pType const &type) const;
     pFunctionDefinition              find_function_by_arg_list(std::wstring const &name, pType const &type) const;
     FunctionConstIter                find_function_here(std::wstring name, pType const &type) const;
     std::vector<pFunctionDefinition> find_overloads(std::wstring const &name, TypeSpecifications const &type_args) const;
+    bool                             has_variable(std::wstring const &name) const;
     pSyntaxNode                      find_variable(std::wstring const &name) const;
     pType                            type_of(std::wstring const &name) const;
     void                             register_variable(std::wstring name, pSyntaxNode node);
 };
 
 struct SyntaxNode : std::enable_shared_from_this<SyntaxNode> {
+    enum class Status {
+        Initialized,
+        Normalized,
+        Bound,
+        Undetermined,
+        Ambiguous,
+        BindErrors
+    };
+
     TokenLocation  location;
     SyntaxNodeType type;
+    Status         status { Status::Initialized };
     pType          bound_type;
     pNamespace     ns { nullptr };
 
@@ -176,10 +189,18 @@ static std::shared_ptr<Node> make_node(std::vector<pSyntaxNode> const &children,
 }
 
 template<class Node, class Normalized = Node>
-    requires std::derived_from<Node, SyntaxNode>
-static std::shared_ptr<Node> normalize_node(std::shared_ptr<Node> node, Parser &parser)
+    requires std::derived_from<Node, SyntaxNode> && std::derived_from<Normalized, SyntaxNode>
+static std::shared_ptr<Normalized> normalize_node(std::shared_ptr<Node> node, Parser &parser)
 {
-    return (node) ? std::dynamic_pointer_cast<Normalized>(node->normalize(parser)) : nullptr;
+    assert(node != nullptr);
+    if (node->status != SyntaxNode::Status::Initialized) {
+        return node;
+    }
+    auto ret = std::dynamic_pointer_cast<Normalized>(node->normalize(parser));
+    if (ret != nullptr && ret->status == SyntaxNode::Status::Initialized) {
+        ret->status = SyntaxNode::Status::Normalized;
+    }
+    return ret;
 }
 
 template<class Node>
@@ -188,7 +209,7 @@ static std::vector<std::shared_ptr<Node>> normalize_nodes(std::vector<std::share
 {
     std::vector<std::shared_ptr<Node>> normalized;
     for (auto const &n : nodes) {
-        normalized.emplace_back(std::dynamic_pointer_cast<Node>(n->normalize(parser)));
+        normalized.emplace_back(std::dynamic_pointer_cast<Node>(normalize_node(n, parser)));
     }
     return normalized;
 }
@@ -350,14 +371,15 @@ struct Error : SyntaxNode {
     void        dump_node(int indent) override;
 };
 
-struct ExpressionList : SyntaxNode {
+struct ExpressionList final : SyntaxNode {
     SyntaxNodes expressions;
 
-    ExpressionList(SyntaxNodes expressions);
-    pSyntaxNode normalize(Parser &parser) override;
-    pType       bind(Parser &parser) override;
-    pSyntaxNode stamp(Parser &parser) override;
-    void        dump_node(int indent) override;
+    explicit ExpressionList(SyntaxNodes expressions);
+    pSyntaxNode    normalize(Parser &parser) override;
+    pType          bind(Parser &parser) override;
+    pSyntaxNode    stamp(Parser &parser) override;
+    std::wostream &header(std::wostream &os) override;
+    void           dump_node(int indent) override;
 };
 
 using pIdentifier = std::shared_ptr<struct Identifier>;
@@ -504,6 +526,12 @@ struct Module final : SyntaxNode {
 
 using pModule = std::shared_ptr<struct Module>;
 
+struct Nullptr final : SyntaxNode {
+    Nullptr();
+    std::wostream &header(std::wostream &os) override;
+    pSyntaxNode    normalize(Parser &) override;
+};
+
 struct Number : SyntaxNode {
     std::wstring number;
     NumberType   number_type;
@@ -521,6 +549,7 @@ struct Parameter : SyntaxNode {
 
     Parameter(std::wstring name, pTypeSpecification type_name);
     pType          bind(Parser &parser) override;
+    pSyntaxNode    normalize(Parser &parser) override;
     pSyntaxNode    stamp(Parser &parser) override;
     std::wostream &header(std::wostream &os) override;
 };

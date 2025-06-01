@@ -129,38 +129,39 @@ pSyntaxNode TypeSpecification::normalize(Parser &parser)
                                 [this, &parser](TypeNameNode const &d) -> TypeSpecificationDescription {
                                     TypeSpecifications args;
                                     for (auto const &arg : d.arguments) {
-                                        args.push_back(std::dynamic_pointer_cast<TypeSpecification>(arg->normalize(parser)));
+                                        args.push_back(std::dynamic_pointer_cast<TypeSpecification>(normalize_node(arg, parser)));
                                     }
                                     return TypeNameNode { d.name, args };
                                 },
                                 [this, &parser](ReferenceDescriptionNode const &d) -> TypeSpecificationDescription {
-                                    return ReferenceDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(d.referencing->normalize(parser)) };
+                                    return ReferenceDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.referencing, parser)) };
                                 },
                                 [this, &parser](SliceDescriptionNode const &d) -> TypeSpecificationDescription {
-                                    return SliceDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(d.slice_of->normalize(parser)) };
+                                    return SliceDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.slice_of, parser)) };
                                 },
                                 [this, &parser](ZeroTerminatedArrayDescriptionNode const &d) -> TypeSpecificationDescription {
-                                    return ZeroTerminatedArrayDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(d.array_of->normalize(parser)) };
+                                    return ZeroTerminatedArrayDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.array_of, parser)) };
                                 },
                                 [this, &parser](ArrayDescriptionNode const &d) -> TypeSpecificationDescription {
-                                    return ArrayDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(d.array_of->normalize(parser)), d.size };
+                                    return ArrayDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.array_of, parser)), d.size };
                                 },
                                 [this, &parser](DynArrayDescriptionNode const &d) -> TypeSpecificationDescription {
-                                    return DynArrayDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(d.array_of->normalize(parser)) };
+                                    return DynArrayDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.array_of, parser)) };
                                 },
                                 [this, &parser](OptionalDescriptionNode const &d) -> TypeSpecificationDescription {
-                                    return OptionalDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(d.optional_of->normalize(parser)) };
+                                    return OptionalDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.optional_of, parser)) };
                                 },
                                 [this, &parser](ErrorDescriptionNode const &d) -> TypeSpecificationDescription {
                                     return ErrorDescriptionNode {
-                                        std::dynamic_pointer_cast<TypeSpecification>(d.success->normalize(parser)),
-                                        std::dynamic_pointer_cast<TypeSpecification>(d.error->normalize(parser)),
+                                        std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.success, parser)),
+                                        std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.error, parser)),
                                     };
                                 },
                             },
         this->description);
     auto ret = make_node<TypeSpecification>(location, description);
     ret->bound_type = resolve(parser);
+    ret->status = Status::Bound;
     return ret;
 }
 

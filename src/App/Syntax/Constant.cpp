@@ -50,6 +50,21 @@ std::wostream &BoolConstant::header(std::wostream &os)
     return os << ((value) ? L"True" : L"False");
 }
 
+Nullptr::Nullptr()
+    : SyntaxNode(SyntaxNodeType::Nullptr)
+{
+}
+
+pSyntaxNode Nullptr::normalize(Parser &)
+{
+    return make_node<Constant>(location, Value { nullptr });
+}
+
+std::wostream &Nullptr::header(std::wostream &os)
+{
+    return os << L"Null";
+}
+
 Number::Number(std::wstring_view number, NumberType type)
     : SyntaxNode(SyntaxNodeType::Number)
     , number(number)
@@ -101,13 +116,39 @@ std::wostream &QuotedString::header(std::wostream &os)
 pSyntaxNode QuotedString::normalize(Parser &parser)
 {
     switch (quote_type) {
-    case QuoteType::DoubleQuote:
-        return make_node<Constant>(location, make_value(string.substr(0, string.length() - 1).substr(1)));
+    case QuoteType::DoubleQuote: {
+        assert(string[0] = '"' && string.back() == '"');
+        std::wstring s;
+        bool         escape { false };
+        for (auto const ch : string.substr(0, string.length() - 1).substr(1)) {
+            if (escape) {
+                switch (ch) {
+                case 'n':
+                    s += '\n';
+                    break;
+                case 'r':
+                    s += '\r';
+                    break;
+                case 't':
+                    s += '\t';
+                default:
+                    s += ch;
+                }
+                escape = false;
+            } else {
+                if (ch == '\\') {
+                    escape = true;
+                } else {
+                    s += ch;
+                }
+            }
+        }
+        return make_node<Constant>(location, make_value(s));
+    }
     case QuoteType::SingleQuote:
         return make_node<Constant>(location, Value { string[1] });
     default:
         UNREACHABLE();
     }
 }
-
 }

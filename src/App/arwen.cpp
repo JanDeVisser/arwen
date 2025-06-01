@@ -60,7 +60,7 @@ void compile_file(std::string_view file_name)
         parser.namespaces.clear();
         parser.push_namespace(parser.root);
         parser.push_namespace(parser.program->ns);
-        auto normalized = parser.program->normalize(parser);
+        auto const normalized = normalize_node(parser.program, parser);
         if (!normalized) {
             std::cerr << "Internal error(s) encountered" << std::endl;
             return;

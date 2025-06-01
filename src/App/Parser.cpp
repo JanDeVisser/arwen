@@ -444,10 +444,16 @@ pSyntaxNode Parser::parse_primary()
             return parse_include();
         }
         if (token.matches_keyword(ArwenKeyword::False)) {
+            lexer.lex();
             return make_node<BoolConstant>(token.location, false);
         }
         if (token.matches_keyword(ArwenKeyword::True)) {
+            lexer.lex();
             return make_node<BoolConstant>(token.location, true);
+        }
+        if (token.matches_keyword(ArwenKeyword::Null)) {
+            lexer.lex();
+            return make_node<Nullptr>(token.location);
         }
         if (auto const op_maybe = check_prefix_op(); op_maybe) {
             auto &op = *op_maybe;
@@ -912,8 +918,9 @@ pSyntaxNode Parser::parse_for()
 pSyntaxNode Parser::parse_func()
 {
     auto func = lexer.lex();
+    auto old_level = level;
     level = ParseLevel::Function;
-    Defer        defer { [this]() { level = ParseLevel::Module; } };
+    Defer        defer { [this, &old_level]() { level = old_level; } };
     std::wstring name;
     if (auto res = lexer.expect_identifier(); res.is_error()) {
         append(res.error(), "Expected function name");
@@ -994,7 +1001,7 @@ pSyntaxNode Parser::parse_func()
         params,
         return_type);
     if (lexer.accept_keyword(ArwenKeyword::ExternLink)) {
-        if (auto res = lexer.expect_identifier(); res.is_error()) {
+        if (auto res = lexer.expect(TokenKind::QuotedString); res.is_error() || res.value().quoted_string().quote_type != QuoteType::DoubleQuote) {
             append(res.error(), "Expected extern function name");
             return nullptr;
         } else {
@@ -1008,7 +1015,7 @@ pSyntaxNode Parser::parse_func()
                 decl->name,
                 decl,
                 make_node<ExternLink>(res.value().location, std::wstring { name }),
-                nullptr);
+                namespaces.back());
         }
     }
     if (auto impl = parse_statement(); impl != nullptr) {
@@ -1335,6 +1342,12 @@ void Parser::register_variable(std::wstring name, pSyntaxNode node)
 {
     assert(!namespaces.empty());
     namespaces.back()->register_variable(std::move(name), std::move(node));
+}
+
+bool Parser::has_variable(std::wstring const &name) const
+{
+    assert(!namespaces.empty());
+    return namespaces.back()->has_variable(name);
 }
 
 void Parser::register_function(std::wstring name, pFunctionDefinition fnc)

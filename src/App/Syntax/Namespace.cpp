@@ -18,9 +18,20 @@ Namespace::Namespace(pNamespace parent)
 {
 }
 
+bool Namespace::is_registered(std::wstring const &name) const
+{
+    if (has_type(name)) {
+        return true;
+    }
+    if (has_variable(name)) {
+        return true;
+    }
+    return has_function(name);
+}
+
 pType Namespace::find_type(std::wstring const &name) const
 {
-    if (types.contains(name)) {
+    if (has_type(name)) {
         return types.at(name);
     }
     if (parent != nullptr) {
@@ -35,6 +46,11 @@ void Namespace::register_type(std::wstring name, pType type)
     types[name] = std::move(type);
 }
 
+bool Namespace::has_type(std::wstring const& name) const
+{
+    return types.contains(name);
+}
+
 pSyntaxNode Namespace::find_variable(std::wstring const &name) const
 {
     if (variables.contains(name)) {
@@ -44,6 +60,11 @@ pSyntaxNode Namespace::find_variable(std::wstring const &name) const
         return parent->find_variable(name);
     }
     return nullptr;
+}
+
+bool Namespace::has_variable(std::wstring const& name) const
+{
+    return variables.contains(name);
 }
 
 pType Namespace::type_of(std::wstring const &name) const
@@ -62,6 +83,11 @@ void Namespace::register_variable(std::wstring name, pSyntaxNode node)
 {
     assert(!variables.contains(name));
     variables.emplace(name, std::move(node));
+}
+
+bool Namespace::has_function(std::wstring const& name) const
+{
+    return functions.contains(name);
 }
 
 Namespace::FunctionConstIter Namespace::find_function_here(std::wstring name, pType const &type) const

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.27)
-project(arwen CXX)
+project(arwen CXX C)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 message("System: ${CMAKE_SYSTEM_NAME}. Processor: ${CMAKE_SYSTEM_PROCESSOR}. Version: ${CMAKE_SYSTEM_VERSION}. Compiler: ${CMAKE_CXX_COMPILER_ID}.")
@@ -58,6 +58,7 @@ add_library(
         src/Util/Process.h
         src/Util/Result.h
         src/Util/Defer.h
+        src/Util/Resolve.cpp
         src/Util/StringScanner.h
         src/Util/StringUtil.cpp
         src/Util/Token.cpp
@@ -70,6 +71,8 @@ target_link_libraries(
         ${ICONV}
         dl
 )
+
+add_subdirectory(rt)
 
 include_directories(. src)
 
@@ -101,12 +104,14 @@ add_executable(
         src/App/Type.cpp
         src/App/Value.cpp
         src/Interp/Interpreter.cpp
+        src/Interp/Native.cpp
 )
 
 target_link_libraries(
         arwen
         PRIVATE
         Util
+        trampoline
         m
 )
 

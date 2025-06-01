@@ -127,8 +127,8 @@ pSyntaxNode VariableDeclaration::normalize(Parser &parser)
     return make_node<VariableDeclaration>(
         location,
         name,
-        type_name,
-        (initializer) ? normalize_node(initializer, parser) : nullptr,
+        (type_name != nullptr) ? normalize_node(type_name, parser) : nullptr,
+        (initializer != nullptr) ? normalize_node(initializer, parser) : nullptr,
         is_const);
 }
 

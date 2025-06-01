@@ -34,7 +34,7 @@ Program::Program(std::wstring name, std::map<std::wstring, pModule> modules, pNa
 pSyntaxNode Program::normalize(Parser &parser)
 {
     for (auto &[name, mod] : modules) {
-        auto normalized = std::dynamic_pointer_cast<Module>(mod->normalize(parser));
+        auto const normalized = std::dynamic_pointer_cast<Module>(normalize_node(mod, parser));
         if (normalized != nullptr && normalized != mod) {
             modules[mod->name] = normalized;
         }

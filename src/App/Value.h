@@ -25,7 +25,7 @@ namespace Arwen {
 
 using namespace Util;
 
-using StringSet = std::set<std::wstring>;
+using StringSet = std::set<std::string>;
 static StringSet interned_strings {};
 
 struct Atom {
@@ -54,7 +54,7 @@ struct Atom {
     template<typename T>
     explicit Atom(T *val)
     {
-        payload = (void *) (val);
+        payload = (void *) val;
     }
 
     template<typename T>
@@ -176,6 +176,11 @@ struct Value {
     {
     }
 
+    Value(void *val)
+        : Value(TypeRegistry::pointer, val)
+    {
+    }
+
     explicit Value(Atom atom)
         : Value(atom.type(), atom)
     {
@@ -210,7 +215,8 @@ inline std::wstring as(Value const &val)
                               assert(val.type == TypeRegistry::string);
                               auto       ptr = atoms[0].as<void *>();
                               auto const len = atoms[1].as<int64_t>();
-                              return std::wstring { (wchar_t *) ptr, static_cast<size_t>(len) };
+                              auto const utf8 = std::string { (char *) ptr, static_cast<size_t>(len) };
+                              return as_wstring(utf8);
                           } },
         val.payload);
 }
@@ -238,7 +244,7 @@ inline DynamicArray as(Value const &val)
                           },
                           [&val](Atoms const &atoms) -> DynamicArray {
                               assert(val.type->kind() == TypeKind::DynArray);
-                              return DynamicArray { atoms[0].as<void *>(), atoms[1].as<int64_t>(), atoms[1].as<int64_t>() };
+                              return DynamicArray { atoms[0].as<void*>(), atoms[1].as<int64_t>(), atoms[1].as<int64_t>() };
                           } },
         val.payload);
 }
@@ -266,10 +272,11 @@ Value make_value(T const &val)
 template<>
 inline Value make_value(std::wstring const &val)
 {
-    interned_strings.insert(val);
-    auto const it = interned_strings.find(val);
+    auto const utf8 = as_utf8(val);
+    interned_strings.insert(utf8);
+    auto const it = interned_strings.find(utf8);
     assert(it != interned_strings.cend());
-    std::wstring const &s = *it;
+    std::string const &s = *it;
     return Value { TypeRegistry::string, Atoms { Atom { s.data() }, Atom { static_cast<int64_t>(s.length()) } } };
 }
 

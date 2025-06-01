@@ -35,7 +35,7 @@ pSyntaxNode Import::normalize(Parser &parser)
         auto const &contents = contents_maybe.value();
         auto        module = parser.parse_module(as_utf8(name), std::move(contents));
         if (module) {
-            module = std::dynamic_pointer_cast<Module>(module->normalize(parser));
+            module = std::dynamic_pointer_cast<Module>(normalize_node(module,parser));
             if (module) {
                 module->location = location;
             }

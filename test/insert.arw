@@ -1,16 +1,17 @@
+func mmap(addr: pointer, len: u64, prot: i32, flags: i32, fd: i32, offset: u64) pointer -> "mmap"
+func puts(s: string) i64 -> "libarwenrt:arwen$puts"
+
+func allocate(size: i64) pointer {
+      return mmap(null, size::u64, 0x03::i32, 0x1002::i32, -1::i32, 0::u64)
+}
+
 func bar(x: i32, y: i32) i32 {
   x + y
 }
 
-func x<T>(t: T) i64 {
-  y := t
-  return #::T
-}
-
 func foo(x: i32) i32 {
 @insert
-  k := x(12::i8)
-  i := bar(69::i32, 420::i32)
+  puts("Hello World!\n")
   output = "bar(x, 2::i32)"
 @end
 }

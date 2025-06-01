@@ -50,7 +50,7 @@ pSyntaxNode Insert::normalize(Parser &parser)
             )
         );
         block->ns->parent = parser.namespaces.back();
-        script = script->normalize(insert_parser);
+        script = normalize_node(script, insert_parser);
         insert_parser.pass = 0;
         while (script->bound_type == nullptr || script->bound_type == TypeRegistry::undetermined) {
             bind_node(script, insert_parser);
@@ -78,7 +78,7 @@ pSyntaxNode Insert::normalize(Parser &parser)
         if (node) {
             std::cerr << "@insert after parsing\n";
             node->dump();
-            node = node->normalize(parser);
+            node = normalize_node(node, parser);
             std::cerr << "@insert after normalizing\n";
             node->dump();
             if (node) {

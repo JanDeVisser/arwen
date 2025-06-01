@@ -96,6 +96,9 @@ struct ValueStack {
         case TypeKind::BoolType:
             ret = Value { t, pop_atom() };
             break;
+        case TypeKind::PointerType:
+            ret = Value { t, pop_atom() };
+            break;
         case TypeKind::SliceType: {
             auto size = pop_atom();
             auto ptr = pop_atom();

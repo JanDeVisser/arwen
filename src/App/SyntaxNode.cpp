@@ -113,7 +113,7 @@ pSyntaxNode DeferStatement::normalize(Parser &parser)
 {
     return make_node<DeferStatement>(
         location,
-        stmt->normalize(parser));
+        normalize_node(stmt, parser));
 }
 
 pSyntaxNode DeferStatement::stamp(Parser &parser)
@@ -149,14 +149,23 @@ pType Dummy::bind(Parser &parser)
 
 pType bind_node(pSyntaxNode const &node, Parser &parser)
 {
-    assert(node != nullptr);
-    if (node->bound_type && !node->bound_type->is<Undetermined>()) {
+    assert(node != nullptr && node->status >= SyntaxNode::Status::Normalized);
+    if (node->status == SyntaxNode::Status::Bound) {
         return node->bound_type;
     }
     auto ret = node->bind(parser);
+    assert(ret != nullptr);
     if (ret == TypeRegistry::undetermined) {
         parser.unbound_nodes.push_back(node);
         parser.unbound++;
+    } else if (ret->is<BindErrors>()) {
+        node->status = SyntaxNode::Status::BindErrors;
+    } else if (ret->is<Undetermined>()) {
+        node->status = SyntaxNode::Status::Undetermined;
+    } else if (ret->is<Ambiguous>()) {
+        node->status = SyntaxNode::Status::Ambiguous;
+    } else {
+        node->status = SyntaxNode::Status::Bound;
     }
     node->bound_type = ret;
     return ret;

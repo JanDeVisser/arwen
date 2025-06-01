@@ -16,6 +16,7 @@
 #include <App/Type.h>
 
 #include <Interp/Interpreter.h>
+#include <Interp/Native.h>
 
 namespace Arwen::Interpreter {
 
@@ -81,6 +82,17 @@ Value execute_node(Scope &scope, std::shared_ptr<Block> const &node)
 template<>
 Value execute_node(Scope &scope, std::shared_ptr<Call> const &node)
 {
+    if (auto const &extern_link = std::dynamic_pointer_cast<ExternLink>(node->function->implementation); extern_link != nullptr) {
+        std::vector<Value> native_args;
+        for (auto const &expression : node->arguments->expressions) {
+            scope.execute(expression);
+            native_args.emplace_back(scope.interpreter->stack.pop_value());
+        }
+        if (auto const ret = native_call(as_utf8(extern_link->link_name), native_args, node->bound_type); ret) {
+            return *ret;
+        }
+        fatal(L"Error executing native function `{}`", extern_link->link_name);
+    }
     for (auto const &expression : std::ranges::reverse_view(node->arguments->expressions)) {
         scope.execute(expression);
     }
