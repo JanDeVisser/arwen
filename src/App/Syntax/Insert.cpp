@@ -42,7 +42,7 @@ pSyntaxNode Insert::normalize(Parser &parser)
                 L"output",
                 std::make_shared<TypeSpecification>(
                     TypeNameNode {
-                        L"string"
+                        L"string_builder"
                     }
                 ),
                 nullptr,
@@ -50,6 +50,8 @@ pSyntaxNode Insert::normalize(Parser &parser)
             )
         );
         block->ns->parent = parser.namespaces.back();
+        std::cout << "Parsed compile time script\n\n";
+        script->dump();
         script = normalize_node(script, insert_parser);
         insert_parser.pass = 0;
         while (script->bound_type == nullptr || script->bound_type == TypeRegistry::undetermined) {
@@ -65,17 +67,17 @@ pSyntaxNode Insert::normalize(Parser &parser)
         std::cout << "Running compile time script\n\n";
         script->dump();
 
-        Arwen::Interpreter::Interpreter interpreter {};
-        Scope                          &scope = interpreter.new_scope(script);
-        scope.values.emplace(L"output", Value { TypeRegistry::string });
-        interpreter.execute(script);
-        auto output = as<std::wstring>(scope.value(L"output"));
+        Arwen::Interpreter::Interpreter interpreter;
+        Scope                           scope { &interpreter, script, nullptr };
+        scope.execute_block(std::dynamic_pointer_cast<Block>(script));
+        auto const &output_val = scope.value(L"output");
+        auto const output_dynarr = as<DynamicArray>(output_val);
+        auto const output = std::wstring { static_cast<wchar_t*>(output_dynarr.ptr), static_cast<size_t>(output_dynarr.size) };
 
         // trace(L"@insert({})", output);
         Parser include_parser;
         include_parser.level = parser.level;
-        auto node = include_parser.parse_script(std::move(output));
-        if (node) {
+        if (auto node = include_parser.parse_script(output); node) {
             std::cerr << "@insert after parsing\n";
             node->dump();
             node = normalize_node(node, parser);

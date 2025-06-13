@@ -47,6 +47,7 @@ pType TypeRegistry::f32 { nullptr };
 pType TypeRegistry::f64 { nullptr };
 pType TypeRegistry::boolean { nullptr };
 pType TypeRegistry::string { nullptr };
+pType TypeRegistry::string_builder { nullptr };
 pType TypeRegistry::cstring { nullptr };
 pType TypeRegistry::character { nullptr };
 pType TypeRegistry::void_ { nullptr };
@@ -201,9 +202,7 @@ std::wstring StructType::to_string() const
 intptr_t StructType::size_of() const
 {
     intptr_t size { 0 };
-    std::for_each(
-        fields.begin(),
-        fields.end(),
+    std::ranges::for_each(fields,
         [&size](Field const &fld) -> void {
             size = alignat(size, fld.type->align_of()) + fld.type->size_of();
         });
@@ -311,6 +310,7 @@ TypeRegistry::TypeRegistry()
     f64 = make_type(L"f64", FloatType::f64);
     boolean = make_type(L"bool", BoolType {});
     string = make_type(L"string", SliceType { TypeRegistry::u32 });
+    string_builder = make_type(L"string_builder", DynArray { TypeRegistry::u32 });
     cstring = make_type(L"cstring", ZeroTerminatedArray { TypeRegistry::u8 });
     character = make_type(L"char", TypeAlias { TypeRegistry::u32 });
     void_ = make_type(L"void", VoidType {});

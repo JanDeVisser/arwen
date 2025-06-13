@@ -365,6 +365,14 @@ pType BinaryExpression::bind(Parser &parser)
                                   }
                                   return rhs_type;
                               },
+                              [&rhs_type, this, &parser](SliceType const &lhs_slice_type, ZeroTerminatedArray const &rhs_zero_terminated_type) {
+                                  if (lhs_slice_type.slice_of != TypeRegistry::u32 || rhs_zero_terminated_type.array_of != TypeRegistry::u8) {
+                                      return parser.bind_error(
+                                          location,
+                                          L"Invalid argument type. Cannot cast slices to zero-terminated arrays except for strings");
+                                  }
+                                  return rhs_type;
+                              },
                               [this, &parser](auto const &, auto const &) {
                                   return parser.bind_error(
                                       location,
@@ -441,6 +449,21 @@ UnaryExpression::UnaryExpression(Operator const op, pSyntaxNode operand)
 pSyntaxNode UnaryExpression::normalize(Parser &parser)
 {
     auto normalized_operand = normalize_node(operand, parser);
+    if (op == Operator::AddressOf) {
+        if (auto const ident = std::dynamic_pointer_cast<Identifier>(normalized_operand); ident != nullptr) {
+            Identifiers path { ident };
+            return normalize_node(
+                make_node<UnaryExpression>(
+                    location,
+                    op,
+                    make_node<MemberPath>(normalized_operand->location, path)),
+                parser);
+        }
+        if (normalized_operand->type != SyntaxNodeType::MemberPath) {
+            parser.append(location, "Cannot get address of to non-lvalues");
+            return nullptr;
+        }
+    }
     if (auto operand_const = std::dynamic_pointer_cast<Constant>(operand); operand_const != nullptr) {
         auto res = evaluate(op, operand_const->bound_value.value());
         return make_node<Constant>(location, res);
@@ -470,10 +493,10 @@ pType UnaryExpression::bind(Parser &parser)
             { Operator::Negate, TypeKind::IntType, PseudoType::Self },
             { Operator::Negate, TypeKind::FloatType, PseudoType::Self },
             { Operator::LogicalInvert, TypeRegistry::boolean, TypeRegistry::boolean },
-            { Operator::Length, TypeKind::SliceType, TypeRegistry::i32 },
-            { Operator::Length, TypeKind::Array, TypeRegistry::i32 },
-            { Operator::Length, TypeKind::DynArray, TypeRegistry::i32 },
-            { Operator::Length, TypeKind::ZeroTerminatedArray, TypeRegistry::i32 },
+            { Operator::Length, TypeKind::SliceType, TypeRegistry::i64 },
+            { Operator::Length, TypeKind::Array, TypeRegistry::i64 },
+            { Operator::Length, TypeKind::DynArray, TypeRegistry::i64 },
+            { Operator::Length, TypeKind::ZeroTerminatedArray, TypeRegistry::i64 },
         };
     }
     auto operand_type = bind_node(operand, parser);
@@ -486,6 +509,12 @@ pType UnaryExpression::bind(Parser &parser)
     }
     if (op == Operator::Sizeof) {
         return TypeRegistry::i64;
+    }
+    if (op == Operator::AddressOf) {
+        if (operand->type != SyntaxNodeType::MemberPath) {
+            return parser.bind_error(location, L"Cannot get address of non-lvalues");
+        }
+        return TypeRegistry::the().referencing(operand_type);
     }
     for (auto const &[oper, operand, result] : unary_ops) {
         if (op == oper && operand.matches(operand_type)) {

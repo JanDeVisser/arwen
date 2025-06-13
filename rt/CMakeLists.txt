@@ -18,6 +18,7 @@ add_library(
 add_library(
         arwenrt
         SHARED
+        dynarr.c
         #        arch/${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}/alloc.s
         #        arch/${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}/endln.s
         #        arch/${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}/open.s

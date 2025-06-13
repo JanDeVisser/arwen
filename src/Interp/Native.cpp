@@ -28,7 +28,7 @@ namespace Arwen::Interpreter {
 using namespace Util;
 using namespace Arwen;
 
-std::optional<Value> native_call(std::string_view name, std::vector<Value> const &values, pType const &return_type)
+std::optional<Value> native_call(std::string_view const name, std::vector<Value> const &values, pType const &return_type)
 {
     if (values.size() > 8) {
         fatal("Can't do native calls with more than 8 parameters");
@@ -57,7 +57,6 @@ std::optional<Value> native_call(std::string_view name, std::vector<Value> const
 
     for (size_t ix = 0; ix < values.size(); ++ix) {
         Value const &v = values[ix];
-        pType const &et = values[ix].type;
 
         // Stage B – Pre-padding and extension of arguments
         // For each argument in the list the first matching rule from the
@@ -107,7 +106,7 @@ std::optional<Value> native_call(std::string_view name, std::vector<Value> const
         // the argument is allocated to the least significant bits of register
         // v[NSRN]. The NSRN is incremented by one. The argument has now been
         // allocated.
-        switch (et->kind()) {
+        switch (pType const &et = values[ix].type; et->kind()) {
         case TypeKind::FloatType: {
             if (nsrn < 8) {
                 if (et == TypeRegistry::f32) {
@@ -176,11 +175,11 @@ std::optional<Value> native_call(std::string_view name, std::vector<Value> const
         case TypeKind::IntType:
             if (ngrn < 8) {
 #undef S
-#define S(W)                            \
-    if (et == TypeRegistry::i##W) {     \
+#define S(W)                             \
+    if (et == TypeRegistry::i##W) {      \
         t.x[ngrn] = as<int##W##_t>(v);  \
-    }                                   \
-    if (et == TypeRegistry::u##W) {     \
+    }                                    \
+    if (et == TypeRegistry::u##W) {      \
         t.x[ngrn] = as<uint##W##_t>(v); \
     }
                 BitWidths(S)
@@ -197,6 +196,8 @@ std::optional<Value> native_call(std::string_view name, std::vector<Value> const
             break;
 
         case TypeKind::PointerType:
+        case TypeKind::ReferenceType:
+        case TypeKind::ZeroTerminatedArray:
             if (ngrn < 8) {
                 t.x[ngrn] = reinterpret_cast<intptr_t>(as<void *>(v));
                 ++ngrn;
@@ -205,8 +206,14 @@ std::optional<Value> native_call(std::string_view name, std::vector<Value> const
 
         case TypeKind::SliceType:
             if (ngrn < 7) {
-                t.x[ngrn++] = reinterpret_cast<intptr_t>(as<Slice>(v).ptr);
-                t.x[ngrn++] = as<Slice>(v).size;
+                auto const &[ptr, size] = as<Slice>(v);
+                printf("native: ");
+                for (int ix = 0; ix < size; ++ix) {
+                    printf("%c",  (char) ((wchar_t*)ptr)[ix]);
+                }
+                printf("\n");
+                t.x[ngrn++] = reinterpret_cast<intptr_t>(ptr);
+                t.x[ngrn++] = size;
             }
             break;
 
@@ -219,7 +226,7 @@ std::optional<Value> native_call(std::string_view name, std::vector<Value> const
             break;
 
         case TypeKind::Array:
-            if (ngrn < 7) {
+            if (ngrn < 8) {
                 t.x[ngrn++] = reinterpret_cast<intptr_t>(as<StaticArray>(v).ptr);
                 t.x[ngrn++] = as<StaticArray>(v).size;
             }
@@ -285,7 +292,7 @@ std::optional<Value> native_call(std::string_view name, std::vector<Value> const
     trace("  Function: {}", reinterpret_cast<intptr_t>(t.fnc));
     trace("  Integer Registers:");
     for (auto ix = 0; ix < 8; ++ix) {
-        trace("    {}: {}", ix, t.x[ix]);
+        trace("    {}: 0x{:016x}", ix, t.x[ix]);
     }
 
     if (auto const trampoline_result = trampoline(&t); trampoline_result) {
@@ -318,7 +325,10 @@ std::optional<Value> native_call(std::string_view name, std::vector<Value> const
     case TypeKind::BoolType:
         return Value { return_type, static_cast<bool>(t.int_return_value) };
     case TypeKind::PointerType:
+    case TypeKind::ReferenceType:
         return Value { return_type, reinterpret_cast<void *>(static_cast<intptr_t>(t.int_return_value)) };
+    case TypeKind::VoidType:
+        return make_void();
     default:
         UNREACHABLE();
     }

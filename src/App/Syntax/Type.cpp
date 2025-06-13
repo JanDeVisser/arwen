@@ -242,4 +242,9 @@ Void::Void()
 {
 }
 
+pType Void::bind(Parser &parser)
+{
+    return TypeRegistry::void_;
+}
+
 }

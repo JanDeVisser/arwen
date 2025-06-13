@@ -6,17 +6,14 @@
 
 #pragma once
 
-#include "Util/JSON.h"
-
 #include <concepts>
 #include <cstdint>
 #include <ranges>
-#include <set>
 #include <string>
 #include <variant>
 
+#include <Util/Arena.h>
 #include <Util/Logging.h>
-#include <Util/Utf8.h>
 
 #include <App/Operator.h>
 #include <App/Type.h>
@@ -24,9 +21,6 @@
 namespace Arwen {
 
 using namespace Util;
-
-using StringSet = std::set<std::string>;
-static StringSet interned_strings {};
 
 struct Atom {
     std::variant<
@@ -38,7 +32,10 @@ struct Atom {
 #define S(W, T) T,
             FloatBitWidths(S)
 #undef S
-                void *>
+                Slice,
+        DynamicArray,
+        StaticArray,
+        void *>
         payload;
 
     explicit Atom(std::integral auto val)
@@ -51,16 +48,30 @@ struct Atom {
         payload = val;
     }
 
+    explicit Atom(bool val)
+    {
+        payload = val;
+    }
+
+    explicit Atom(Slice const &slice)
+    {
+        payload = slice;
+    }
+
+    explicit Atom(DynamicArray const &dyn_array)
+    {
+        payload = dyn_array;
+    }
+
+    explicit Atom(StaticArray const &static_array)
+    {
+        payload = static_array;
+    }
+
     template<typename T>
     explicit Atom(T *val)
     {
         payload = (void *) val;
-    }
-
-    template<typename T>
-    T as() const
-    {
-        return std::get<T>(payload);
     }
 
     Atom &operator=(Atom const &) = default;
@@ -68,7 +79,29 @@ struct Atom {
 
     [[nodiscard]] pType               type() const;
     [[nodiscard]] std::optional<Atom> coerce(pType const &to_type) const;
+    [[nodiscard]] std::wstring        to_string() const;
 };
+
+template<typename T>
+T const &as(Atom const &atom)
+{
+    return std::get<T>(atom.payload);
+}
+
+template<typename T>
+T &as(Atom &atom)
+{
+    return std::get<T>(atom.payload);
+}
+
+inline void *as_ptr(Atom &atom)
+{
+    return std::visit(
+        [](auto &val) -> void * {
+            return &val;
+        },
+        atom.payload);
+}
 
 using Atoms = std::vector<Atom>;
 
@@ -76,30 +109,28 @@ Atom evaluate(Atom const &lhs, Operator op, Atom const &rhs);
 Atom evaluate(Operator op, Atom const &operand);
 
 struct Value {
-    pType                     type { TypeRegistry::void_ };
-    std::variant<Atom, Atoms> payload { Atoms {} };
+    static Arena                              arena;
+    pType                                     type { TypeRegistry::void_ };
+    std::variant<std::monostate, Atom, Atoms> payload;
 
     Value() = default;
     Value(Value const &) = default;
 
-    Value(Value &other)
-        : type(other.type)
-    {
-        std::visit(overloads {
-                       [this](Atom const &atom) {
-                           this->payload = atom;
-                       },
-                       [this](Atoms const &atoms) {
-                           Atoms mine { atoms };
-                           this->payload = atoms;
-                       } },
-            other.payload);
-    }
-
-    explicit Value(pType const &type)
-        : Value(type, Atoms {})
-    {
-    }
+    Value(Value &other);
+    explicit Value(pType const &type);
+    Value(int8_t val);
+    Value(uint8_t val);
+    Value(int16_t val);
+    Value(uint16_t val);
+    Value(int32_t val);
+    Value(uint32_t val);
+    Value(int64_t val);
+    Value(uint64_t val);
+    Value(float val);
+    Value(double val);
+    Value(bool val);
+    Value(void *val);
+    Value(Atom atom);
 
     template<typename T>
     Value(pType const &type, T val)
@@ -121,146 +152,93 @@ struct Value {
     {
     }
 
-    Value(int8_t const val)
-        : Value(TypeRegistry::i8, val)
-    {
-    }
-
-    Value(uint8_t const val)
-        : Value(TypeRegistry::u8, val)
-    {
-    }
-
-    Value(int16_t const val)
-        : Value(TypeRegistry::i16, val)
-    {
-    }
-
-    Value(uint16_t const val)
-        : Value(TypeRegistry::u16, val)
-    {
-    }
-
-    Value(int32_t const val)
-        : Value(TypeRegistry::i32, val)
-    {
-    }
-
-    Value(uint32_t const val)
-        : Value(TypeRegistry::u32, val)
-    {
-    }
-
-    Value(int64_t const val)
-        : Value(TypeRegistry::i64, val)
-    {
-    }
-
-    Value(uint64_t const val)
-        : Value(TypeRegistry::u64, val)
-    {
-    }
-
-    explicit Value(float const val)
-        : Value(TypeRegistry::f32, val)
-    {
-    }
-
-    explicit Value(double const val)
-        : Value(TypeRegistry::f64, val)
-    {
-    }
-
-    explicit Value(bool const val)
-        : Value(TypeRegistry::boolean, val)
-    {
-    }
-
-    Value(void *val)
-        : Value(TypeRegistry::pointer, val)
-    {
-    }
-
-    explicit Value(Atom atom)
-        : Value(atom.type(), atom)
-    {
-    }
-
     // Value &operator=(Value const &) = default;
 
     [[nodiscard]] std::optional<Value> coerce(pType const &to_type) const;
+    [[nodiscard]] std::wstring         to_string() const;
+
+    std::wstring as_wstring() const
+    {
+        return std::visit(overloads {
+                              [](std::monostate const &) -> std::wstring {
+                                  fatal("Cannot convert empty value to std::wstring");
+                              },
+                              [](Atom const &atom) -> std::wstring {
+                                  auto const &[ptr, size] = as<Slice>(atom);
+                                  return { static_cast<wchar_t *>(ptr), static_cast<size_t>(size) };
+                              },
+                              [](Atoms const &atoms) -> std::wstring {
+                                  UNREACHABLE();
+                              } },
+            payload);
+    }
 };
 
 template<typename T>
-T as(Value const &val)
+T &as(Value &val)
 {
     return std::visit(overloads {
-                          [](Atom const &atom) -> T {
-                              return atom.as<T>();
+                          [](std::monostate &) -> T & {
+                              fatal("Cannot convert empty value to type `{}`", typeid(T).name());
                           },
-                          [](Atoms const &) -> T {
+                          [](Atom &atom) -> T & {
+                              return as<T>(atom);
+                          },
+                          [](Atoms &) -> T & {
                               UNREACHABLE();
                           } },
         val.payload);
 }
 
-template<>
-inline std::wstring as(Value const &val)
+template<typename T>
+T const &as(Value const &val)
 {
     return std::visit(overloads {
-                          [](Atom const &atom) -> std::wstring {
-                              UNREACHABLE();
+                          [](std::monostate const &) -> T const & {
+                              fatal("Cannot convert empty value to type `{}`", typeid(T).name());
                           },
-                          [&val](Atoms const &atoms) -> std::wstring {
-                              assert(val.type == TypeRegistry::string);
-                              auto       ptr = atoms[0].as<void *>();
-                              auto const len = atoms[1].as<int64_t>();
-                              auto const utf8 = std::string { (char *) ptr, static_cast<size_t>(len) };
-                              return as_wstring(utf8);
+                          [](Atom const &atom) -> T const & {
+                              return as<T>(atom);
+                          },
+                          [](Atoms const &) -> T const & {
+                              UNREACHABLE();
                           } },
         val.payload);
 }
 
+/*
 template<>
-inline Slice as(Value const &val)
+inline std::wstring &as(Value &val)
 {
     return std::visit(overloads {
-                          [](Atom const &atom) -> Slice {
-                              UNREACHABLE();
+                          [](std::monostate const &) -> std::wstring & {
+                              fatal("Cannot convert empty value to std::wstring");
                           },
-                          [&val](Atoms const &atoms) -> Slice {
-                              assert(val.type->kind() == TypeKind::SliceType);
-                              return Slice { atoms[0].as<void *>(), atoms[1].as<int64_t>() };
+                          [](Atom const &atom) -> std::wstring & {
+                              auto const &[ptr, size] = as<Slice>(atom);
+                              static std::wstring empty;
+                              return empty;
+                          },
+                          [&val](Atoms const &atoms) -> std::wstring & {
+                              UNREACHABLE();
                           } },
         val.payload);
 }
+*/
 
-template<>
-inline DynamicArray as(Value const &val)
+inline void *as_ptr(Value *val)
 {
     return std::visit(overloads {
-                          [](Atom const &atom) -> DynamicArray {
-                              UNREACHABLE();
+                          [](std::monostate &) -> void * {
+                              fatal("Cannot convert empty value pointer");
                           },
-                          [&val](Atoms const &atoms) -> DynamicArray {
-                              assert(val.type->kind() == TypeKind::DynArray);
-                              return DynamicArray { atoms[0].as<void*>(), atoms[1].as<int64_t>(), atoms[1].as<int64_t>() };
-                          } },
-        val.payload);
-}
-
-template<>
-inline StaticArray as(Value const &val)
-{
-    return std::visit(overloads {
-                          [](Atom const &atom) -> StaticArray {
-                              UNREACHABLE();
+                          [](Atom &atom) -> void * {
+                              return as_ptr(atom);
                           },
-                          [&val](Atoms const &atoms) -> StaticArray {
-                              assert(val.type->kind() == TypeKind::Array);
-                              return StaticArray { atoms[0].as<void *>(), atoms[1].as<int64_t>() };
+                          [](Atoms &) -> void * {
+                              UNREACHABLE();
                           } },
-        val.payload);
+        val->payload);
 }
 
 template<typename T>
@@ -272,43 +250,23 @@ Value make_value(T const &val)
 template<>
 inline Value make_value(std::wstring const &val)
 {
-    auto const utf8 = as_utf8(val);
-    interned_strings.insert(utf8);
-    auto const it = interned_strings.find(utf8);
-    assert(it != interned_strings.cend());
-    std::string const &s = *it;
-    return Value { TypeRegistry::string, Atoms { Atom { s.data() }, Atom { static_cast<int64_t>(s.length()) } } };
+    wchar_t const       *ptr = make_interned_string(Value::arena, std::wstring_view { val });
+    InternedString const interned { ptr };
+    return Value { TypeRegistry::string, Slice { const_cast<void *>(static_cast<void const *>(ptr)), interned.length() } };
 }
 
 template<>
 inline Value make_value(std::string const &val)
 {
-    return make_value(as_wstring(val));
+    char const          *ptr = make_interned_string(Value::arena, std::string_view { val });
+    InternedString const interned { ptr };
+    return Value { TypeRegistry::string, Slice { const_cast<void *>(static_cast<void const *>(interned.converted<wchar_t>())), interned.length() } };
 }
 
 template<typename T>
 Value make_value(pType const &type, T const &val)
 {
-    static_assert(false);
-}
-
-template<>
-inline Value make_value(pType const &type, Slice const &val)
-{
-    assert(type->kind() == TypeKind::SliceType);
-    return Value { type, Atoms { Atom { val.ptr }, Atom { val.size } } };
-}
-
-template<>
-inline Value make_value(pType const &type, DynamicArray const &val)
-{
-    return Value { type, Atoms { Atom { val.ptr }, Atom { val.size }, Atom { val.capacity } } };
-}
-
-template<>
-inline Value make_value(pType const &type, StaticArray const &val)
-{
-    return Value { type, Atoms { Atom { val.ptr }, Atom { val.size } } };
+    return Value { type, Atom { val } };
 }
 
 template<>
@@ -348,7 +306,7 @@ inline Value make_value(pType const &type)
 
 inline Value make_void()
 {
-    return Value { TypeRegistry::void_, Atoms {} };
+    return Value { TypeRegistry::void_ };
 }
 
 Value evaluate(Value const &lhs, Operator op, Value const &rhs);
@@ -361,10 +319,19 @@ inline std::wostream &operator<<(std::wostream &os, Arwen::Atom const &atom)
     using namespace Util;
     using namespace Arwen;
     std::visit(overloads {
-                   [&os](bool const b) -> void {
+                   [&os](bool const &b) -> void {
                        os << std::boolalpha << b;
                    },
-                   [&os](auto const v) -> void {
+                   [&os](Slice const &v) -> void {
+                       os << static_cast<char *>(v.ptr);
+                   },
+                   [&os](DynamicArray const &v) -> void {
+                       UNREACHABLE();
+                   },
+                   [&os](StaticArray const &v) -> void {
+                       UNREACHABLE();
+                   },
+                   [&os](auto const &v) -> void {
                        os << v;
                    },
                },
@@ -378,6 +345,8 @@ inline std::wostream &operator<<(std::wostream &os, Arwen::Value const &value)
     using namespace Arwen;
     os << "[" << value.type->to_string() << "] ";
     std::visit(overloads {
+                   [&os](std::monostate const &) -> void {
+                   },
                    [&os](Atom const &atom) -> void {
                        os << atom;
                    },

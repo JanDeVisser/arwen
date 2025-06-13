@@ -28,7 +28,7 @@ using namespace Util;
 
 std::vector<Parser::OperatorDef> Parser::operators {
     { Operator::Add, '+', 11 },
-    { Operator::AddressOf, '@', 14, Position::Prefix, Associativity::Right },
+    { Operator::AddressOf, '&', 14, Position::Prefix, Associativity::Right },
     { Operator::Assign, '=', 1, Position::Infix, Associativity::Right },
     { Operator::AssignAnd, ArwenKeyword::AssignAnd, 1, Position::Infix, Associativity::Right },
     { Operator::AssignDecrement, ArwenKeyword::AssignDecrement, 1, Position::Infix, Associativity::Right },
@@ -76,23 +76,21 @@ struct BindingPower {
 static BindingPower binding_power(Parser::OperatorDef op)
 {
     switch (op.position) {
-    case Position::Infix: {
+    case Position::Infix:
         switch (op.associativity) {
         case Associativity::Left:
             return { op.precedence * 2 - 1, op.precedence * 2 };
         case Associativity::Right:
             return { op.precedence * 2, op.precedence * 2 - 1 };
         }
-    }
-    case Position::Prefix: {
+    case Position::Prefix:
         return { -1, op.precedence * 2 - 1 };
-    }
-    case Position::Postfix: {
+    case Position::Postfix:
         return { op.precedence * 2 - 1, -1 };
-    }
-    case Position::Closing: {
+    case Position::Closing:
         return { -1, -1 };
-    }
+    default:
+        UNREACHABLE();
     }
 }
 
@@ -165,9 +163,18 @@ pSyntaxNode Parser::parse_script(std::wstring text)
         return nullptr;
     }
     if (!statements.empty()) {
+        SyntaxNodes block;
+        {
+            push_new_namespace();
+            Defer _ { [this]() { pop_namespace(); } };
+            block.push_back(make_node<Block>(
+                statements[0]->location + statements.back()->location,
+                statements,
+                namespaces.back()));
+        }
         return make_node<Block>(
             statements[0]->location + statements.back()->location,
-            statements,
+            block,
             namespaces.back());
     }
     return nullptr;
@@ -684,7 +691,7 @@ pTypeSpecification Parser::parse_type()
                 return nullptr;
             }
             if (auto type = parse_type(); type != nullptr) {
-                return make_node<TypeSpecification>(t.location + type->location, ZeroTerminatedArrayDescriptionNode { type });
+                return make_node<TypeSpecification>(t.location + type->location, DynArrayDescriptionNode { type });
             }
             return nullptr;
         }

@@ -46,6 +46,7 @@ add_library(
         Util
         STATIC
         src/Util/Align.h
+        src/Util/Arena.cpp
         src/Util/Checked.h
         src/Util/Error.cpp
         #       src/Util/Integer.h
@@ -105,6 +106,7 @@ add_executable(
         src/App/Value.cpp
         src/Interp/Interpreter.cpp
         src/Interp/Native.cpp
+        src/Interp/ValueStack.cpp
 )
 
 target_link_libraries(

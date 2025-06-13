@@ -8,6 +8,7 @@
 #include <memory>
 #include <ranges>
 
+#include <Util/Defer.h>
 #include <Util/Logging.h>
 #include <Util/TokenLocation.h>
 
@@ -25,14 +26,14 @@ using namespace Arwen;
 
 template<typename T>
     requires std::derived_from<T, SyntaxNode>
-Value execute_node(Scope &scope, std::shared_ptr<T> const &node)
+void execute_node(Scope &scope, std::shared_ptr<T> const &)
 {
     trace("execute_node({})", typeid(T).name());
-    return make_void();
+    scope.push_back(make_void());
 }
 
 template<>
-Value execute_node(Scope &scope, std::shared_ptr<BinaryExpression> const &node)
+void execute_node(Scope &scope, std::shared_ptr<BinaryExpression> const &node)
 {
     trace("Operator `{}`", Operator_name(node->op));
     if (node->op == Operator::Assign) {
@@ -43,209 +44,256 @@ Value execute_node(Scope &scope, std::shared_ptr<BinaryExpression> const &node)
         }
         auto ident = path->path[0];
         scope.execute(node->rhs);
-        Value rhs = scope.interpreter->stack.pop_value();
+        Value const &rhs = scope.back();
         scope.reassign(ident->identifier, rhs);
-        return rhs;
+        scope.pop_back();
+        return;
     }
     if (node->op == Operator::Cast) {
         scope.execute(node->lhs);
-        auto lhs = scope.interpreter->stack.pop_value();
-        auto rhs_type = std::dynamic_pointer_cast<TypeSpecification>(node->rhs);
+        auto const lhs = scope.back();
+        auto const rhs_type = std::dynamic_pointer_cast<TypeSpecification>(node->rhs);
         assert(rhs_type != nullptr && rhs_type->bound_type != nullptr);
         if (auto const coerced_maybe = lhs.coerce(rhs_type->bound_type); coerced_maybe) {
-            return coerced_maybe.value();
+            scope.pop_back(1);
+            scope.push_back(coerced_maybe.value());
+            return;
         }
-        fatal(L"Could not convert value to `{}`", rhs_type->bound_type->to_string());
+        fatal(L"Could not convert value of type `{}` to `{}`", lhs.type->to_string(), rhs_type->bound_type->to_string());
     }
     scope.execute(node->lhs);
     scope.execute(node->rhs);
-    auto rhs = scope.interpreter->stack.pop_value();
-    auto lhs = scope.interpreter->stack.pop_value();
-    return evaluate(lhs, node->op, rhs);
+    auto const &rhs = scope.get(-1);
+    auto const &lhs = scope.get(-2);
+    auto        res = evaluate(lhs, node->op, rhs);
+    scope.pop_back(2);
 }
 
 template<>
-Value execute_node(Scope &scope, std::shared_ptr<Block> const &node)
+void execute_node(Scope &scope, std::shared_ptr<Block> const &node)
 {
-    Value ret = make_void();
+    Scope block_scope { scope.interpreter, node, &scope };
+    bool  first { true };
     for (auto const &stmt : node->statements) {
-        scope.execute(stmt);
-        ret = scope.interpreter->stack.pop_value();
+        if (!first) {
+            block_scope.pop_back();
+        }
+        first = false;
+        block_scope.execute(stmt);
     }
     for (auto const &defer : std::views::reverse(node->deferred_statements)) {
-        scope.execute(defer);
-        scope.interpreter->stack.pop_value();
+        block_scope.execute(defer);
+        block_scope.pop_back();
     }
-    return ret;
 }
 
 template<>
-Value execute_node(Scope &scope, std::shared_ptr<Call> const &node)
+void execute_node(Scope &scope, std::shared_ptr<Call> const &node)
 {
     if (auto const &extern_link = std::dynamic_pointer_cast<ExternLink>(node->function->implementation); extern_link != nullptr) {
         std::vector<Value> native_args;
         for (auto const &expression : node->arguments->expressions) {
             scope.execute(expression);
-            native_args.emplace_back(scope.interpreter->stack.pop_value());
+            native_args.emplace_back(scope.back());
+            scope.pop_back();
         }
         if (auto const ret = native_call(as_utf8(extern_link->link_name), native_args, node->bound_type); ret) {
-            return *ret;
+            scope.push_back(*ret);
+            return;
         }
         fatal(L"Error executing native function `{}`", extern_link->link_name);
     }
-    for (auto const &expression : std::ranges::reverse_view(node->arguments->expressions)) {
-        scope.execute(expression);
+    Value ret {};
+    {
+        Scope param_scope { scope.interpreter, node->function, &scope };
+        for (auto const &expression : std::ranges::reverse_view(node->arguments->expressions)) {
+            scope.execute(expression);
+        }
+        for (auto const &param_def : node->function->declaration->parameters) {
+            param_scope.set(param_scope.values[param_def->name], scope.back());
+            scope.pop_back();
+        }
+        trace(L"Executing function `{}`", node->function->name);
+        param_scope.execute(node->function->implementation);
+        ret = param_scope.back();
     }
-    auto param_scope = scope.interpreter->new_scope(node->function);
-    for (auto const &param_def : node->function->declaration->parameters) {
-        param_scope.values.emplace(param_def->name, scope.interpreter->stack.pop_value());
-    }
-    trace(L"Executing function `{}`", node->function->name);
-    param_scope.execute(node->function->implementation);
-    return scope.interpreter->stack.pop_value();
+    return scope.push_back(ret);
 }
 
 template<>
-Value execute_node(Scope &scope, std::shared_ptr<Constant> const &node)
+void execute_node(Scope &scope, std::shared_ptr<Constant> const &node)
 {
     assert(node->bound_value.has_value());
-    return node->bound_value.value();
+    scope.push_back(*node->bound_value);
 }
 
 template<>
-Value execute_node(Scope &scope, std::shared_ptr<Identifier> const &node)
+void execute_node(Scope &scope, std::shared_ptr<Identifier> const &node)
 {
-    return scope.value(node->identifier);
+    trace(L"Identifier = `{}`", node->identifier);
+    scope.push_back(scope.value(node->identifier));
 }
 
 template<>
-Value execute_node(Scope &scope, std::shared_ptr<IfStatement> const &node)
+void execute_node(Scope &scope, std::shared_ptr<IfStatement> const &node)
 {
     scope.execute(node->condition);
-    Value res = scope.interpreter->stack.pop_value();
+    Value res = scope.back();
     assert(res.type == TypeRegistry::boolean);
-    if (as<bool>(res)) {
+    auto const cond = as<bool>(res);
+    scope.pop_back();
+    if (cond) {
         scope.execute(node->if_branch);
     } else if (node->else_branch != nullptr) {
         scope.execute(node->else_branch);
     } else {
-        scope.interpreter->stack.push(make_void());
+        scope.push_back(make_void());
     }
-    return scope.interpreter->stack.pop_value();
 }
 
 template<>
-Value execute_node(Scope &scope, std::shared_ptr<LoopStatement> const &node)
+void execute_node(Scope &scope, std::shared_ptr<LoopStatement> const &node)
 {
     Value ret = make_void();
     while (true) {
         scope.execute(node->statement);
-        ret = scope.interpreter->stack.pop_value();
         if (scope.interpreter->break_) {
-            if (*scope.interpreter->break_ == L"" || scope.interpreter->break_ == node->label) {
+            if (scope.interpreter->break_->empty() || scope.interpreter->break_ == node->label) {
                 scope.interpreter->break_.reset();
             }
             break;
         }
         if (scope.interpreter->continue_) {
-            if (*scope.interpreter->continue_ == L"" || scope.interpreter->continue_ == node->label) {
-                scope.interpreter->break_.reset();
+            if (scope.interpreter->continue_->empty() || scope.interpreter->continue_ == node->label) {
+                scope.interpreter->continue_.reset();
+            } else {
+                break;
             }
         }
+        scope.pop_back();
     }
-    return ret;
 }
 
 template<>
-Value execute_node(Scope &scope, std::shared_ptr<Module> const &node)
+void execute_node(Scope &scope, std::shared_ptr<Module> const &node)
 {
     scope.execute(node->statements);
-    return scope.interpreter->stack.pop_value();
 }
 
 template<>
-Value execute_node(Scope &scope, std::shared_ptr<Program> const &node)
+void execute_node(Scope &scope, std::shared_ptr<Program> const &node)
 {
     for (auto &[_, mod] : node->modules) {
         scope.execute(mod);
     }
+    Value ret = make_void();
     for (auto &[_, mod] : node->modules) {
         if (auto main = mod->ns->find_function(L"main", TypeRegistry::the().function_of(std::vector<pType> {}, TypeRegistry::i32)); main != nullptr) {
-            auto call_expr = make_node<BinaryExpression>(
+            auto call_expr = make_node<Call>(
                 TokenLocation {},
                 make_node<Identifier>(TokenLocation {}, L"main"),
-                Operator::Call,
                 make_node<ExpressionList>(TokenLocation {}, SyntaxNodes {}));
-            Scope &mod_scope { scope.interpreter->new_scope(call_expr) };
+            Scope mod_scope { scope.interpreter, call_expr, &scope };
             mod_scope.execute(call_expr);
-            return scope.interpreter->stack.pop_value();
+            ret = mod_scope.back();
+            mod_scope.pop_back();
+            break;
         }
     }
-    return make_void();
+    scope.push_back(ret);
 }
 
 template<>
-Value execute_node(Scope &scope, std::shared_ptr<Return> const &node)
+void execute_node(Scope &scope, std::shared_ptr<Return> const &node)
 {
     scope.execute(node->expression);
-    return scope.interpreter->stack.pop_value();
 }
 
 template<>
-Value execute_node(Scope &scope, std::shared_ptr<UnaryExpression> const &node)
+void execute_node(Scope &scope, std::shared_ptr<UnaryExpression> const &node)
 {
-    if (node->op == Operator::Sizeof && node->operand->type == SyntaxNodeType::TypeSpecification) {
-        scope.interpreter->stack.push(Value { TypeRegistry::i64, node->operand->bound_type->size_of() });
-    } else {
-        scope.execute(node->operand);
+    if (node->op == Operator::AddressOf) {
+        auto const path = std::dynamic_pointer_cast<MemberPath>(node->operand);
+        assert(path != nullptr);
+        if (path->path.size() > 1) {
+            fatal("Can't do structs yet");
+        }
+        auto const &ident = path->path[0];
+        scope.push_back(scope.ptr_to(scope.ref_of(ident->identifier)));
+        return;
     }
-    Value const operand = scope.interpreter->stack.pop_value();
-    return evaluate(node->op, operand);
+    if (node->op == Operator::Sizeof && node->operand->type == SyntaxNodeType::TypeSpecification) {
+        scope.push_back(Value { TypeRegistry::i64, node->operand->bound_type->size_of() });
+        return;
+    }
+    scope.execute(node->operand);
+    auto const ret = evaluate(node->op, scope.back());
+    scope.pop_back();
+    scope.push_back(ret);
 }
 
 template<>
-Value execute_node(Scope &scope, std::shared_ptr<VariableDeclaration> const &node)
+void execute_node(Scope &scope, std::shared_ptr<VariableDeclaration> const &node)
 {
     Value init_value;
     if (node->initializer != nullptr) {
         scope.execute(node->initializer);
-        init_value = scope.interpreter->stack.pop_value();
+        init_value = scope.back();
+        scope.pop_back();
     } else {
         init_value = make_value(node->bound_type);
     }
-    // auto const p = std::make_pair(node->name, std::move(init_value));
-    scope.values.try_emplace(node->name);
-    scope.values[node->name] = init_value;
-    return init_value;
+    scope.reassign(node->name, init_value);
+    scope.push_back(scope.ref_of(node->name));
 }
 
 template<>
-Value execute_node(Scope &scope, std::shared_ptr<WhileStatement> const &node)
+void execute_node(Scope &scope, std::shared_ptr<WhileStatement> const &node)
 {
     Value ret = make_void();
     while (true) {
         scope.execute(node->condition);
-        Value res = scope.interpreter->stack.pop_value();
+        Value res = scope.back();
         assert(res.type == TypeRegistry::boolean);
-        if (!as<bool>(res)) {
+        auto cond = as<bool>(res);
+        scope.pop_back();
+        if (!cond) {
+            scope.push_back(ret);
             break;
         }
 
         scope.execute(node->statement);
-        ret = scope.interpreter->stack.pop_value();
+        ret = scope.back();
+        scope.pop_back();
         if (scope.interpreter->break_) {
-            if (*scope.interpreter->break_ == L"" || scope.interpreter->break_ == node->label) {
+            if (scope.interpreter->break_->empty() || scope.interpreter->break_ == node->label) {
                 scope.interpreter->break_.reset();
+                scope.push_back(ret);
             }
             break;
         }
         if (scope.interpreter->continue_) {
-            if (*scope.interpreter->continue_ == L"" || scope.interpreter->continue_ == node->label) {
+            if (scope.interpreter->continue_->empty() || scope.interpreter->continue_ == node->label) {
                 scope.interpreter->break_.reset();
+                continue;
             }
+            break;
         }
     }
-    return ret;
+}
+
+Scope::Scope(Interpreter *interpreter, pSyntaxNode owner, Scope *parent)
+    : interpreter(interpreter)
+    , parent(parent)
+    , owner(std::move(owner))
+    , bp(parent ? parent->bp : 0)
+{
+    allocate();
+}
+
+Scope::~Scope()
+{
+    release();
 }
 
 void Scope::execute(pSyntaxNode const &node)
@@ -257,11 +305,10 @@ void Scope::execute(pSyntaxNode const &node)
     // std::cerr << "\n";
     switch (node->type) {
 #undef S
-#define S(T)                                                                \
-    case SyntaxNodeType::T: {                                               \
-        trace("execute_node(" #T ")");                                      \
-        auto res = execute_node(*this, std::dynamic_pointer_cast<T>(node)); \
-        interpreter->stack.push(res);                                       \
+#define S(T)                                                     \
+    case SyntaxNodeType::T: {                                    \
+        trace("execute_node(" #T ")");                           \
+        execute_node(*this, std::dynamic_pointer_cast<T>(node)); \
     } break;
         SyntaxNodeTypes(S)
 #undef S
@@ -269,25 +316,61 @@ void Scope::execute(pSyntaxNode const &node)
     }
 }
 
-Value const &Scope::value(std::wstring const &name) const
+void Scope::execute_block(std::shared_ptr<Block> const &block)
+{
+    bool  first { true };
+    for (auto const &stmt : block->statements) {
+        if (!first) {
+            pop_back();
+        }
+        first = false;
+        execute(stmt);
+    }
+    for (auto const &defer : std::views::reverse(block->deferred_statements)) {
+        execute(defer);
+        pop_back();
+    }
+
+}
+
+
+ValueReference Scope::ref_of(std::wstring const &name) const
 {
     if (values.contains(name)) {
+        trace(L"ref_of({}) -> {}", name, values.at(name));
         return values.at(name);
     }
     if (parent != nullptr) {
-        return parent->value(name);
+        return parent->ref_of(name);
     }
     fatal("Variable `{}` not found");
 }
 
-void Scope::reassign(std::wstring const &name, Value v)
+Value Scope::ptr_to(ValueReference const reference) const
+{
+    Value &v = get(reference);
+    return Value { TypeRegistry::the().referencing(v.type), as_ptr(&v) };
+}
+
+Value &Scope::value(std::wstring const &name) const
+{
+    return get(ref_of(name));
+}
+
+void Scope::add_value(std::wstring const &name, Value const &value)
+{
+    values.try_emplace(name, interpreter->stack.size());
+    push(interpreter->stack, value, name);
+}
+
+void Scope::reassign(std::wstring const &name, Value const &v)
 {
     if (values.contains(name)) {
-        values[name] = v;
+        set(values[name], v);
         return;
     }
     if (parent != nullptr) {
-        parent->reassign(name, std::move(v));
+        parent->reassign(name, v);
     }
 }
 
@@ -297,29 +380,57 @@ pSyntaxNode Scope::name(std::wstring const &name) const
     return owner->ns->find_variable(name);
 }
 
-Interpreter::Interpreter()
+void Scope::allocate()
 {
-    scopes.reserve(1024);
+    uint64_t const old_bp = bp;
+    bp = interpreter->stack.size();
+    push(interpreter->stack, Value { old_bp }, L"old_bp ");
+    for (auto const &name : owner->ns->variables | std::views::keys) {
+        values.try_emplace(name, interpreter->stack.size());
+        push(interpreter->stack, Value {}, name, false);
+    }
+    std::wcout << L"--- allocate\n";
+    for (auto const &[name, ix] : values) {
+        std::wcout << name << " = " << ix << std::endl;
+    }
+    dump(interpreter->stack);
 }
 
-Scope &Interpreter::execute(pSyntaxNode const &node)
+void Scope::release()
 {
-    Scope &root = (scopes.empty()) ? new_scope(node) : scopes.back();
-    assert(root.owner == node);
-    root.execute(node);
-    return root;
+    auto const new_bp = as<uint64_t>(interpreter->stack.get(static_cast<ValueReference>(bp)));
+    interpreter->stack.stack.erase(interpreter->stack.stack.begin() + static_cast<ssize_t>(bp), interpreter->stack.stack.end());
+    bp = new_bp;
 }
 
-Scope &Interpreter::new_scope(pSyntaxNode const &owner)
+void Scope::push_back(Value const &val) const
 {
-    if (scopes.size() >= scopes.capacity()) {
-        fatal("Stack overflow");
-    }
-    if (scopes.empty()) {
-        scopes.emplace_back(this, nullptr, owner);
-    } else {
-        scopes.emplace_back(this, &scopes.back(), owner);
-    }
-    return scopes.back();
+    interpreter->stack.push(val);
 }
+
+void Scope::push_back(ValueReference const ref) const
+{
+    interpreter->stack.push(ref);
+}
+
+void Scope::set(ValueReference const ref, Value const &val) const
+{
+    interpreter->stack.set(ref, val);
+}
+
+Value &Scope::back() const
+{
+    return interpreter->stack.get(-1);
+}
+
+Value &Scope::get(ValueReference const &ref) const
+{
+    return interpreter->stack.get(ref);
+}
+
+void Scope::pop_back(int const count) const
+{
+    interpreter->stack.pop_back(count);
+}
+
 }

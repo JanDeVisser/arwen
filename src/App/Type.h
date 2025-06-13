@@ -547,6 +547,7 @@ struct TypeRegistry {
     static pType f64;
     static pType boolean;
     static pType string;
+    static pType string_builder;
     static pType cstring;
     static pType character;
     static pType void_;

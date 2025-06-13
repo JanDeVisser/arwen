@@ -728,6 +728,7 @@ struct VariableDeclaration : SyntaxNode {
 
 struct Void final : SyntaxNode {
     Void();
+    pType bind(Parser &parser) override;
 };
 
 struct WhileStatement final : SyntaxNode {

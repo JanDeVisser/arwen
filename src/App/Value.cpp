@@ -21,6 +21,7 @@ namespace Arwen {
 using namespace Util;
 
 static std::vector<pType> atom_types {};
+Arena Value::arena;
 
 pType Atom::type() const
 {
@@ -123,6 +124,33 @@ std::optional<Atom> Atom::coerce(pType const &to_type) const
         payload);
 }
 
+std::wstring Atom::to_string() const
+{
+    return std::visit(overloads {
+                          [](std::integral auto const &value) -> std::wstring {
+                              return std::format(L"{}", value);
+                          },
+                          [](std::floating_point auto const &value) -> std::wstring {
+                              return std::format(L"{}", value);
+                          },
+                          [](bool const &value) -> std::wstring {
+                              return value ? L"true" : L"false";
+                          },
+                          [](Slice const &value) -> std::wstring {
+                              return std::format(L"Slice[{}]", value.size);
+                          },
+                          [](DynamicArray const &value) -> std::wstring {
+                              return std::format(L"DynamicArray[{},{}]", value.size, value.capacity);
+                          },
+                          [](StaticArray const &value) -> std::wstring {
+                              return std::format(L"StaticArray[{}]", value.size);
+                          },
+                          [](void *const &value) -> std::wstring {
+                              return std::format(L"void*[{}]", value);
+                          } },
+        payload);
+}
+
 static bool is_zero(Atom const &atom);
 
 #undef S
@@ -133,16 +161,25 @@ BinOps(S)
     static bool is_zero(Atom const &atom)
 {
     return std::visit(overloads {
-                          [](std::integral auto value) -> bool {
+                          [](std::integral auto const &value) -> bool {
                               return value == 0;
                           },
-                          [](std::floating_point auto value) -> bool {
+                          [](std::floating_point auto const &value) -> bool {
                               return value == 0.0;
                           },
-                          [](bool value) -> bool {
+                          [](bool const &value) -> bool {
                               return !value;
                           },
-                          [](void *value) -> bool {
+                          [](Slice const &value) -> bool {
+                              return value.ptr == nullptr || value.size == 0;
+                          },
+                          [](DynamicArray const &value) -> bool {
+                              return value.ptr == nullptr || value.size == 0;
+                          },
+                          [](StaticArray const &value) -> bool {
+                              return value.ptr == nullptr;
+                          },
+                          [](void *const &value) -> bool {
                               return value == nullptr;
                           } },
         atom.payload);
@@ -419,10 +456,109 @@ Atom evaluate(Operator op, Atom const &operand)
     }
 }
 
+Value::Value(Value &other)
+    : type(other.type)
+{
+    std::visit(overloads {
+                   [this](std::monostate const &) {
+                       this->payload = std::monostate {};
+                   },
+                   [this](Atom const &atom) {
+                       this->payload = atom;
+                   },
+                   [this](Atoms const &atoms) {
+                       this->payload = atoms;
+                   } },
+        other.payload);
+}
+
+Value::Value(pType const &type)
+    : type(type)
+    , payload(std::monostate {})
+{
+}
+
+Value::Value(int8_t const val)
+    : Value(TypeRegistry::i8, val)
+{
+}
+
+Value::Value(uint8_t const val)
+    : Value(TypeRegistry::u8, val)
+{
+}
+
+Value::Value(int16_t const val)
+    : Value(TypeRegistry::i16, val)
+{
+}
+
+Value::Value(uint16_t const val)
+    : Value(TypeRegistry::u16, val)
+{
+}
+
+Value::Value(int32_t const val)
+    : Value(TypeRegistry::i32, val)
+{
+}
+
+Value::Value(uint32_t const val)
+    : Value(TypeRegistry::u32, val)
+{
+}
+
+Value::Value(int64_t const val)
+    : Value(TypeRegistry::i64, val)
+{
+}
+
+Value::Value(uint64_t const val)
+    : Value(TypeRegistry::u64, val)
+{
+}
+
+Value::Value(float const val)
+    : Value(TypeRegistry::f32, val)
+{
+}
+
+Value::Value(double const val)
+    : Value(TypeRegistry::f64, val)
+{
+}
+
+Value::Value(bool const val)
+    : Value(TypeRegistry::boolean, val)
+{
+}
+
+Value::Value(void *val)
+    : Value(TypeRegistry::pointer, val)
+{
+}
+
+Value::Value(Atom atom)
+    : Value(atom.type(), atom)
+{
+}
+
 std::optional<Value> Value::coerce(pType const &to_type) const
 {
     if (type == to_type) {
         return Value { *this };
+    }
+    if (type == TypeRegistry::string && to_type == TypeRegistry::cstring) {
+        auto const [ptr, _] = as<Slice>(*this);
+        return Value { TypeRegistry::cstring, Atom { ptr } };
+    }
+    if (type->is<DynArray>() && to_type->is<SliceType>() && std::get<DynArray>(type->description).array_of == std::get<SliceType>(type->description).slice_of) {
+        auto const dyn_arr = as<DynamicArray>(*this);
+        return Value { to_type, Slice { dyn_arr.ptr, dyn_arr.size } };
+    }
+    if (type->is<Array>() && to_type->is<SliceType>() && std::get<Array>(type->description).array_of == std::get<SliceType>(type->description).slice_of) {
+        auto const arr = as<StaticArray>(*this);
+        return Value { to_type, Slice { arr.ptr, arr.size } };
     }
     return std::visit(overloads {
                           [this, &to_type](Atom const &atom) -> std::optional<Value> {
@@ -433,6 +569,21 @@ std::optional<Value> Value::coerce(pType const &to_type) const
                           },
                           [](auto const &) -> std::optional<Value> {
                               fatal("Cannot apply operator to compound values");
+                          } },
+        payload);
+}
+
+std::wstring Value::to_string() const
+{
+    return std::visit(overloads {
+                          [](std::monostate const &) -> std::wstring {
+                              return L"``";
+                          },
+                          [](Atom const &atom) -> std::wstring {
+                              return atom.to_string();
+                          },
+                          [](auto const &) -> std::wstring {
+                              fatal("Cannot stringify compound values yet");
                           } },
         payload);
 }
@@ -455,7 +606,7 @@ Value evaluate(Value const &lhs, Operator op, Value const &rhs)
     case Operator::Add: {
         if (lhs.type == TypeRegistry::string && rhs.type->kind() == TypeKind::IntType) {
             std::wstring ret {};
-            auto         lhs_value = as<std::wstring>(lhs);
+            auto         lhs_value = lhs.as_wstring();
             auto         rhs_value = as<uint64_t>(rhs);
             for (auto count = 0; count < rhs_value; ++count) {
                 ret += lhs_value;
@@ -463,7 +614,7 @@ Value evaluate(Value const &lhs, Operator op, Value const &rhs)
             return make_value(ret);
         }
         if (lhs.type == TypeRegistry::string && rhs.type == TypeRegistry::string) {
-            return make_value(as<std::wstring>(lhs) + as<std::wstring>(rhs));
+            return make_value(lhs.as_wstring() + rhs.as_wstring());
         }
     } break;
     case Operator::Length: {

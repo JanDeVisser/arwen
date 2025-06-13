@@ -115,7 +115,7 @@ pType VariableDeclaration::bind(Parser &parser)
             assert(my_type == init_type);
         }
     }
-    if (parser.find_type(name) != nullptr) {
+    if (parser.has_variable(name)) {
         return parser.bind_error(location, std::format(L"Duplicate variable name `{}`", name));
     }
     parser.register_variable(name, shared_from_this());
