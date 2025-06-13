@@ -42,9 +42,7 @@ pSyntaxNode Insert::normalize(Parser &parser)
                 L"output",
                 std::make_shared<TypeSpecification>(
                     TypeNameNode {
-                        L"string_builder"
-                    }
-                ),
+                        L"string_builder" }),
                 nullptr,
                 false
             )
@@ -71,8 +69,8 @@ pSyntaxNode Insert::normalize(Parser &parser)
         Scope                           scope { &interpreter, script, nullptr };
         scope.execute_block(std::dynamic_pointer_cast<Block>(script));
         auto const &output_val = scope.value(L"output");
-        auto const output_dynarr = as<DynamicArray>(output_val);
-        auto const output = std::wstring { static_cast<wchar_t*>(output_dynarr.ptr), static_cast<size_t>(output_dynarr.size) };
+        auto const  output_dynarr = as<DynamicArray>(output_val);
+        auto const  output = std::wstring { static_cast<wchar_t *>(output_dynarr.ptr), static_cast<size_t>(output_dynarr.size) };
 
         // trace(L"@insert({})", output);
         Parser include_parser;

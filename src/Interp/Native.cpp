@@ -175,11 +175,11 @@ std::optional<Value> native_call(std::string_view const name, std::vector<Value>
         case TypeKind::IntType:
             if (ngrn < 8) {
 #undef S
-#define S(W)                             \
-    if (et == TypeRegistry::i##W) {      \
+#define S(W)                            \
+    if (et == TypeRegistry::i##W) {     \
         t.x[ngrn] = as<int##W##_t>(v);  \
-    }                                    \
-    if (et == TypeRegistry::u##W) {      \
+    }                                   \
+    if (et == TypeRegistry::u##W) {     \
         t.x[ngrn] = as<uint##W##_t>(v); \
     }
                 BitWidths(S)
@@ -209,7 +209,7 @@ std::optional<Value> native_call(std::string_view const name, std::vector<Value>
                 auto const &[ptr, size] = as<Slice>(v);
                 printf("native: ");
                 for (int ix = 0; ix < size; ++ix) {
-                    printf("%c",  (char) ((wchar_t*)ptr)[ix]);
+                    printf("%c", (char) ((wchar_t *) ptr)[ix]);
                 }
                 printf("\n");
                 t.x[ngrn++] = reinterpret_cast<intptr_t>(ptr);

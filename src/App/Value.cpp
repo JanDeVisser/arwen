@@ -21,7 +21,7 @@ namespace Arwen {
 using namespace Util;
 
 static std::vector<pType> atom_types {};
-Arena Value::arena;
+Arena                     Value::arena;
 
 pType Atom::type() const
 {

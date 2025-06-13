@@ -42,13 +42,13 @@ size_t dynarr_append(dynarr_t *arr, slice_t const slice)
     }
     printf("dynarr_append(");
     for (int ix = 0; ix < slice.size; ++ix) {
-        printf("%c",  (char) ((wchar_t*)slice.ptr)[ix]);
+        printf("%c", (char) ((wchar_t *) slice.ptr)[ix]);
     }
     printf(") -> ");
     wcsncpy(arr->ptr + arr->size, slice.ptr, slice.size);
     arr->size += slice.size;
     for (int ix = 0; ix < arr->size; ++ix) {
-        printf("%c",  (char) ((wchar_t*)arr->ptr)[ix]);
+        printf("%c", (char) ((wchar_t *) arr->ptr)[ix]);
     }
     printf(")\n");
     return arr->size;
