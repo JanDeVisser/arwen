@@ -218,7 +218,7 @@ template<class Node, class Normalized = Node>
     requires std::derived_from<Node, SyntaxNode>
 static std::shared_ptr<Node> stamp_node(std::shared_ptr<Node> node, Parser &parser)
 {
-    return (node) ? std::dynamic_pointer_cast<Normalized>(node->stamp(parser)) : nullptr;
+    return node ? std::dynamic_pointer_cast<Normalized>(node->stamp(parser)) : nullptr;
 }
 
 template<class Node>
@@ -248,9 +248,7 @@ struct BinaryExpression final : SyntaxNode {
 
 struct Block final : SyntaxNode {
     SyntaxNodes statements;
-    SyntaxNodes deferred_statements;
 
-    Block(SyntaxNodes statements, SyntaxNodes deferred, pNamespace const &ns);
     Block(SyntaxNodes statements, pNamespace const &ns);
 
     pSyntaxNode normalize(Parser &parser) override;
@@ -258,6 +256,8 @@ struct Block final : SyntaxNode {
     pSyntaxNode stamp(Parser &parser) override;
     void        dump_node(int indent) override;
 };
+
+using pBlock = std::shared_ptr<Block>;
 
 struct BoolConstant final : SyntaxNode {
     bool value;
@@ -299,7 +299,7 @@ struct Constant final : SyntaxNode {
     std::wostream &header(std::wostream &os) override;
 };
 
-struct Continue : SyntaxNode {
+struct Continue final : SyntaxNode {
     Label label;
 
     Continue(Label label);
@@ -309,7 +309,7 @@ struct Continue : SyntaxNode {
     std::wostream &header(std::wostream &os) override;
 };
 
-struct DeferStatement : SyntaxNode {
+struct DeferStatement final : SyntaxNode {
     pSyntaxNode stmt;
 
     DeferStatement(pSyntaxNode stmt);
@@ -319,12 +319,12 @@ struct DeferStatement : SyntaxNode {
     void        dump_node(int indent) override;
 };
 
-struct Dummy : SyntaxNode {
+struct Dummy final : SyntaxNode {
     Dummy();
     pType bind(Parser &parser) override;
 };
 
-struct Embed : SyntaxNode {
+struct Embed final : SyntaxNode {
     std::wstring file_name;
 
     Embed(std::wstring_view file_name);
@@ -333,7 +333,7 @@ struct Embed : SyntaxNode {
     std::wostream &header(std::wostream &os) override;
 };
 
-struct EnumValue : SyntaxNode {
+struct EnumValue final : SyntaxNode {
     std::wstring       label;
     pSyntaxNode        value;
     pTypeSpecification payload;
@@ -348,7 +348,7 @@ struct EnumValue : SyntaxNode {
 using pEnumValue = std::shared_ptr<EnumValue>;
 using EnumValues = std::vector<pEnumValue>;
 
-struct Enum : SyntaxNode {
+struct Enum final : SyntaxNode {
     std::wstring       name;
     pTypeSpecification underlying_type;
     EnumValues         values;
@@ -361,7 +361,7 @@ struct Enum : SyntaxNode {
     std::wostream &header(std::wostream &os) override;
 };
 
-struct Error : SyntaxNode {
+struct Error final : SyntaxNode {
     pSyntaxNode expression;
 
     Error(pSyntaxNode expression);
@@ -385,7 +385,7 @@ struct ExpressionList final : SyntaxNode {
 using pIdentifier = std::shared_ptr<struct Identifier>;
 using Identifiers = std::vector<pIdentifier>;
 
-struct MemberPath : SyntaxNode {
+struct MemberPath final : SyntaxNode {
     Identifiers path;
 
     MemberPath(Identifiers path);
@@ -395,7 +395,7 @@ struct MemberPath : SyntaxNode {
     std::wostream &header(std::wostream &os) override;
 };
 
-struct ExternLink : SyntaxNode {
+struct ExternLink final : SyntaxNode {
     std::wstring link_name;
 
     ExternLink(std::wstring link_name);
@@ -404,7 +404,7 @@ struct ExternLink : SyntaxNode {
     std::wostream &header(std::wostream &os) override;
 };
 
-struct ForStatement : SyntaxNode {
+struct ForStatement final : SyntaxNode {
     std::wstring range_variable;
     pSyntaxNode  range_expr;
     pSyntaxNode  statement;
@@ -420,7 +420,7 @@ struct ForStatement : SyntaxNode {
 using pParameter = std::shared_ptr<struct Parameter>;
 using Parameters = std::vector<pParameter>;
 
-struct FunctionDeclaration : SyntaxNode {
+struct FunctionDeclaration final : SyntaxNode {
     std::wstring       name;
     Identifiers        generics;
     Parameters         parameters;
@@ -512,11 +512,10 @@ struct LoopStatement final : SyntaxNode {
 struct Module final : SyntaxNode {
     std::wstring name;
     std::wstring source;
-    pSyntaxNode  statements;
+    pBlock       statements;
 
-    Module();
-    Module(std::wstring const &name, std::wstring const &source, SyntaxNodes const &statements, pNamespace const &ns);
-    Module(std::wstring name, std::wstring source, pSyntaxNode statement, pNamespace ns);
+    Module(std::wstring name, std::wstring source, SyntaxNodes const& statements, pNamespace const &ns);
+    Module(std::wstring name, std::wstring source, pBlock statements);
     pSyntaxNode    normalize(Parser &parser) override;
     pSyntaxNode    stamp(Parser &parser) override;
     pType          bind(Parser &parser) override;
@@ -524,7 +523,7 @@ struct Module final : SyntaxNode {
     void           dump_node(int indent) override;
 };
 
-using pModule = std::shared_ptr<struct Module>;
+using pModule = std::shared_ptr<Module>;
 
 struct Nullptr final : SyntaxNode {
     Nullptr();
@@ -532,7 +531,7 @@ struct Nullptr final : SyntaxNode {
     pSyntaxNode    normalize(Parser &) override;
 };
 
-struct Number : SyntaxNode {
+struct Number final : SyntaxNode {
     std::wstring number;
     NumberType   number_type;
 
@@ -543,7 +542,7 @@ struct Number : SyntaxNode {
 
 using pNumber = std::shared_ptr<Number>;
 
-struct Parameter : SyntaxNode {
+struct Parameter final : SyntaxNode {
     std::wstring       name;
     pTypeSpecification type_name;
 
@@ -554,7 +553,7 @@ struct Parameter : SyntaxNode {
     std::wostream &header(std::wostream &os) override;
 };
 
-struct Program : SyntaxNode {
+struct Program final : SyntaxNode {
     std::wstring                    name;
     std::map<std::wstring, pModule> modules {};
 
@@ -567,7 +566,7 @@ struct Program : SyntaxNode {
     void           dump_node(int indent) override;
 };
 
-struct PublicDeclaration : SyntaxNode {
+struct PublicDeclaration final : SyntaxNode {
     std::wstring name;
     pSyntaxNode  declaration;
 
@@ -678,7 +677,7 @@ using TypeSpecificationDescription = std::variant<
     OptionalDescriptionNode,
     ErrorDescriptionNode>;
 
-struct TypeSpecification : SyntaxNode {
+struct TypeSpecification final : SyntaxNode {
 
     TypeSpecificationDescription description;
 
@@ -700,7 +699,7 @@ struct TypeSpecification : SyntaxNode {
     pType          resolve(Parser &parser);
 };
 
-struct UnaryExpression : SyntaxNode {
+struct UnaryExpression final : SyntaxNode {
     Operator    op;
     pSyntaxNode operand;
 
@@ -712,7 +711,7 @@ struct UnaryExpression : SyntaxNode {
     void           dump_node(int indent) override;
 };
 
-struct VariableDeclaration : SyntaxNode {
+struct VariableDeclaration final : SyntaxNode {
     std::wstring       name;
     pTypeSpecification type_name {};
     pSyntaxNode        initializer;

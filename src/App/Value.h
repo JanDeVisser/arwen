@@ -206,26 +206,6 @@ T const &as(Value const &val)
         val.payload);
 }
 
-/*
-template<>
-inline std::wstring &as(Value &val)
-{
-    return std::visit(overloads {
-                          [](std::monostate const &) -> std::wstring & {
-                              fatal("Cannot convert empty value to std::wstring");
-                          },
-                          [](Atom const &atom) -> std::wstring & {
-                              auto const &[ptr, size] = as<Slice>(atom);
-                              static std::wstring empty;
-                              return empty;
-                          },
-                          [&val](Atoms const &atoms) -> std::wstring & {
-                              UNREACHABLE();
-                          } },
-        val.payload);
-}
-*/
-
 inline void *as_ptr(Value *val)
 {
     return std::visit(overloads {

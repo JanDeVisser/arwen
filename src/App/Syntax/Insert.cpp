@@ -16,6 +16,8 @@
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
 
+#include <App/IR/IR.h>
+
 #include <Interp/Interpreter.h>
 
 namespace Arwen {
@@ -44,9 +46,7 @@ pSyntaxNode Insert::normalize(Parser &parser)
                     TypeNameNode {
                         L"string_builder" }),
                 nullptr,
-                false
-            )
-        );
+                false));
         block->ns->parent = parser.namespaces.back();
         std::cout << "Parsed compile time script\n\n";
         script->dump();
@@ -65,9 +65,8 @@ pSyntaxNode Insert::normalize(Parser &parser)
         std::cout << "Running compile time script\n\n";
         script->dump();
 
-        Arwen::Interpreter::Interpreter interpreter;
-        Scope                           scope { &interpreter, script, nullptr };
-        scope.execute_block(std::dynamic_pointer_cast<Block>(script));
+        auto        script_ir = IR::generate_ir(script);
+        auto       &scope = execute_ir(script_ir);
         auto const &output_val = scope.value(L"output");
         auto const  output_dynarr = as<DynamicArray>(output_val);
         auto const  output = std::wstring { static_cast<wchar_t *>(output_dynarr.ptr), static_cast<size_t>(output_dynarr.size) };

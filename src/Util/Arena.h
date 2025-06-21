@@ -15,13 +15,16 @@ namespace Util {
 
 struct Arena {
     struct Block {
-        void  *ptr;
+        char  *ptr;
         size_t size;
         size_t used { 0 };
 
-        Block(size_t size);
+        Block(Block &) = delete;
+        Block(Block &&) noexcept = default;
+        Block() = delete;
+        Block(size_t const &size) noexcept;
         ~Block();
-        void *allocate(size_t bytes);
+        void *allocate(size_t const &bytes);
     };
 
     constexpr static size_t BLOCK_SIZE = 4096;
@@ -29,6 +32,9 @@ struct Arena {
     std::vector<Block>      blocks;
 
     Arena(size_t blocksize = BLOCK_SIZE);
+    Arena(Arena &) = delete;
+    Arena(Arena &&) = default;
+    Arena() = delete;
     void *allocate(size_t size);
 };
 
@@ -39,9 +45,9 @@ struct InternedStringBlock {
     };
     constexpr static uint64_t MAGIC = 0xCAFEBABEDEADBEEF;
 
-    void    *twin;
-    Encoding encoding;
-    int64_t  length;
+    void    *twin { nullptr };
+    Encoding encoding { Encoding::UTF32 };
+    int64_t  length { 0 };
     uint64_t magic { MAGIC };
 };
 
@@ -63,7 +69,7 @@ struct InternedString {
         }
     }
 
-    int64_t length() const
+    [[nodiscard]] int64_t length() const
     {
         return block->length;
     }
@@ -94,13 +100,13 @@ inline char const *make_interned_string(Arena &arena, std::string_view const str
     auto const utf32 = as_wstring(str);
     auto const utf8_ptr = arena.allocate(sizeof(InternedStringBlock) + str.length());
     auto const utf8_block = static_cast<InternedStringBlock *>(utf8_ptr);
-    utf8_block->length = str.length();
+    utf8_block->length = static_cast<int64_t>(str.length());
     utf8_block->encoding = InternedStringBlock::Encoding::UTF8;
     utf8_block->magic = InternedStringBlock::MAGIC;
-    auto const utf8_str = static_cast<char *>(static_cast<char *>(utf8_ptr) + sizeof(InternedStringBlock));
+    auto const utf8_str = static_cast<char *>(utf8_ptr) + sizeof(InternedStringBlock);
     auto const utf32_ptr = arena.allocate(sizeof(InternedStringBlock) + utf32.length() * sizeof(wchar_t));
     auto const utf32_block = static_cast<InternedStringBlock *>(utf32_ptr);
-    utf32_block->length = utf32.length();
+    utf32_block->length = static_cast<int64_t>(utf32.length());
     utf32_block->encoding = InternedStringBlock::Encoding::UTF32;
     utf32_block->magic = InternedStringBlock::MAGIC;
     auto const utf32_str = reinterpret_cast<wchar_t *>(static_cast<char *>(utf32_ptr) + sizeof(InternedStringBlock));
@@ -116,13 +122,13 @@ inline wchar_t const *make_interned_string(Arena &arena, std::wstring_view const
     auto const utf8 = as_utf8(str);
     auto const utf8_ptr = arena.allocate(sizeof(InternedStringBlock) + utf8.length());
     auto const utf8_block = static_cast<InternedStringBlock *>(utf8_ptr);
-    utf8_block->length = str.length();
+    utf8_block->length = static_cast<int64_t>(str.length());
     utf8_block->encoding = InternedStringBlock::Encoding::UTF8;
     utf8_block->magic = InternedStringBlock::MAGIC;
     auto const utf8_str = static_cast<char *>(utf8_ptr) + sizeof(InternedStringBlock);
     auto const utf32_ptr = arena.allocate(sizeof(InternedStringBlock) + str.length() * sizeof(wchar_t));
     auto const utf32_block = static_cast<InternedStringBlock *>(utf32_ptr);
-    utf32_block->length = str.length();
+    utf32_block->length = static_cast<int64_t>(str.length());
     utf32_block->encoding = InternedStringBlock::Encoding::UTF32;
     utf32_block->magic = InternedStringBlock::MAGIC;
     auto const utf32_str = reinterpret_cast<wchar_t *>(static_cast<char *>(utf32_ptr) + sizeof(InternedStringBlock));

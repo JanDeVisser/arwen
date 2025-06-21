@@ -28,7 +28,7 @@ struct TokenLocation {
     size_t line { 0 };
     size_t column { 0 };
 
-    TokenLocation merge(TokenLocation const &other) const
+    [[nodiscard]] TokenLocation merge(TokenLocation const &other) const
     {
         return TokenLocation { *this, other };
     }

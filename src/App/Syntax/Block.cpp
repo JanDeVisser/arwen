@@ -14,16 +14,6 @@
 
 namespace Arwen {
 
-Block::Block(SyntaxNodes statements, SyntaxNodes deferred, pNamespace const &ns)
-    : SyntaxNode(SyntaxNodeType::Block, ns)
-    , statements(std::move(statements))
-    , deferred_statements(std::move(deferred))
-{
-    if (this->ns == nullptr) {
-        assert(this->ns != nullptr);
-    }
-}
-
 Block::Block(SyntaxNodes statements, pNamespace const &ns)
     : SyntaxNode(SyntaxNodeType::Block, ns)
     , statements(std::move(statements))
@@ -46,13 +36,9 @@ pSyntaxNode Block::normalize(Parser &parser)
         if (new_stmt->ns != nullptr) {
             new_stmt->ns->parent = ns;
         }
-        if (auto defer = std::dynamic_pointer_cast<DeferStatement>(new_stmt); defer != nullptr) {
-            deferred_statements.push_back(defer->stmt);
-        } else {
-            normalized.emplace_back(new_stmt);
-        }
+        normalized.emplace_back(new_stmt);
     }
-    return make_node<Block>(location, normalized, deferred_statements, ns);
+    return make_node<Block>(location, normalized, ns);
 }
 
 pSyntaxNode Block::stamp(Parser &parser)
@@ -69,16 +55,7 @@ pSyntaxNode Block::stamp(Parser &parser)
         }
         normalized.emplace_back(new_stmt);
     }
-    SyntaxNodes deferred;
-    for (auto const &stmt : deferred_statements) {
-        auto new_stmt = stmt->stamp(parser);
-        if (new_stmt == nullptr) {
-            parser.append(location, "Stamping statement failed");
-            return nullptr;
-        }
-        deferred.push_back(new_stmt);
-    }
-    return make_node<Block>(location, normalized, deferred, new_ns);
+    return make_node<Block>(location, normalized, new_ns);
 }
 
 pType Block::bind(Parser &parser)
@@ -94,12 +71,6 @@ pType Block::bind(Parser &parser)
             undetermined = TypeRegistry::undetermined;
         }
     }
-    for (auto &statement : deferred_statements) {
-        type = bind_node(statement, parser);
-        if (type == TypeRegistry::undetermined) {
-            undetermined = TypeRegistry::undetermined;
-        }
-    }
     if (undetermined != nullptr) {
         return undetermined;
     }
@@ -110,12 +81,6 @@ void Block::dump_node(int indent)
 {
     for (auto const &stmt : statements) {
         stmt->dump(indent + 4);
-    }
-    if (!deferred_statements.empty()) {
-        printf("%*.*sDeferred\n", indent, indent, "");
-        for (auto const &stmt : deferred_statements) {
-            stmt->dump(indent + 4);
-        }
     }
 }
 

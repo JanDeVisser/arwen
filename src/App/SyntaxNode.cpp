@@ -125,14 +125,13 @@ pSyntaxNode DeferStatement::stamp(Parser &parser)
 
 pType DeferStatement::bind(Parser &parser)
 {
-    auto stmt_type = bind_node(stmt, parser);
-    if (stmt_type == TypeRegistry::undetermined) {
+    if (auto const stmt_type = bind_node(stmt, parser); stmt_type == TypeRegistry::undetermined) {
         return stmt_type;
     }
     return TypeRegistry::void_;
 }
 
-void DeferStatement::dump_node(int indent)
+void DeferStatement::dump_node(int const indent)
 {
     stmt->dump(indent + 4);
 }

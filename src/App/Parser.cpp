@@ -925,113 +925,116 @@ pSyntaxNode Parser::parse_for()
 pSyntaxNode Parser::parse_func()
 {
     auto func = lexer.lex();
-    auto old_level = level;
     level = ParseLevel::Function;
-    Defer        defer { [this, &old_level]() { level = old_level; } };
-    std::wstring name;
-    if (auto res = lexer.expect_identifier(); res.is_error()) {
-        append(res.error(), "Expected function name");
-        return nullptr;
-    } else {
-        name = text_of(res.value());
-    }
-
-    std::vector<pIdentifier> generics;
-    if (lexer.accept_symbol('<')) {
-        while (true) {
-            if (lexer.accept_symbol('>')) {
-                break;
-            }
-            std::wstring  generic_name;
-            TokenLocation start;
-            if (auto res = lexer.expect_identifier(); res.is_error()) {
-                append(res.error(), "Expected generic name");
-                return nullptr;
-            } else {
-                generics.emplace_back(make_node<Identifier>(res.value().location, text_of(res.value())));
-            }
-            if (lexer.accept_symbol('>')) {
-                break;
-            }
-            if (auto res = lexer.expect_symbol(','); res.is_error()) {
-                append(res.error(), "Expected ',' in function signature generic list");
-            }
-        }
-    }
-
-    if (auto res = lexer.expect_symbol('('); res.is_error()) {
-        append(res.error(), "Expected '(' in function definition");
-    }
-    push_new_namespace();
-    Defer                   pop_def_ns { [this]() { pop_namespace(); } };
-    std::vector<pParameter> params;
-    while (true) {
-        if (lexer.accept_symbol(')')) {
-            break;
-        }
-        std::wstring  param_name;
-        TokenLocation start;
+    {
+        Defer        _ { [this] { level = ParseLevel::Block; } };
+        std::wstring name;
         if (auto res = lexer.expect_identifier(); res.is_error()) {
-            append(res.error(), "Expected parameter name");
+            append(res.error(), "Expected function name");
             return nullptr;
         } else {
-            param_name = text_of(res.value());
-            start = res.value().location;
+            name = text_of(res.value());
         }
-        if (auto res = lexer.expect_symbol(':'); res.is_error()) {
-            append(res.error(), "Expected ':' in function parameter declaration");
-        }
-        auto          param_type = parse_type();
-        TokenLocation end;
-        if (param_type == nullptr) {
-            append(lexer.peek(), "Expected parameter type");
-            return nullptr;
-        }
-        params.emplace_back(make_node<Parameter>(start + param_type->location, param_name, param_type));
-        if (lexer.accept_symbol(')')) {
-            break;
-        }
-        if (auto res = lexer.expect_symbol(','); res.is_error()) {
-            append(res.error(), "Expected ',' in function signature");
-        }
-    }
-    auto          return_type = parse_type();
-    TokenLocation return_type_loc;
-    if (return_type == nullptr) {
-        append(lexer.peek(), "Expected return type");
-        return nullptr;
-    }
-    auto decl = make_node<FunctionDeclaration>(
-        func.location + return_type->location,
-        name,
-        generics,
-        params,
-        return_type);
-    if (lexer.accept_keyword(ArwenKeyword::ExternLink)) {
-        if (auto res = lexer.expect(TokenKind::QuotedString); res.is_error() || res.value().quoted_string().quote_type != QuoteType::DoubleQuote) {
-            append(res.error(), "Expected extern function name");
-            return nullptr;
-        } else {
-            auto name = text_of(res.value());
-            if (name.length() <= 2) {
-                append(res.value(), "Invalid extern function name");
+
+        std::vector<pIdentifier> generics;
+        if (lexer.accept_symbol('<')) {
+            while (true) {
+                if (lexer.accept_symbol('>')) {
+                    break;
+                }
+                std::wstring  generic_name;
+                TokenLocation start;
+                if (auto res = lexer.expect_identifier(); res.is_error()) {
+                    append(res.error(), "Expected generic name");
+                    return nullptr;
+                } else {
+                    generics.emplace_back(make_node<Identifier>(res.value().location, text_of(res.value())));
+                }
+                if (lexer.accept_symbol('>')) {
+                    break;
+                }
+                if (auto res = lexer.expect_symbol(','); res.is_error()) {
+                    append(res.error(), "Expected ',' in function signature generic list");
+                }
             }
-            name = name.substr(0, name.size() - 1).substr(1);
-            return make_node<FunctionDefinition>(
-                decl->location + res.value().location,
-                decl->name,
-                decl,
-                make_node<ExternLink>(res.value().location, std::wstring { name }),
-                namespaces.back());
         }
-    }
-    if (auto impl = parse_statement(); impl != nullptr) {
-        return make_node<FunctionDefinition>(
-            decl->location + impl->location,
-            decl->name,
-            decl,
-            impl,
-            namespaces.back());
+
+        if (auto res = lexer.expect_symbol('('); res.is_error()) {
+            append(res.error(), "Expected '(' in function definition");
+        }
+        push_new_namespace();
+        {
+            Defer                   _x_ { [this] { namespaces.pop_back(); } };
+            std::vector<pParameter> params;
+            while (true) {
+                if (lexer.accept_symbol(')')) {
+                    break;
+                }
+                std::wstring  param_name;
+                TokenLocation start;
+                if (auto res = lexer.expect_identifier(); res.is_error()) {
+                    append(res.error(), "Expected parameter name");
+                    return nullptr;
+                } else {
+                    param_name = text_of(res.value());
+                    start = res.value().location;
+                }
+                if (auto res = lexer.expect_symbol(':'); res.is_error()) {
+                    append(res.error(), "Expected ':' in function parameter declaration");
+                }
+                auto          param_type = parse_type();
+                TokenLocation end;
+                if (param_type == nullptr) {
+                    append(lexer.peek(), "Expected parameter type");
+                    return nullptr;
+                }
+                params.emplace_back(make_node<Parameter>(start + param_type->location, param_name, param_type));
+                if (lexer.accept_symbol(')')) {
+                    break;
+                }
+                if (auto res = lexer.expect_symbol(','); res.is_error()) {
+                    append(res.error(), "Expected ',' in function signature");
+                }
+            }
+            auto          return_type = parse_type();
+            TokenLocation return_type_loc;
+            if (return_type == nullptr) {
+                append(lexer.peek(), "Expected return type");
+                return nullptr;
+            }
+            auto decl = make_node<FunctionDeclaration>(
+                func.location + return_type->location,
+                name,
+                generics,
+                params,
+                return_type);
+            if (lexer.accept_keyword(ArwenKeyword::ExternLink)) {
+                if (auto res = lexer.expect(TokenKind::QuotedString); res.is_error() || res.value().quoted_string().quote_type != QuoteType::DoubleQuote) {
+                    append(res.error(), "Expected extern function name");
+                    return nullptr;
+                } else {
+                    auto name = text_of(res.value());
+                    if (name.length() <= 2) {
+                        append(res.value(), "Invalid extern function name");
+                    }
+                    name = name.substr(0, name.size() - 1).substr(1);
+                    return make_node<FunctionDefinition>(
+                        decl->location + res.value().location,
+                        decl->name,
+                        decl,
+                        make_node<ExternLink>(res.value().location, std::wstring { name }),
+                        namespaces.back());
+                }
+            }
+            if (auto impl = parse_statement(); impl != nullptr) {
+                return make_node<FunctionDefinition>(
+                    decl->location + impl->location,
+                    decl->name,
+                    decl,
+                    impl,
+                    namespaces.back());
+            }
+        }
     }
     return nullptr;
 }

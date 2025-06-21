@@ -32,6 +32,9 @@ set(arwen_VERSION_MINOR 0)
 set(arwen_DIR ${CMAKE_INSTALL_PREFIX})
 set(arwen_DATADIR ${CMAKE_INSTALL_PREFIX}/share)
 
+#add_compile_options("-fsanitize=address")
+#add_link_options("-fsanitize=address")
+
 include(CheckCSourceCompiles)
 include(CheckCXXSourceCompiles)
 
@@ -106,8 +109,11 @@ add_executable(
         src/App/Value.cpp
         src/Interp/Interpreter.cpp
         src/Interp/Native.cpp
+        src/Interp/Scope.cpp
         src/Interp/ValueStack.cpp
+        src/App/IR/Generate.cpp
 )
+
 
 target_link_libraries(
         arwen

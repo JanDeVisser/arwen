@@ -1,0 +1,6 @@
+func puts(s: string) void -> "arwenrt:puts"
+
+func main() i32 {
+  puts("Hello, World!")
+  return 0
+}

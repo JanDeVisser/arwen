@@ -13,6 +13,7 @@
 #include <string_view>
 
 #include <App/Parser.h>
+#include <App/IR/IR.h>
 #include <Util/IO.h>
 #include <Util/Lexer.h>
 #include <Util/Logging.h>
@@ -107,6 +108,8 @@ void compile_file(std::string_view file_name)
             }
         }
         normalized->dump();
+        std::wcout << "STAGE 4 - Generating IR\n";
+        IR::generate_ir(normalized);
     } else {
         std::cerr << "Could not open '" << file_name << "': " << contents_maybe.error().to_string() << std::endl;
     }

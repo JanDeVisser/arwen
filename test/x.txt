@@ -1,0 +1,158 @@
+STAGE 1 - Parsing
+Program (0..0) insert.arw
+    Module (0..231) insert.arw
+        Block (0..231) 
+            FunctionDefinition (0..40) 
+                FunctionDeclaration (0..28) bar: i32
+                    Parameter (9..15) x: i32
+                    Parameter (17..23) y: i32
+                Block (29..40) 
+                    BinaryExpression (33..38) Add
+                        Identifier (33..34) x
+                        Identifier (37..38) y
+            FunctionDefinition (42..231) 
+                FunctionDeclaration (42..62) foo: i32
+                    Parameter (51..57) x: i32
+                Block (63..231) 
+                    Block (211..229) 
+                        BinaryExpression (213..226) Call
+                            Identifier (213..216) bar
+                            BinaryExpression (217..226) Sequence
+                                Identifier (217..218) x
+                                BinaryExpression (220..226) Cast
+                                    Number (220..221) 2 Integer
+                                    TypeSpecification (223..226) i32
+STAGE 2 - Folding
+Program (0..0) insert.arw
+    Module (0..231) insert.arw
+        Block (0..231) 
+            FunctionDefinition (0..40) 
+                FunctionDeclaration (0..28) bar: i32
+                    Parameter (9..15) x: i32
+                    Parameter (17..23) y: i32
+                Block (29..40) 
+                    BinaryExpression (33..38) Add
+                        Identifier (33..34) x
+                        Identifier (37..38) y
+            FunctionDefinition (42..231) 
+                FunctionDeclaration (42..62) foo: i32
+                    Parameter (51..57) x: i32
+                Block (63..231) 
+                    Block (211..229) 
+                        Call (213..226) bar
+                                Identifier (217..218) x
+                                Constant (220..226) [i32: i32] 2
+STAGE 3 - Binding. Pass 0 
+Program (0..0) insert.arw -> insert.arw: Namespace
+    Module (0..231) insert.arw -> insert.arw: Namespace
+        Block (0..231)  -> func(i32) i32: Func(i32) i32
+            FunctionDefinition (0..40)  -> func(i32,i32) i32: Func(i32, i32) i32
+                FunctionDeclaration (0..28) bar: i32 -> func(i32,i32) i32: Func(i32, i32) i32
+                    Parameter (9..15) x: i32 -> i32: i32
+                    Parameter (17..23) y: i32 -> i32: i32
+                Block (29..40)  -> i32: i32
+                    BinaryExpression (33..38) Add -> i32: i32
+                        Identifier (33..34) x -> i32: i32
+                        Identifier (37..38) y -> i32: i32
+            FunctionDefinition (42..231)  -> func(i32) i32: Func(i32) i32
+                FunctionDeclaration (42..62) foo: i32 -> func(i32) i32: Func(i32) i32
+                    Parameter (51..57) x: i32 -> i32: i32
+                Block (63..231)  -> i32: i32
+                    Block (211..229)  -> i32: i32
+                        Call (213..226) bar -> i32: i32
+                                Identifier (217..218) x -> i32: i32
+                                Constant (220..226) [i32: i32] 2 -> i32: i32
+STAGE 1 - Parsing
+Program (0..0) insert.arw
+    Module (0..227) insert.arw
+        Block (0..227) 
+            FunctionDefinition (0..40) 
+                FunctionDeclaration (0..28) bar: i32
+                    Parameter (9..15) x: i32
+                    Parameter (17..23) y: i32
+                Block (29..40) 
+                    BinaryExpression (33..38) Add
+                        Identifier (33..34) x
+                        Identifier (37..38) y
+            FunctionDefinition (42..227) 
+                FunctionDeclaration (42..62) foo: i32
+                    Parameter (51..57) x: i32
+                Block (63..227) 
+                    Insert (65..202) 
+STAGE 2 - Folding
+Running compile time script
+
+Block (100..125)  -> string: SliceOf(u32)
+    %ambiguous: %ambiguous: Ambiguous
+    %undetermined: %undetermined: Undetermined
+    bool: bool: Bool
+    char: char: AliasOf(u32)
+    cstring: cstring: ZeroTerminatedArrayOf(u8)
+    f32: f32: f32
+    f64: f64: f64
+    i16: i16: i16
+    i32: i32: i32
+    i64: i64: i64
+    i8: i8: i8
+    pointer: pointer: Pointer
+    string: string: SliceOf(u32)
+    u16: u16: u16
+    u32: u32: u32
+    u64: u64: u64
+    u8: u8: u8
+    void: void: Void
+    VariableDeclaration (0..0) output: string -> string: SliceOf(u32)
+    BinaryExpression (100..125) Assign -> string: SliceOf(u32)
+        MemberPath (100..106) output -> string: SliceOf(u32)
+        Constant (109..125) [string: SliceOf(u32)] 0x6000000bc380, 14 -> string: SliceOf(u32)
+Block (0..13) 
+    BinaryExpression (0..13) Call
+        Identifier (0..3) bar
+        BinaryExpression (4..13) Sequence
+            Identifier (4..5) x
+            BinaryExpression (7..13) Cast
+                Number (7..8) 2 Integer
+                TypeSpecification (10..13) i32
+Block (0..13) 
+    Call (0..13) bar
+            Identifier (4..5) x
+            Constant (7..13) [i32: i32] 2
+Program (0..0) insert.arw
+    Module (0..227) insert.arw
+        Block (0..227) 
+            FunctionDefinition (0..40) 
+                FunctionDeclaration (0..28) bar: i32
+                    Parameter (9..15) x: i32
+                    Parameter (17..23) y: i32
+                Block (29..40) 
+                    BinaryExpression (33..38) Add
+                        Identifier (33..34) x
+                        Identifier (37..38) y
+            FunctionDefinition (42..227) 
+                FunctionDeclaration (42..62) foo: i32
+                    Parameter (51..57) x: i32
+                Block (63..227) 
+                    Block (65..202) 
+                        Call (0..13) bar
+                                Identifier (4..5) x
+                                Constant (7..13) [i32: i32] 2
+STAGE 3 - Binding. Pass 0 1 
+Program (0..0) insert.arw -> insert.arw: Namespace
+    Module (0..227) insert.arw -> insert.arw: Namespace
+        Block (0..227)  -> func(i32) i32: Func(i32) i32
+            FunctionDefinition (0..40)  -> func(i32,i32) i32: Func(i32, i32) i32
+                FunctionDeclaration (0..28) bar: i32 -> func(i32,i32) i32: Func(i32, i32) i32
+                    Parameter (9..15) x: i32 -> i32: i32
+                    Parameter (17..23) y: i32 -> i32: i32
+                Block (29..40)  -> i32: i32
+                    BinaryExpression (33..38) Add -> i32: i32
+                        Identifier (33..34) x -> i32: i32
+                        Identifier (37..38) y -> i32: i32
+            FunctionDefinition (42..227)  -> func(i32) i32: Func(i32) i32
+                FunctionDeclaration (42..62) foo: i32 -> func(i32) i32: Func(i32) i32
+                    Parameter (51..57) x: i32 -> i32: i32
+                Block (63..227)  -> %undetermined: Undetermined
+                    Block (65..202)  -> %undetermined: Undetermined
+                        Call (0..13) bar -> %undetermined: Undetermined
+                                Identifier (4..5) x -> %undetermined: Undetermined
+                                Constant (7..13) [i32: i32] 2

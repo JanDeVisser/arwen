@@ -4,433 +4,370 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <concepts>
 #include <memory>
 #include <ranges>
 
-#include <Util/Defer.h>
 #include <Util/Logging.h>
-#include <Util/TokenLocation.h>
 
 #include <App/Operator.h>
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
 
+#include <App/IR/IR.h>
+
 #include <Interp/Interpreter.h>
 #include <Interp/Native.h>
+#include <variant>
 
 namespace Arwen::Interpreter {
 
 using namespace Util;
 using namespace Arwen;
+using namespace Arwen::IR;
 
-template<typename T>
-    requires std::derived_from<T, SyntaxNode>
-void execute_node(Scope &scope, std::shared_ptr<T> const &)
+template<typename OpImpl>
+void execute_op(Interpreter &interpreter, OpImpl const &impl)
 {
-    trace("execute_node({})", typeid(T).name());
-    scope.push_back(make_void());
+    if constexpr (std::is_same_v<OpImpl, std::monostate>) {
+        trace("execute_op(std::monostate)");
+    } else {
+        trace("execute_op({})", OpImpl::type);
+    }
+    interpreter.call_stack.back().ip++;
 }
 
 template<>
-void execute_node(Scope &scope, std::shared_ptr<BinaryExpression> const &node)
+void execute_op<>(Interpreter &interpreter, Operation::Assign const &)
 {
-    trace("Operator `{}`", Operator_name(node->op));
-    if (node->op == Operator::Assign) {
-        auto path = std::dynamic_pointer_cast<MemberPath>(node->lhs);
-        assert(path != nullptr);
-        if (path->path.size() > 1) {
-            fatal("Can't do structs yet");
-        }
-        auto ident = path->path[0];
-        scope.execute(node->rhs);
-        Value const &rhs = scope.back();
-        scope.reassign(ident->identifier, rhs);
-        scope.pop_back();
-        return;
-    }
-    if (node->op == Operator::Cast) {
-        scope.execute(node->lhs);
-        auto const lhs = scope.back();
-        auto const rhs_type = std::dynamic_pointer_cast<TypeSpecification>(node->rhs);
-        assert(rhs_type != nullptr && rhs_type->bound_type != nullptr);
-        if (auto const coerced_maybe = lhs.coerce(rhs_type->bound_type); coerced_maybe) {
-            scope.pop_back(1);
-            scope.push_back(coerced_maybe.value());
+    auto const &ref = interpreter.stack.get(-1);
+    auto const &val = interpreter.stack.get(-2);
+    interpreter.stack.set(as<int>(ref), val);
+    interpreter.stack.pop_back(2);
+    interpreter.stack.push(val);
+    interpreter.call_stack.back().ip++;
+}
+
+template<>
+void execute_op<>(Interpreter &interpreter, Operation::BinaryOperator const &impl)
+{
+    auto const &rhs = interpreter.stack.get(-1);
+    auto const &lhs = interpreter.stack.get(-2);
+    auto const  res = evaluate(lhs, impl.payload.op, rhs);
+    interpreter.stack.pop_back(2);
+    interpreter.stack.push(res);
+    interpreter.call_stack.back().ip++;
+}
+
+template<>
+void execute_op<>(Interpreter &interpreter, Operation::Call const &impl)
+{
+    auto find_func = [&impl](Scope *s) -> IRNode {
+        return std::visit(overloads {
+                              [&impl](IR::Module &mod) -> IRNode {
+                                  for (auto &fnc : mod.functions | std::views::values) {
+                                      if (fnc->name == impl.payload.name) {
+                                          return fnc;
+                                      }
+                                  }
+                                  return {};
+                              },
+                              [](auto &) -> IRNode {
+                                  return {};
+                              },
+                          },
+            s->ir);
+    };
+
+    auto *s = &interpreter.current_scope();
+    while (s != nullptr) {
+        if (auto const &f = find_func(s); std::holds_alternative<IR::pFunction>(f)) {
+            std::vector<Value> args;
+            for (auto ix = 0; ix < impl.payload.parameters.size(); ++ix) {
+                args.emplace_back(interpreter.stack.get(-1 - ix));
+            }
+            interpreter.stack.pop_back(static_cast<int>(args.size()));
+            Scope &param_scope = interpreter.new_scope(f, impl.payload.parameters.size());
+            for (auto const &[param_def, arg] : std::views::zip(impl.payload.parameters, args)) {
+                param_scope.add_value(param_def.name, arg);
+            }
+            interpreter.call_stack.emplace_back(f, 0);
+            interpreter.execute(f);
+            interpreter.call_stack.pop_back();
+            interpreter.scopes.pop_back();
+            interpreter.call_stack.back().ip++;
             return;
         }
-        fatal(L"Could not convert value of type `{}` to `{}`", lhs.type->to_string(), rhs_type->bound_type->to_string());
+        s = s->parent;
     }
-    scope.execute(node->lhs);
-    scope.execute(node->rhs);
-    auto const &rhs = scope.get(-1);
-    auto const &lhs = scope.get(-2);
-    auto        res = evaluate(lhs, node->op, rhs);
-    scope.pop_back(2);
+    UNREACHABLE();
 }
 
 template<>
-void execute_node(Scope &scope, std::shared_ptr<Block> const &node)
+void execute_op<>(Interpreter &interpreter, Operation::Cast const &impl)
 {
-    Scope block_scope { scope.interpreter, node, &scope };
-    bool  first { true };
-    for (auto const &stmt : node->statements) {
-        if (!first) {
-            block_scope.pop_back();
-        }
-        first = false;
-        block_scope.execute(stmt);
-    }
-    for (auto const &defer : std::views::reverse(node->deferred_statements)) {
-        block_scope.execute(defer);
-        block_scope.pop_back();
-    }
-}
-
-template<>
-void execute_node(Scope &scope, std::shared_ptr<Call> const &node)
-{
-    if (auto const &extern_link = std::dynamic_pointer_cast<ExternLink>(node->function->implementation); extern_link != nullptr) {
-        std::vector<Value> native_args;
-        for (auto const &expression : node->arguments->expressions) {
-            scope.execute(expression);
-            native_args.emplace_back(scope.back());
-            scope.pop_back();
-        }
-        if (auto const ret = native_call(as_utf8(extern_link->link_name), native_args, node->bound_type); ret) {
-            scope.push_back(*ret);
-            return;
-        }
-        fatal(L"Error executing native function `{}`", extern_link->link_name);
-    }
-    Value ret {};
-    {
-        Scope param_scope { scope.interpreter, node->function, &scope };
-        for (auto const &expression : std::ranges::reverse_view(node->arguments->expressions)) {
-            scope.execute(expression);
-        }
-        for (auto const &param_def : node->function->declaration->parameters) {
-            param_scope.set(param_scope.values[param_def->name], scope.back());
-            scope.pop_back();
-        }
-        trace(L"Executing function `{}`", node->function->name);
-        param_scope.execute(node->function->implementation);
-        ret = param_scope.back();
-    }
-    return scope.push_back(ret);
-}
-
-template<>
-void execute_node(Scope &scope, std::shared_ptr<Constant> const &node)
-{
-    assert(node->bound_value.has_value());
-    scope.push_back(*node->bound_value);
-}
-
-template<>
-void execute_node(Scope &scope, std::shared_ptr<Identifier> const &node)
-{
-    trace(L"Identifier = `{}`", node->identifier);
-    scope.push_back(scope.value(node->identifier));
-}
-
-template<>
-void execute_node(Scope &scope, std::shared_ptr<IfStatement> const &node)
-{
-    scope.execute(node->condition);
-    Value res = scope.back();
-    assert(res.type == TypeRegistry::boolean);
-    auto const cond = as<bool>(res);
-    scope.pop_back();
-    if (cond) {
-        scope.execute(node->if_branch);
-    } else if (node->else_branch != nullptr) {
-        scope.execute(node->else_branch);
-    } else {
-        scope.push_back(make_void());
-    }
-}
-
-template<>
-void execute_node(Scope &scope, std::shared_ptr<LoopStatement> const &node)
-{
-    Value ret = make_void();
-    while (true) {
-        scope.execute(node->statement);
-        if (scope.interpreter->break_) {
-            if (scope.interpreter->break_->empty() || scope.interpreter->break_ == node->label) {
-                scope.interpreter->break_.reset();
-            }
-            break;
-        }
-        if (scope.interpreter->continue_) {
-            if (scope.interpreter->continue_->empty() || scope.interpreter->continue_ == node->label) {
-                scope.interpreter->continue_.reset();
-            } else {
-                break;
-            }
-        }
-        scope.pop_back();
-    }
-}
-
-template<>
-void execute_node(Scope &scope, std::shared_ptr<Module> const &node)
-{
-    scope.execute(node->statements);
-}
-
-template<>
-void execute_node(Scope &scope, std::shared_ptr<Program> const &node)
-{
-    for (auto &[_, mod] : node->modules) {
-        scope.execute(mod);
-    }
-    Value ret = make_void();
-    for (auto &[_, mod] : node->modules) {
-        if (auto main = mod->ns->find_function(L"main", TypeRegistry::the().function_of(std::vector<pType> {}, TypeRegistry::i32)); main != nullptr) {
-            auto call_expr = make_node<Call>(
-                TokenLocation {},
-                make_node<Identifier>(TokenLocation {}, L"main"),
-                make_node<ExpressionList>(TokenLocation {}, SyntaxNodes {}));
-            Scope mod_scope { scope.interpreter, call_expr, &scope };
-            mod_scope.execute(call_expr);
-            ret = mod_scope.back();
-            mod_scope.pop_back();
-            break;
-        }
-    }
-    scope.push_back(ret);
-}
-
-template<>
-void execute_node(Scope &scope, std::shared_ptr<Return> const &node)
-{
-    scope.execute(node->expression);
-}
-
-template<>
-void execute_node(Scope &scope, std::shared_ptr<UnaryExpression> const &node)
-{
-    if (node->op == Operator::AddressOf) {
-        auto const path = std::dynamic_pointer_cast<MemberPath>(node->operand);
-        assert(path != nullptr);
-        if (path->path.size() > 1) {
-            fatal("Can't do structs yet");
-        }
-        auto const &ident = path->path[0];
-        scope.push_back(scope.ptr_to(scope.ref_of(ident->identifier)));
+    auto const &lhs = interpreter.stack.get(-1);
+    auto const  rhs_type = impl.payload;
+    assert(rhs_type != nullptr);
+    if (auto const coerced_maybe = lhs.coerce(rhs_type); coerced_maybe) {
+        interpreter.stack.pop_back();
+        interpreter.stack.push(coerced_maybe.value());
+        interpreter.call_stack.back().ip++;
         return;
     }
-    if (node->op == Operator::Sizeof && node->operand->type == SyntaxNodeType::TypeSpecification) {
-        scope.push_back(Value { TypeRegistry::i64, node->operand->bound_type->size_of() });
+    fatal(L"Could not convert value of type `{}` to `{}`", lhs.type->to_string(), rhs_type->to_string());
+}
+
+template<>
+void execute_op<>(Interpreter &interpreter, Operation::DeclVar const &)
+{
+    interpreter.call_stack.back().ip++;
+}
+
+template<>
+void execute_op<>(Interpreter &interpreter, Operation::Discard const &)
+{
+    interpreter.stack.pop_back();
+    interpreter.call_stack.back().ip++;
+}
+
+template<>
+void execute_op<>(Interpreter &interpreter, Operation::Jump const &impl)
+{
+    interpreter.call_stack.back().ip = impl.payload;
+}
+
+template<>
+void execute_op<>(Interpreter &interpreter, Operation::JumpF const &impl)
+{
+    if (auto const cond { interpreter.stack.get(-1) }; !as<bool>(cond)) {
+        interpreter.call_stack.back().ip = impl.payload;
         return;
     }
-    scope.execute(node->operand);
-    auto const ret = evaluate(node->op, scope.back());
-    scope.pop_back();
-    scope.push_back(ret);
+    interpreter.call_stack.back().ip++;
 }
 
 template<>
-void execute_node(Scope &scope, std::shared_ptr<VariableDeclaration> const &node)
+void execute_op<>(Interpreter &interpreter, Operation::JumpT const &impl)
 {
-    Value init_value;
-    if (node->initializer != nullptr) {
-        scope.execute(node->initializer);
-        init_value = scope.back();
-        scope.pop_back();
+    if (auto const cond { interpreter.stack.get(-1) }; as<bool>(cond)) {
+        interpreter.call_stack.back().ip = impl.payload;
+        return;
+    }
+    interpreter.call_stack.back().ip++;
+}
+
+template<>
+void execute_op<>(Interpreter &interpreter, Operation::Label const &)
+{
+    interpreter.call_stack.back().ip++;
+}
+
+template<>
+void execute_op<>(Interpreter &interpreter, Operation::NativeCall const &impl)
+{
+    std::vector<Value> native_args;
+    for (auto ix = 0; ix < impl.payload.parameters.size(); ++ix) {
+        native_args.emplace_back(interpreter.stack.get(-1 - ix));
+    }
+    interpreter.stack.pop_back(static_cast<int>(native_args.size()));
+    if (auto const ret = native_call(as_utf8(impl.payload.name), native_args, impl.payload.return_type); ret) {
+        interpreter.stack.push(*ret);
+        interpreter.call_stack.back().ip++;
+        return;
+    }
+    fatal(L"Error executing native function `{}`", impl.payload.name);
+}
+
+template<>
+void execute_op<>(Interpreter &interpreter, Operation::PushConstant const &impl)
+{
+    interpreter.stack.push(impl.payload);
+    interpreter.call_stack.back().ip++;
+}
+
+template<>
+void execute_op<>(Interpreter &interpreter, Operation::PushValue const &impl)
+{
+    auto const ref = interpreter.current_scope().ref_of(impl.payload);
+    interpreter.stack.push(interpreter.current_scope().get(ref));
+    interpreter.call_stack.back().ip++;
+}
+
+template<>
+void execute_op<>(Interpreter &interpreter, Operation::PushVarAddress const &impl)
+{
+    auto const ref = interpreter.current_scope().ref_of(impl.payload);
+    interpreter.stack.push(Value { TypeRegistry::u64, ref });
+    interpreter.call_stack.back().ip++;
+}
+
+template<>
+void execute_op<>(Interpreter &interpreter, Operation::Return const &)
+{
+    interpreter.call_stack.pop_back();
+}
+
+template<>
+void execute_op<>(Interpreter &interpreter, Operation::ScopeBegin const &impl)
+{
+    interpreter.new_scope(interpreter.call_stack.back().ir, impl.payload);
+    interpreter.call_stack.back().ip++;
+}
+
+template<>
+void execute_op<>(Interpreter &interpreter, Operation::ScopeEnd const &)
+{
+    interpreter.scopes.pop_back();
+    interpreter.call_stack.back().ip++;
+}
+
+template<>
+void execute_op<>(Interpreter &interpreter, Operation::Sub const &impl)
+{
+    auto &ctx { interpreter.call_stack.back() };
+    ctx.ip += 1;
+    interpreter.call_stack.emplace_back(ctx.ir, as<uint64_t>(impl.payload));
+    interpreter.call_stack.back().ip++;
+}
+
+template<>
+void execute_op<>(Interpreter &interpreter, Operation::SubRet const &impl)
+{
+    interpreter.call_stack.pop_back();
+    interpreter.call_stack.back().ip++;
+}
+
+template<>
+void execute_op<>(Interpreter &interpreter, Operation::UnaryOperator const &impl)
+{
+    auto const &operand = interpreter.stack.get(-1);
+    auto const  res = evaluate(operand, impl.payload.op, Value {});
+    interpreter.stack.pop_back();
+    interpreter.stack.push(res);
+    interpreter.call_stack.back().ip++;
+}
+
+void execute_op(Operation const &op, Interpreter &interpreter)
+{
+    return std::visit(
+        [&interpreter]<typename Op>(Op const &payload) -> void {
+            return execute_op<Op>(interpreter, payload);
+        },
+        op.op);
+}
+
+Scope &Interpreter::current_scope()
+{
+    assert(!scopes.empty());
+    return scopes.back();
+}
+
+Scope &Interpreter::new_scope(IRNode const &ir, uint64_t variables)
+{
+    if (scopes.empty()) {
+        scopes.emplace_back(this, variables, nullptr, ir);
     } else {
-        init_value = make_value(node->bound_type);
+        auto parent = std::visit(overloads {
+                                     [this](IR::pProgram const &program) -> Scope * {
+                                         UNREACHABLE();
+                                     },
+                                     [this](IR::pModule const &module) -> Scope * {
+                                         auto *program_scope { &scopes[0] };
+                                         assert(std::holds_alternative<pProgram>(program_scope->ir));
+                                         return program_scope;
+                                     },
+                                     [this](IR::pFunction const &function) -> Scope * {
+                                         for (auto &s : scopes) {
+                                             if (std::holds_alternative<IR::pModule>(s.ir)) {
+                                                 if (auto const &mod = std::get<IR::pModule>(s.ir); mod == function->module) {
+                                                     return &s;
+                                                 }
+                                             }
+                                         }
+                                         UNREACHABLE();
+                                     },
+                                     [this](auto const &ir) -> Scope * {
+                                         return &scopes.back();
+                                     },
+                                 },
+            ir);
+        scopes.emplace_back(this, variables, parent, ir);
     }
-    scope.reassign(node->name, init_value);
-    scope.push_back(scope.ref_of(node->name));
+    return scopes.back();
 }
 
-template<>
-void execute_node(Scope &scope, std::shared_ptr<WhileStatement> const &node)
-{
-    Value ret = make_void();
-    while (true) {
-        scope.execute(node->condition);
-        Value res = scope.back();
-        assert(res.type == TypeRegistry::boolean);
-        auto cond = as<bool>(res);
-        scope.pop_back();
-        if (!cond) {
-            scope.push_back(ret);
-            break;
-        }
-
-        scope.execute(node->statement);
-        ret = scope.back();
-        scope.pop_back();
-        if (scope.interpreter->break_) {
-            if (scope.interpreter->break_->empty() || scope.interpreter->break_ == node->label) {
-                scope.interpreter->break_.reset();
-                scope.push_back(ret);
-            }
-            break;
-        }
-        if (scope.interpreter->continue_) {
-            if (scope.interpreter->continue_->empty() || scope.interpreter->continue_ == node->label) {
-                scope.interpreter->break_.reset();
-                continue;
-            }
-            break;
-        }
-    }
-}
-
-Scope::Scope(Interpreter *interpreter, pSyntaxNode owner, Scope *parent)
-    : interpreter(interpreter)
-    , parent(parent)
-    , owner(std::move(owner))
-    , bp(parent ? parent->bp : 0)
-{
-    allocate();
-}
-
-Scope::~Scope()
-{
-    release();
-}
-
-void Scope::execute(pSyntaxNode const &node)
+void Interpreter::execute_operations(IRNode const &ir)
 {
     // std::cerr << "Stack: (" << interpreter->stack.size() << "): ";
-    // for (auto const &v : interpreter->stack) {
-    //     std::wcerr << L"{ " << v.to_string() << " }";
+    // for (auto const &v : interpreter->stack) {s)
+    //     std::wcerr << L"{ " << v.to_string() << "
     // }
     // std::cerr << "\n";
-    switch (node->type) {
-#undef S
-#define S(T)                                                     \
-    case SyntaxNodeType::T: {                                    \
-        trace("execute_node(" #T ")");                           \
-        execute_node(*this, std::dynamic_pointer_cast<T>(node)); \
-    } break;
-        SyntaxNodeTypes(S)
-#undef S
-            default : UNREACHABLE();
-    }
-}
+    auto const &operations = std::visit(
+        overloads {
+            [](std::monostate const &) -> std::vector<Operation> const & {
+                fatal("Can't execute null IR Node");
+            },
+            [](pProgram const &) -> std::vector<Operation> const & {
+                fatal("Can't execute program IR Node");
+            },
+            [](auto const &n) -> std::vector<Operation> const & {
+                return n->operations;
+            } },
+        ir);
 
-void Scope::execute_block(std::shared_ptr<Block> const &block)
-{
-    bool  first { true };
-    for (auto const &stmt : block->statements) {
-        if (!first) {
-            pop_back();
+    std::map<uint64_t, uint64_t> labels;
+    uint64_t                     ip = 0;
+    for (auto const &op : operations) {
+        if (std::holds_alternative<Operation::Label>(op.op)) {
+            auto const [lbl] = std::get<Operation::Label>(op.op);
+            labels[lbl] = ip;
         }
-        first = false;
-        execute(stmt);
+        ++ip;
     }
-    for (auto const &defer : std::views::reverse(block->deferred_statements)) {
-        execute(defer);
-        pop_back();
-    }
-
-}
-
-
-ValueReference Scope::ref_of(std::wstring const &name) const
-{
-    if (values.contains(name)) {
-        trace(L"ref_of({}) -> {}", name, values.at(name));
-        return values.at(name);
-    }
-    if (parent != nullptr) {
-        return parent->ref_of(name);
-    }
-    fatal("Variable `{}` not found");
-}
-
-Value Scope::ptr_to(ValueReference const reference) const
-{
-    Value &v = get(reference);
-    return Value { TypeRegistry::the().referencing(v.type), as_ptr(&v) };
-}
-
-Value &Scope::value(std::wstring const &name) const
-{
-    return get(ref_of(name));
-}
-
-void Scope::add_value(std::wstring const &name, Value const &value)
-{
-    values.try_emplace(name, interpreter->stack.size());
-    push(interpreter->stack, value, name);
-}
-
-void Scope::reassign(std::wstring const &name, Value const &v)
-{
-    if (values.contains(name)) {
-        set(values[name], v);
-        return;
-    }
-    if (parent != nullptr) {
-        parent->reassign(name, v);
+    for (ip = 0; ip < operations.size();) {
+        Operation const &op = operations[ip];
+        execute_op(op, *this);
     }
 }
 
-pSyntaxNode Scope::name(std::wstring const &name) const
+void Interpreter::execute(IR::IRNode const &ir)
 {
-    assert(owner->ns != nullptr);
-    return owner->ns->find_variable(name);
+    std::visit(
+        overloads {
+            [](std::monostate const &) {
+                fatal("Can't execute null IR Node");
+            },
+            [this, &ir](pProgram const &program) {
+                new_scope(ir, 0);
+                call_stack.emplace_back(ir, 0);
+                IR::pFunction main { nullptr };
+                for (auto const &mod : program->modules | std::views::values) {
+                    execute(mod);
+                    if (main == nullptr && mod->functions.contains(L"main")) {
+                        main = mod->functions[L"main"];
+                    }
+                }
+                if (main != nullptr) {
+                    execute(main);
+                }
+            },
+            [this, &ir](IR::pModule const &mod) {
+                new_scope(ir, mod->variables.size());
+                call_stack.emplace_back(ir, 0);
+                execute_operations(ir);
+            },
+            [this, &ir](pFunction const &n) {
+                execute_operations(ir);
+            } },
+        ir);
 }
 
-void Scope::allocate()
+Scope &execute_ir(IRNode const &ir)
 {
-    uint64_t const old_bp = bp;
-    bp = interpreter->stack.size();
-    push(interpreter->stack, Value { old_bp }, L"old_bp ");
-    for (auto const &name : owner->ns->variables | std::views::keys) {
-        values.try_emplace(name, interpreter->stack.size());
-        push(interpreter->stack, Value {}, name, false);
-    }
-    std::wcout << L"--- allocate\n";
-    for (auto const &[name, ix] : values) {
-        std::wcout << name << " = " << ix << std::endl;
-    }
-    dump(interpreter->stack);
-}
-
-void Scope::release()
-{
-    auto const new_bp = as<uint64_t>(interpreter->stack.get(static_cast<ValueReference>(bp)));
-    interpreter->stack.stack.erase(interpreter->stack.stack.begin() + static_cast<ssize_t>(bp), interpreter->stack.stack.end());
-    bp = new_bp;
-}
-
-void Scope::push_back(Value const &val) const
-{
-    interpreter->stack.push(val);
-}
-
-void Scope::push_back(ValueReference const ref) const
-{
-    interpreter->stack.push(ref);
-}
-
-void Scope::set(ValueReference const ref, Value const &val) const
-{
-    interpreter->stack.set(ref, val);
-}
-
-Value &Scope::back() const
-{
-    return interpreter->stack.get(-1);
-}
-
-Value &Scope::get(ValueReference const &ref) const
-{
-    return interpreter->stack.get(ref);
-}
-
-void Scope::pop_back(int const count) const
-{
-    interpreter->stack.pop_back(count);
+    Interpreter interpreter;
+    interpreter.execute(ir);
+    return interpreter.current_scope();
 }
 
 }

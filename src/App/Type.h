@@ -589,3 +589,5 @@ pType make_error(TokenLocation location, std::wformat_string<Args...> const mess
     return make_error(std::move(location), std::vformat(message.get(), std::make_wformat_args(args...)));
 }
 }
+
+std::wostream &operator<<(std::wostream &os, Arwen::pType const &type);

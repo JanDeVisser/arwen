@@ -542,3 +542,9 @@ pType make_error(TokenLocation location, std::wstring msg)
 }
 
 }
+
+std::wostream &operator<<(std::wostream &os, Arwen::pType const &type)
+{
+    os << type->to_string();
+    return os;
+}

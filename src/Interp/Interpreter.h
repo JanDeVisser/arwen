@@ -11,6 +11,7 @@
 
 #include <Util/Logging.h>
 
+#include <App/IR/IR.h>
 #include <App/Operator.h>
 #include <App/SyntaxNode.h>
 
@@ -63,39 +64,44 @@ using ValueAddress = std::variant<std::wstring, size_t>;
 struct Scope {
     struct Interpreter                    *interpreter;
     Scope                                 *parent { nullptr };
-    pSyntaxNode                            owner;
+    IR::IRNode                             ir;
     std::map<std::wstring, ValueReference> values {};
     size_t                                 bp { 0 };
+    size_t                                 vp { 0 };
 
-    Scope(Interpreter *interpreter, pSyntaxNode owner, Scope *parent = nullptr);
+    Scope(Interpreter *interpreter, uint64_t variables, Scope *parent = nullptr, IR::IRNode ir = IR::IRNode());
     ~Scope();
-    void                         execute(pSyntaxNode const &node);
-    void                         execute_block(std::shared_ptr<Block> const &block);
     [[nodiscard]] ValueReference ref_of(std::wstring const &name) const;
     [[nodiscard]] Value          ptr_to(ValueReference reference) const;
     void                         add_value(std::wstring const &name, Value const &value);
     [[nodiscard]] Value         &value(std::wstring const &name) const;
     void                         reassign(std::wstring const &name, Value const &value);
-    [[nodiscard]] pSyntaxNode    name(std::wstring const &name) const;
-    void                         allocate();
-    void                         release();
-    void                         push_back(Value const &val) const;
-    void                         push_back(ValueReference const ref) const;
-    void                         set(ValueReference const ref, Value const &val) const;
+    void                         set(ValueReference ref, Value const &val) const;
     [[nodiscard]] Value         &back() const;
     [[nodiscard]] Value         &get(ValueReference const &ref) const;
-    void                         pop_back(int count = 1) const;
 };
 
 struct Interpreter {
-    std::vector<Scope>          scopes;
-    ValueStack                  stack;
-    std::optional<std::wstring> break_;
-    std::optional<std::wstring> continue_;
+    struct Context {
+        IR::IRNode ir;
+        uint64_t   ip;
+    };
+
+    std::vector<Scope>   scopes;
+    ValueStack           stack;
+    std::vector<Context> call_stack;
 
     Interpreter() = default;
     Interpreter(Interpreter &) = delete;
     Interpreter(Interpreter &&) = delete;
+
+    void   execute_operations(IR::IRNode const &ir);
+    void   execute(IR::IRNode const &ir);
+    Scope &current_scope();
+    Scope &new_scope(IR::IRNode const &ir, uint64_t variables);
 };
+
+std::optional<uint64_t> execute_op(IR::Operation const &op, Interpreter::Context &ctx);
+Scope                  &execute_ir(IR::IRNode const &ir);
 
 }

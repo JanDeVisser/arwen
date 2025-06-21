@@ -1,0 +1,8 @@
+func x(i: i64) u32
+{
+   y = loop {
+      4+2
+      if (z) break;
+      3.14*2
+   }
+}
