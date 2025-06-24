@@ -459,23 +459,69 @@ Atom evaluate(Operator op, Atom const &operand)
 Value::Value(Value &other)
     : type(other.type)
 {
-    std::visit(overloads {
-                   [this](std::monostate const &) {
-                       this->payload = std::monostate {};
-                   },
-                   [this](Atom const &atom) {
-                       this->payload = atom;
-                   },
-                   [this](Atoms const &atoms) {
-                       this->payload = atoms;
-                   } },
+    std::visit(
+        overloads {
+            [this](std::monostate const &) {
+                this->payload = std::monostate {};
+            },
+            [this](Atom const &atom) {
+                this->payload = atom;
+            },
+            [this](Atoms const &atoms) {
+                this->payload = atoms;
+            } },
         other.payload);
 }
 
 Value::Value(pType const &type)
     : type(type)
-    , payload(std::monostate {})
 {
+    switch (type->kind()) {
+    case TypeKind::IntType: {
+        auto int_type { std::get<IntType>(type->description) };
+        switch (int_type.width_bits) {
+        case 8:
+            payload = Atom { (int_type.is_signed) ? static_cast<int8_t>(0) : static_cast<uint8_t>(0) };
+            break;
+        case 16:
+            payload = Atom { (int_type.is_signed) ? static_cast<int16_t>(0) : static_cast<uint16_t>(0) };
+            break;
+        case 32:
+            payload = Atom { (int_type.is_signed) ? static_cast<int32_t>(0) : static_cast<uint32_t>(0) };
+            break;
+        case 64:
+            payload = Atom { (int_type.is_signed) ? static_cast<int64_t>(0) : static_cast<uint64_t>(0) };
+            break;
+        }
+    } break;
+    case TypeKind::FloatType: {
+        auto flt_type { std::get<FloatType>(type->description) };
+        switch (flt_type.width_bits) {
+        case 32:
+            payload = Atom { 0.0f };
+            break;
+        case 64:
+            payload = Atom { 0.0 };
+            break;
+        }
+
+    } break;
+    case TypeKind::DynArray:
+        payload = Atom { DynamicArray { nullptr, 0, 0 } };
+        break;
+    case TypeKind::SliceType:
+        payload = Atom { Slice { nullptr, 0 } };
+        break;
+    case TypeKind::Array:
+        payload = Atom { StaticArray { nullptr, 0 } };
+        break;
+    case TypeKind::VoidType:
+        payload = std::monostate {};
+        break;
+    default:
+        fatal(L"Need more types: {}", type->name);
+        break;
+    }
 }
 
 Value::Value(int8_t const val)

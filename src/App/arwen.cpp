@@ -4,21 +4,27 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "App/SyntaxNode.h"
-#include "Util/TokenLocation.h"
-#include "Util/Utf8.h"
+#include "App/Type.h"
+#include "Interp/Interpreter.h"
+#include <cstdint>
 #include <iostream>
 #include <limits>
 #include <ostream>
 #include <string_view>
 
-#include <App/Parser.h>
-#include <App/IR/IR.h>
 #include <Util/IO.h>
 #include <Util/Lexer.h>
 #include <Util/Logging.h>
 #include <Util/Options.h>
 #include <Util/Result.h>
+#include <Util/TokenLocation.h>
+#include <Util/Utf8.h>
+
+#include <App/Parser.h>
+#include <App/SyntaxNode.h>
+
+#include <App/IR/IR.h>
+#include <variant>
 
 namespace Arwen {
 
@@ -35,7 +41,7 @@ void usage()
     exit(1);
 }
 
-void compile_file(std::string_view file_name)
+IR::IRNode compile_file(std::string_view file_name)
 {
     Parser parser;
     parser.program = make_node<Program>(TokenLocation {}, as_wstring(file_name), std::make_shared<Namespace>(parser.root));
@@ -51,7 +57,7 @@ void compile_file(std::string_view file_name)
         }
         if (!mod) {
             std::cerr << "Syntax error(s) found" << std::endl;
-            return;
+            return {};
         }
         parser.program->modules[mod->name] = mod;
         parser.errors.clear();
@@ -64,17 +70,17 @@ void compile_file(std::string_view file_name)
         auto const normalized = normalize_node(parser.program, parser);
         if (!normalized) {
             std::cerr << "Internal error(s) encountered" << std::endl;
-            return;
+            return {};
         }
         for (auto const &err : parser.errors) {
             std::wcerr << err.location.line << ':' << err.location.column << " " << err.message << std::endl;
-            return;
+            return {};
         }
         normalized->dump();
 
         std::wcout << "STAGE 3 - Binding. Pass ";
         parser.pass = 0;
-        parser.unbound  = std::numeric_limits<int>::max();
+        parser.unbound = std::numeric_limits<int>::max();
         int prev_pass;
         do {
             std::wcout << parser.pass << " ";
@@ -86,13 +92,13 @@ void compile_file(std::string_view file_name)
             if (!bound_type) {
                 std::wcout << std::endl;
                 std::cerr << "Internal error(s) encountered" << std::endl;
-                return;
+                return {};
             }
             if (!parser.errors.empty()) {
                 std::wcout << std::endl;
                 for (auto const &err : parser.errors) {
                     std::wcerr << err.location.line << ':' << err.location.column << " " << err.message << std::endl;
-                    return;
+                    return {};
                 }
             }
             ++parser.pass;
@@ -104,20 +110,22 @@ void compile_file(std::string_view file_name)
                 std::wcerr << node->location.line << ':' << node->location.column << " ";
                 node->header_line(std::wcerr);
                 std::wcerr << std::endl;
-                return;
+                return {};
             }
         }
         normalized->dump();
         std::wcout << "STAGE 4 - Generating IR\n";
-        IR::generate_ir(normalized);
+        return IR::generate_ir(normalized);
     } else {
         std::cerr << "Could not open '" << file_name << "': " << contents_maybe.error().to_string() << std::endl;
     }
+    return {};
 }
 
 int main(int argc, char const **argv)
 {
     int cmd_ix = parse_options(argc, argv);
+    set_logging_config(LoggingConfig { has_option("trace") ? LogLevel::Trace : LogLevel::Info });
     if (cmd_ix >= argc) {
         usage("No command specified");
     }
@@ -126,6 +134,18 @@ int main(int argc, char const **argv)
             usage("arwen compile <main file name>");
         }
         compile_file(argv[cmd_ix + 1]);
+    } else if (!strcmp(argv[cmd_ix], "run")) {
+        if (cmd_ix >= argc - 1) {
+            usage("arwen run <main file name>");
+        }
+        auto ir = compile_file(argv[cmd_ix + 1]);
+        if (std::holds_alternative<IR::pProgram>(ir)) {
+            auto ret = Interpreter::execute_ir(ir);
+            if (ret.type == TypeRegistry::i32) {
+                return as<int32_t>(ret);
+            }
+            return 0;
+        }
     } else {
         usage(std::format("Invalid command '{}'", argv[cmd_ix]));
     }

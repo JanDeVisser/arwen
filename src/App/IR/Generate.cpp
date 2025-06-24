@@ -145,23 +145,29 @@ void generate_node(Generator &generator, std::shared_ptr<Block> const &node)
     generator.ctxs.emplace_back(Context { {}, Context::BlockDescriptor {} });
     {
         Defer _ { [&generator]() { generator.ctxs.pop_back(); } };
-        auto &ctx = generator.ctxs.back();
 
         if (node->statements.empty()) {
             add_operation<Operation::PushConstant>(generator, make_void());
             return;
         }
 
-        auto &[defer_stmts] = std::get<Context::BlockDescriptor>(ctx.unwind);
         auto discard { false };
+        auto empty { true };
         for (auto const &stmt : node->statements) {
             if (discard) {
                 add_operation<Operation::Discard>(generator);
             }
             discard = stmt->type != SyntaxNodeType::DeferStatement && stmt->type != SyntaxNodeType::FunctionDefinition;
+            empty &= !discard;
             generator.generate(stmt);
         }
 
+        if (empty) {
+            add_operation<Operation::PushConstant>(generator, make_void());
+        }
+
+        auto &ctx = generator.ctxs.back();
+        auto &[defer_stmts] = std::get<Context::BlockDescriptor>(ctx.unwind);
         if (!defer_stmts.empty()) {
             auto const end_block = next_label();
             auto const &[_, last_defer_label] = defer_stmts.back();
@@ -222,7 +228,7 @@ void generate_node(Generator &generator, std::shared_ptr<Call> const &node)
         generator.generate(expression);
     }
     if (auto const &extern_link = std::dynamic_pointer_cast<ExternLink>(node->function->implementation); extern_link != nullptr) {
-        add_operation<Operation::NativeCall>(generator, Operation::CallOp { node->function->name, params, node->bound_type });
+        add_operation<Operation::NativeCall>(generator, Operation::CallOp { extern_link->link_name, params, node->bound_type });
         return;
     }
     add_operation<Operation::Call>(generator, Operation::CallOp { node->function->name, params, node->bound_type });
@@ -487,7 +493,7 @@ std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation const &op)
 #undef S
 #define S(T, P)                              \
     case Arwen::IR::Operation::Type::T:      \
-        s = std::format("{:12.12}    ", #T); \
+        s = std::format("{:15.15}    ", #T); \
         break;
         IROperationTypes(S)
 #undef S

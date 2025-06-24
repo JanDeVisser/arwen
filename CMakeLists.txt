@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.27)
 project(arwen CXX C)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
 
 message("System: ${CMAKE_SYSTEM_NAME}. Processor: ${CMAKE_SYSTEM_PROCESSOR}. Version: ${CMAKE_SYSTEM_VERSION}. Compiler: ${CMAKE_CXX_COMPILER_ID}.")
 
@@ -107,11 +108,12 @@ add_executable(
         src/App/Syntax/Variable.cpp
         src/App/Type.cpp
         src/App/Value.cpp
+        src/App/IR/Generate.cpp
+        src/Interp/Execute.cpp
         src/Interp/Interpreter.cpp
         src/Interp/Native.cpp
         src/Interp/Scope.cpp
         src/Interp/ValueStack.cpp
-        src/App/IR/Generate.cpp
 )
 
 

@@ -1,6 +1,6 @@
-func puts(s: string) void -> "arwenrt:puts"
+func puts(s: string) void -> "libarwenrt:arwen$puts"
 
 func main() i32 {
-  puts("Hello, World!")
+  puts("Hello, World!\n")
   return 0
 }

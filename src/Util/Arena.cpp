@@ -17,12 +17,10 @@ Arena::Block::Block(size_t const &size) noexcept
     assert(size > 0 && size % 8 == 0);
     ptr = static_cast<char*>(malloc(size));
     assert(ptr != nullptr && "Out of memory");
-    std::cout << "Block(" << size << "): used " << used << " size " << size << std::endl;
 }
 
 Arena::Block::~Block()
 {
-    std::cout << "~Block()" << std::endl;
     free(ptr);
 }
 
@@ -33,7 +31,6 @@ void *Arena::Block::allocate(size_t const &bytes)
     if (used + b <= size) {
         void *ret = ptr + used;
         used += b;
-        std::cout << "allocate(" << bytes << "): aligned " << b << " used " << used << " size " << size << std::endl;
         return ret;
     }
     return nullptr;

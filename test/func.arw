@@ -1,21 +1,8 @@
-func foo(x: i64) i64
-{
-	return x * 2
+func foo(x: i64) i64 {
+     return x * 2
 }
 
-func bar(quux: []i32) bool/string
-{
-    return true
+func main() i32 {
+    foo(12)
 }
 
-func baz() void
-{
-   r := 42
-}
-
-func main() i32
-{
-    baz()
-	foo(12)
- 	return 0
-}

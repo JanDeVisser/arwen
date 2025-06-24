@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include "Util/Logging.h"
 #include <string>
 
 #include <App/SyntaxNode.h>
@@ -86,6 +87,19 @@ struct Operation {
     {
         return static_cast<Type>(op.index());
     }
+
+    [[nodiscard]] char const *type_name() const
+    {
+        switch (type()) {
+#undef S
+#define S(T, P)   \
+    case Type::T: \
+        return #T;
+            IROperationTypes(S)
+#undef S
+                default : UNREACHABLE();
+        }
+    }
 };
 
 template<typename Op>
@@ -142,7 +156,7 @@ struct Context {
         uint64_t     loop_end;
     };
     struct BlockDescriptor {
-        std::vector<std::pair<pSyntaxNode, uint64_t>> defer_stmts;
+        std::vector<std::pair<pSyntaxNode, uint64_t>> defer_stmts {};
     };
     using UnwindStackEntry = std::variant<std::monostate, LoopDescriptor, BlockDescriptor>;
 
@@ -162,7 +176,6 @@ struct Generator {
 };
 
 IRNode generate_ir(pSyntaxNode const &node);
-
 }
 
 std::wostream &operator<<(std::wostream &os, Arwen::IR::IRVariableDeclaration const &var_decl);

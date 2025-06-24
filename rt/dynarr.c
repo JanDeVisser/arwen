@@ -9,16 +9,7 @@
 #include <string.h>
 #include <wchar.h>
 
-typedef struct slice {
-    void   *ptr;
-    int64_t size;
-} slice_t;
-
-typedef struct dynarr {
-    void   *ptr;
-    int64_t size;
-    int64_t capacity;
-} dynarr_t;
+#include "arwen.h"
 
 size_t dynarr_append(dynarr_t *arr, slice_t const slice)
 {
@@ -40,16 +31,7 @@ size_t dynarr_append(dynarr_t *arr, slice_t const slice)
         arr->ptr = p;
         arr->capacity = new_cap;
     }
-    printf("dynarr_append(");
-    for (int ix = 0; ix < slice.size; ++ix) {
-        printf("%c", (char) ((wchar_t *) slice.ptr)[ix]);
-    }
-    printf(") -> ");
     wcsncpy(arr->ptr + arr->size, slice.ptr, slice.size);
     arr->size += slice.size;
-    for (int ix = 0; ix < arr->size; ++ix) {
-        printf("%c", (char) ((wchar_t *) arr->ptr)[ix]);
-    }
-    printf(")\n");
     return arr->size;
 }

@@ -14,11 +14,11 @@ using namespace Arwen;
 void dump(ValueStack const &stack)
 {
     int ix = 0;
-    std::cout << std::endl;
+    trace("");
     for (auto const &e : stack.stack) {
-        std::wcout << std::format(L"{:4}.  {:40.40} {:15.15} {:016x}\n", ix++, e.to_string(), e.annotation, reinterpret_cast<uint64_t>(&e));
+        trace(L"{:4}.  {:40.40} {:15.15} {:016x}", ix++, e.to_string(), e.annotation, reinterpret_cast<uint64_t>(&e));
     }
-    std::cout << "-- " << stack.size() << " -----------------------------------------------" << std::endl;
+    trace("-- {} -----------------------------------------------", stack.size());
 }
 
 std::wstring ValueStack::Entry::to_string() const

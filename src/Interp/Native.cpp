@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "App/Type.h"
 #include <Util/Align.h>
 #include <Util/Logging.h>
 #include <Util/Resolve.h>
@@ -58,6 +59,7 @@ std::optional<Value> native_call(std::string_view const name, std::vector<Value>
     for (size_t ix = 0; ix < values.size(); ++ix) {
         Value const &v = values[ix];
 
+        trace(L"native_call [{}]: {}", ix, v.type->name);
         // Stage B – Pre-padding and extension of arguments
         // For each argument in the list the first matching rule from the
         // following list is applied. If no rule matches the argument is used
@@ -106,7 +108,7 @@ std::optional<Value> native_call(std::string_view const name, std::vector<Value>
         // the argument is allocated to the least significant bits of register
         // v[NSRN]. The NSRN is incremented by one. The argument has now been
         // allocated.
-        switch (pType const &et = values[ix].type; et->kind()) {
+        switch (pType const &et = v.type; et->kind()) {
         case TypeKind::FloatType: {
             if (nsrn < 8) {
                 if (et == TypeRegistry::f32) {
@@ -174,17 +176,24 @@ std::optional<Value> native_call(std::string_view const name, std::vector<Value>
             // The NGRN is incremented by one. The argument has now been allocated.
         case TypeKind::IntType:
             if (ngrn < 8) {
-#undef S
-#define S(W)                            \
-    if (et == TypeRegistry::i##W) {     \
-        t.x[ngrn] = as<int##W##_t>(v);  \
-    }                                   \
-    if (et == TypeRegistry::u##W) {     \
-        t.x[ngrn] = as<uint##W##_t>(v); \
-    }
-                BitWidths(S)
-#undef S
-                    ++ ngrn;
+                auto int_type = std::get<IntType>(et->description);
+                switch (int_type.width_bits) {
+                    case 8: t.x[ngrn] = (int_type.is_signed) ? as<int8_t>(v) : as<uint8_t>(v); break;
+                    case 16: t.x[ngrn] = (int_type.is_signed) ? as<int16_t>(v) : as<uint16_t>(v); break;
+                    case 32: t.x[ngrn] = (int_type.is_signed) ? as<int32_t>(v) : as<uint32_t>(v); break;
+                    case 64: t.x[ngrn] = (int_type.is_signed) ? as<int64_t>(v) : as<uint64_t>(v); break;
+                }
+                // #undef S
+                // #define S(W)                            \
+//     if (et == TypeRegistry::i##W) {     \
+//         t.x[ngrn] = as<int##W##_t>(v);  \
+//     }                                   \
+//     if (et == TypeRegistry::u##W) {     \
+//         t.x[ngrn] = as<uint##W##_t>(v); \
+//     }
+                //                 BitWidths(S)
+                // #undef S
+                ++ngrn;
             }
             break;
 
@@ -207,11 +216,6 @@ std::optional<Value> native_call(std::string_view const name, std::vector<Value>
         case TypeKind::SliceType:
             if (ngrn < 7) {
                 auto const &[ptr, size] = as<Slice>(v);
-                printf("native: ");
-                for (int ix = 0; ix < size; ++ix) {
-                    printf("%c", (char) ((wchar_t *) ptr)[ix]);
-                }
-                printf("\n");
                 t.x[ngrn++] = reinterpret_cast<intptr_t>(ptr);
                 t.x[ngrn++] = size;
             }

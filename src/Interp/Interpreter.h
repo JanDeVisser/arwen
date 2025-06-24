@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <variant>
 
@@ -31,6 +32,14 @@ struct ValueStack {
         [[nodiscard]] std::wstring to_string() const;
     };
     std::vector<Entry> stack {};
+
+    ValueStack()
+    {
+        stack.reserve(1024);
+    }
+
+    ValueStack(ValueStack &) = delete;
+    ValueStack(ValueStack &&) = delete;
 
     [[nodiscard]] static std::wstring to_string(Entry const &e);
     void                              evaluate(Operator op);
@@ -63,14 +72,13 @@ using ValueAddress = std::variant<std::wstring, size_t>;
 
 struct Scope {
     struct Interpreter                    *interpreter;
-    Scope                                 *parent { nullptr };
+    uint64_t                               variables;
     IR::IRNode                             ir;
+    std::optional<uint64_t>                parent {};
     std::map<std::wstring, ValueReference> values {};
     size_t                                 bp { 0 };
     size_t                                 vp { 0 };
 
-    Scope(Interpreter *interpreter, uint64_t variables, Scope *parent = nullptr, IR::IRNode ir = IR::IRNode());
-    ~Scope();
     [[nodiscard]] ValueReference ref_of(std::wstring const &name) const;
     [[nodiscard]] Value          ptr_to(ValueReference reference) const;
     void                         add_value(std::wstring const &name, Value const &value);
@@ -79,6 +87,8 @@ struct Scope {
     void                         set(ValueReference ref, Value const &val) const;
     [[nodiscard]] Value         &back() const;
     [[nodiscard]] Value         &get(ValueReference const &ref) const;
+    void                         allocate();
+    void                         release();
 };
 
 struct Interpreter {
@@ -96,12 +106,13 @@ struct Interpreter {
     Interpreter(Interpreter &&) = delete;
 
     void   execute_operations(IR::IRNode const &ir);
-    void   execute(IR::IRNode const &ir);
+    Value  execute(IR::IRNode const &ir);
     Scope &current_scope();
     Scope &new_scope(IR::IRNode const &ir, uint64_t variables);
+    void   drop_scope();
 };
 
-std::optional<uint64_t> execute_op(IR::Operation const &op, Interpreter::Context &ctx);
-Scope                  &execute_ir(IR::IRNode const &ir);
+void  execute_op(IR::Operation const &op, Interpreter &interpreter);
+Value execute_ir(IR::IRNode const &ir);
 
 }

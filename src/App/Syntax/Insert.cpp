@@ -36,18 +36,7 @@ pSyntaxNode Insert::normalize(Parser &parser)
     Parser insert_parser;
     auto   script = insert_parser.parse_script(script_text);
     if (script) {
-        auto block = std::dynamic_pointer_cast<Block>(script);
-        assert(block != nullptr);
-        block->statements.insert(
-            block->statements.begin(),
-            std::make_shared<VariableDeclaration>(
-                L"output",
-                std::make_shared<TypeSpecification>(
-                    TypeNameNode {
-                        L"string_builder" }),
-                nullptr,
-                false));
-        block->ns->parent = parser.namespaces.back();
+        script->ns->parent = parser.namespaces.back();
         std::cout << "Parsed compile time script\n\n";
         script->dump();
         script = normalize_node(script, insert_parser);
@@ -66,8 +55,7 @@ pSyntaxNode Insert::normalize(Parser &parser)
         script->dump();
 
         auto        script_ir = IR::generate_ir(script);
-        auto       &scope = execute_ir(script_ir);
-        auto const &output_val = scope.value(L"output");
+        auto        output_val = execute_ir(script_ir);
         auto const  output_dynarr = as<DynamicArray>(output_val);
         auto const  output = std::wstring { static_cast<wchar_t *>(output_dynarr.ptr), static_cast<size_t>(output_dynarr.size) };
 

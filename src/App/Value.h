@@ -8,7 +8,7 @@
 
 #include <concepts>
 #include <cstdint>
-#include <ranges>
+#include <cxxabi.h>
 #include <string>
 #include <variant>
 
@@ -85,6 +85,9 @@ struct Atom {
 template<typename T>
 T const &as(Atom const &atom)
 {
+    int         status;
+    char const *mangled { typeid(T).name() };
+    char       *demangled = abi::__cxa_demangle(mangled, 0, 0, &status);
     return std::get<T>(atom.payload);
 }
 
@@ -94,7 +97,7 @@ T &as(Atom &atom)
     return std::get<T>(atom.payload);
 }
 
-inline void *as_ptr(Atom &atom)
+inline void *address_of(Atom &atom)
 {
     return std::visit(
         [](auto &val) -> void * {
@@ -159,17 +162,18 @@ struct Value {
 
     std::wstring as_wstring() const
     {
-        return std::visit(overloads {
-                              [](std::monostate const &) -> std::wstring {
-                                  fatal("Cannot convert empty value to std::wstring");
-                              },
-                              [](Atom const &atom) -> std::wstring {
-                                  auto const &[ptr, size] = as<Slice>(atom);
-                                  return { static_cast<wchar_t *>(ptr), static_cast<size_t>(size) };
-                              },
-                              [](Atoms const &atoms) -> std::wstring {
-                                  UNREACHABLE();
-                              } },
+        return std::visit(
+            overloads {
+                [](std::monostate const &) -> std::wstring {
+                    fatal("Cannot convert empty value to std::wstring");
+                },
+                [](Atom const &atom) -> std::wstring {
+                    auto const &[ptr, size] = as<Slice>(atom);
+                    return { static_cast<wchar_t *>(ptr), static_cast<size_t>(size) };
+                },
+                [](Atoms const &atoms) -> std::wstring {
+                    UNREACHABLE();
+                } },
             payload);
     }
 };
@@ -177,48 +181,54 @@ struct Value {
 template<typename T>
 T &as(Value &val)
 {
-    return std::visit(overloads {
-                          [](std::monostate &) -> T & {
-                              fatal("Cannot convert empty value to type `{}`", typeid(T).name());
-                          },
-                          [](Atom &atom) -> T & {
-                              return as<T>(atom);
-                          },
-                          [](Atoms &) -> T & {
-                              UNREACHABLE();
-                          } },
+    return std::visit(
+        overloads {
+            [](std::monostate &) -> T & {
+                fatal("Cannot convert empty value to type `{}`", typeid(T).name());
+            },
+            [](Atom &atom) -> T & {
+                return as<T>(atom);
+            },
+            [](Atoms &) -> T & {
+                UNREACHABLE();
+            } },
         val.payload);
 }
 
 template<typename T>
 T const &as(Value const &val)
 {
-    return std::visit(overloads {
-                          [](std::monostate const &) -> T const & {
-                              fatal("Cannot convert empty value to type `{}`", typeid(T).name());
-                          },
-                          [](Atom const &atom) -> T const & {
-                              return as<T>(atom);
-                          },
-                          [](Atoms const &) -> T const & {
-                              UNREACHABLE();
-                          } },
+    return std::visit(
+        overloads {
+            [](std::monostate const &) -> T const & {
+                fatal("Cannot convert empty value to type `{}`", typeid(T).name());
+            },
+            [](Atom const &atom) -> T const & {
+                return as<T>(atom);
+            },
+            [](Atoms const &) -> T const & {
+                UNREACHABLE();
+            } },
         val.payload);
 }
 
-inline void *as_ptr(Value *val)
+inline void *address_of(Value &val)
 {
-    return std::visit(overloads {
-                          [](std::monostate &) -> void * {
-                              fatal("Cannot convert empty value pointer");
-                          },
-                          [](Atom &atom) -> void * {
-                              return as_ptr(atom);
-                          },
-                          [](Atoms &) -> void * {
-                              UNREACHABLE();
-                          } },
-        val->payload);
+    trace("address_of {}", reinterpret_cast<void*>(&val));
+    auto ret = std::visit(
+        overloads {
+            [](std::monostate &) -> void * {
+                fatal("Cannot convert empty value pointer");
+            },
+            [](Atom &atom) -> void * {
+                return address_of(atom);
+            },
+            [](Atoms &) -> void * {
+                UNREACHABLE();
+            } },
+        val.payload);
+    trace("address of payload {}", ret);
+    return ret;
 }
 
 template<typename T>
@@ -298,23 +308,24 @@ inline std::wostream &operator<<(std::wostream &os, Arwen::Atom const &atom)
 {
     using namespace Util;
     using namespace Arwen;
-    std::visit(overloads {
-                   [&os](bool const &b) -> void {
-                       os << std::boolalpha << b;
-                   },
-                   [&os](Slice const &v) -> void {
-                       os << static_cast<char *>(v.ptr);
-                   },
-                   [&os](DynamicArray const &v) -> void {
-                       UNREACHABLE();
-                   },
-                   [&os](StaticArray const &v) -> void {
-                       UNREACHABLE();
-                   },
-                   [&os](auto const &v) -> void {
-                       os << v;
-                   },
-               },
+    std::visit(
+        overloads {
+            [&os](bool const &b) -> void {
+                os << std::boolalpha << b;
+            },
+            [&os](Slice const &v) -> void {
+                os << static_cast<char *>(v.ptr);
+            },
+            [&os](DynamicArray const &v) -> void {
+                UNREACHABLE();
+            },
+            [&os](StaticArray const &v) -> void {
+                UNREACHABLE();
+            },
+            [&os](auto const &v) -> void {
+                os << v;
+            },
+        },
         atom.payload);
     return os;
 }
@@ -324,23 +335,24 @@ inline std::wostream &operator<<(std::wostream &os, Arwen::Value const &value)
     using namespace Util;
     using namespace Arwen;
     os << "[" << value.type->to_string() << "] ";
-    std::visit(overloads {
-                   [&os](std::monostate const &) -> void {
-                   },
-                   [&os](Atom const &atom) -> void {
-                       os << atom;
-                   },
-                   [&os](Atoms const &atoms) -> void {
-                       auto first { true };
-                       for (auto const &atom : atoms) {
-                           if (!first) {
-                               os << ", ";
-                           }
-                           first = false;
-                           os << atom;
-                       }
-                   },
-               },
+    std::visit(
+        overloads {
+            [&os](std::monostate const &) -> void {
+            },
+            [&os](Atom const &atom) -> void {
+                os << atom;
+            },
+            [&os](Atoms const &atoms) -> void {
+                auto first { true };
+                for (auto const &atom : atoms) {
+                    if (!first) {
+                        os << ", ";
+                    }
+                    first = false;
+                    os << atom;
+                }
+            },
+        },
         value.payload);
     return os;
 }

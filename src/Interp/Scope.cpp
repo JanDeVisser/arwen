@@ -4,8 +4,10 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "App/Value.h"
 #include <App/IR/IR.h>
 #include <Interp/Interpreter.h>
+#include <variant>
 
 namespace Arwen::Interpreter {
 
@@ -13,25 +15,24 @@ using namespace Util;
 using namespace Arwen;
 using namespace Arwen::IR;
 
-Scope::Scope(Interpreter *interpreter, uint64_t const variables, Scope *parent, IRNode ir)
-    : interpreter(interpreter)
-    , parent(parent)
-    , ir(ir)
+void Scope::allocate()
 {
-    uint64_t const old_bp = bp;
     bp = interpreter->stack.size();
-    push(interpreter->stack, Value { old_bp }, L"old_bp");
+    vp = interpreter->stack.size();
     for (auto ix = 0; ix < variables; ++ix) {
         push(interpreter->stack, Value {}, L"", false);
     }
-    vp = interpreter->stack.size() - bp;
+    trace("Scope::allocate: bp {} vp {} stack sz {}", bp, vp, interpreter->stack.size());
 }
 
-Scope::~Scope()
+void Scope::release()
 {
-    auto const new_bp = as<uint64_t>(interpreter->stack.get(static_cast<ValueReference>(bp)));
+    if (std::holds_alternative<IR::pProgram>(ir) || std::holds_alternative<IR::pModule>(ir)) {
+        trace("Scope::release: persistant Scope bp: {}", bp);
+        return;
+    }
     interpreter->stack.stack.erase(interpreter->stack.stack.begin() + static_cast<ssize_t>(bp), interpreter->stack.stack.end());
-    bp = new_bp;
+    trace("Scope::release: stack sz {}", interpreter->stack.size());
 }
 
 ValueReference Scope::ref_of(std::wstring const &name) const
@@ -40,16 +41,17 @@ ValueReference Scope::ref_of(std::wstring const &name) const
         trace(L"ref_of({}) -> {}", name, values.at(name));
         return values.at(name);
     }
-    if (parent != nullptr) {
-        return parent->ref_of(name);
+    if (parent) {
+        auto &p = interpreter->scopes[*parent];
+        return p.ref_of(name);
     }
-    fatal("Variable `{}` not found");
+    fatal(L"Variable `{}` not found", name);
 }
 
 Value Scope::ptr_to(ValueReference const reference) const
 {
     Value &v = get(reference);
-    return Value { TypeRegistry::the().referencing(v.type), as_ptr(&v) };
+    return Value { TypeRegistry::the().referencing(v.type), address_of(v) };
 }
 
 Value &Scope::value(std::wstring const &name) const
@@ -71,8 +73,9 @@ void Scope::reassign(std::wstring const &name, Value const &value)
         set(values[name], value);
         return;
     }
-    if (parent != nullptr) {
-        parent->reassign(name, value);
+    if (parent) {
+        auto &p = interpreter->scopes[*parent];
+        return p.reassign(name, value);
     }
 }
 

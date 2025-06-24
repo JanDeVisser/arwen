@@ -83,6 +83,21 @@ struct LogMessage {
     T const         *message;
 };
 
+struct LoggingConfig {
+    explicit LoggingConfig(LogLevel lvl)
+        : level(lvl)
+    {
+        int x = 12;
+    }
+
+    LogLevel level { LogLevel::Trace };
+};
+
+extern LoggingConfig config;
+extern std::mutex    g_logging_mutex;
+
+extern void set_logging_config(LoggingConfig const &c);
+
 template<typename T>
 std::basic_string<T> file_name(LogMessage<T> const &)
 {
@@ -148,9 +163,6 @@ inline std::wstring build_message(LogMessage<wchar_t> const &msg, Args &&...args
     return std::format(L"{}{}", prefix, message);
 }
 
-static constexpr LogLevel m_level = LogLevel::Trace;
-extern std::mutex         g_logging_mutex;
-
 template<typename T>
 void print_message(std::basic_string<T> const &msg)
 {
@@ -175,7 +187,7 @@ template<typename T, typename... Args>
 void logmsg(LogMessage<T> const &msg, Args &&...args)
 {
     std::lock_guard<std::mutex> const lock(g_logging_mutex);
-    if (msg.level >= m_level) {
+    if (msg.level >= config.level) {
         print_message(build_message(msg, std::forward<Args>(args)...));
     }
 }
