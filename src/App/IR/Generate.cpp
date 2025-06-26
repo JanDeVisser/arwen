@@ -4,11 +4,16 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "App/Type.h"
+#include "Util/Logging.h"
 #include <Util/Defer.h>
 
 #include <App/IR/IR.h>
+#include <cstdint>
 #include <memory>
 #include <ranges>
+#include <variant>
+#include <vector>
 
 namespace Arwen::IR {
 
@@ -114,11 +119,21 @@ void generate_node(Generator &generator, std::shared_ptr<BinaryExpression> const
     if (node->op == Operator::Assign) {
         auto path = std::dynamic_pointer_cast<MemberPath>(node->lhs);
         assert(path != nullptr);
-        if (path->path.size() > 1) {
-            fatal("Can't do structs yet");
+        std::vector<uint64_t> var_path;
+        for (auto ix = 1; ix < path->path.size(); ++ix) {
+            auto &t { path->path[ix - 1]->bound_type };
+            assert(std::holds_alternative<StructType>(t->description));
+            auto st = std::get<StructType>(t->description);
+            for (auto fld_ix = 0; fld_ix < st.fields.size(); ++fld_ix) {
+                if (st.fields[fld_ix].name == path->path[ix]->identifier) {
+                    var_path.push_back(fld_ix);
+                    break;
+                }
+            }
+            assert(var_path.size() == ix);
         }
         generator.generate(node->rhs);
-        add_operation<Operation::PushVarAddress>(generator, path->path[0]->identifier);
+        add_operation<Operation::PushVarAddress>(generator, VarPath { path->path[0]->identifier, var_path });
         add_operation<Operation::Assign>(generator);
         return;
     }
@@ -146,18 +161,16 @@ void generate_node(Generator &generator, std::shared_ptr<Block> const &node)
     {
         Defer _ { [&generator]() { generator.ctxs.pop_back(); } };
 
-        if (node->statements.empty()) {
-            add_operation<Operation::PushConstant>(generator, make_void());
-            return;
-        }
-
         auto discard { false };
         auto empty { true };
         for (auto const &stmt : node->statements) {
             if (discard) {
                 add_operation<Operation::Discard>(generator);
             }
-            discard = stmt->type != SyntaxNodeType::DeferStatement && stmt->type != SyntaxNodeType::FunctionDefinition;
+            discard = stmt->type != SyntaxNodeType::DeferStatement
+                && stmt->type != SyntaxNodeType::FunctionDefinition
+                && stmt->type != SyntaxNodeType::Enum
+                && stmt->type != SyntaxNodeType::Struct;
             empty &= !discard;
             generator.generate(stmt);
         }
@@ -465,6 +478,15 @@ std::wostream &operator<<(std::wostream &os, std::monostate const &)
 std::wostream &operator<<(std::wostream &os, Arwen::IR::IRVariableDeclaration const &var_decl)
 {
     os << var_decl.name << ':' << var_decl.type->name;
+    return os;
+}
+
+std::wostream &operator<<(std::wostream &os, Arwen::IR::VarPath const &var_path)
+{
+    os << var_path.name;
+    for (auto ix : var_path.path) {
+        os << '.' << ix;
+    }
     return os;
 }
 

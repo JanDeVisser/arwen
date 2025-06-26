@@ -35,3 +35,18 @@ size_t dynarr_append(dynarr_t *arr, slice_t const slice)
     arr->size += slice.size;
     return arr->size;
 }
+
+void dynarr_clear(dynarr_t *arr)
+{
+    arr->size = 0;
+}
+
+void dynarr_free(dynarr_t *arr)
+{
+    if (arr->ptr) {
+        free(arr->ptr);
+    }
+    arr->ptr = NULL;
+    arr->size = 0;
+    arr->capacity = 0;
+}

@@ -393,6 +393,7 @@ struct MemberPath final : SyntaxNode {
     pType          bind(Parser &parser) override;
     pSyntaxNode    stamp(Parser &parser) override;
     std::wostream &header(std::wostream &os) override;
+    void           dump_node(int indent) override;
 };
 
 struct ExternLink final : SyntaxNode {
@@ -514,7 +515,7 @@ struct Module final : SyntaxNode {
     std::wstring source;
     pBlock       statements;
 
-    Module(std::wstring name, std::wstring source, SyntaxNodes const& statements, pNamespace const &ns);
+    Module(std::wstring name, std::wstring source, SyntaxNodes const &statements, pNamespace const &ns);
     Module(std::wstring name, std::wstring source, pBlock statements);
     pSyntaxNode    normalize(Parser &parser) override;
     pSyntaxNode    stamp(Parser &parser) override;

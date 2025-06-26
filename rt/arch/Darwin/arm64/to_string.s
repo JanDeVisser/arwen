@@ -5,8 +5,8 @@
 // to_string - Convert integer to character string
 
 // In:
-buffer_len .req x0    // Length of buffer
-buffer     .req x1    // Pointer to buffer
+buffer     .req x0    // Pointer to buffer
+buffer_len .req x1    // Length of buffer
 num        .req x2    // Number to convert
 radix      .req w3    // Radix
 xradix     .req x3    // Radix

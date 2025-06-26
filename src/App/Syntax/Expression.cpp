@@ -650,4 +650,11 @@ std::wostream &MemberPath::header(std::wostream &os)
     return os;
 }
 
+void MemberPath::dump_node(int const indent)
+{
+    for (int ix = 0; ix + 1 < path.size(); ++ix) {
+        path[ix]->dump(indent + 4);
+    }
+}
+
 }

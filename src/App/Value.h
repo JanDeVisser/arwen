@@ -106,15 +106,16 @@ inline void *address_of(Atom &atom)
         atom.payload);
 }
 
-using Atoms = std::vector<Atom>;
+// using Atoms = std::vector<Atom>;
 
 Atom evaluate(Atom const &lhs, Operator op, Atom const &rhs);
 Atom evaluate(Operator op, Atom const &operand);
 
 struct Value {
-    static Arena                              arena;
-    pType                                     type { TypeRegistry::void_ };
-    std::variant<std::monostate, Atom, Atoms> payload;
+    static Arena arena;
+    pType        type { TypeRegistry::void_ };
+    using Values = std::vector<Value>;
+    std::variant<std::monostate, Atom, Values> payload;
 
     Value() = default;
     Value(Value const &) = default;
@@ -149,7 +150,7 @@ struct Value {
     }
 
     template<>
-    Value(pType const &type, std::vector<Atom> values)
+    Value(pType const &type, Values values)
         : type(type)
         , payload(values)
     {
@@ -171,7 +172,7 @@ struct Value {
                     auto const &[ptr, size] = as<Slice>(atom);
                     return { static_cast<wchar_t *>(ptr), static_cast<size_t>(size) };
                 },
-                [](Atoms const &atoms) -> std::wstring {
+                [](Values const &values) -> std::wstring {
                     UNREACHABLE();
                 } },
             payload);
@@ -189,7 +190,7 @@ T &as(Value &val)
             [](Atom &atom) -> T & {
                 return as<T>(atom);
             },
-            [](Atoms &) -> T & {
+            [](Value::Values &) -> T & {
                 UNREACHABLE();
             } },
         val.payload);
@@ -206,30 +207,17 @@ T const &as(Value const &val)
             [](Atom const &atom) -> T const & {
                 return as<T>(atom);
             },
-            [](Atoms const &) -> T const & {
+            [](Value::Values const &) -> T const & {
                 UNREACHABLE();
             } },
         val.payload);
 }
 
-inline void *address_of(Value &val)
-{
-    trace("address_of {}", reinterpret_cast<void*>(&val));
-    auto ret = std::visit(
-        overloads {
-            [](std::monostate &) -> void * {
-                fatal("Cannot convert empty value pointer");
-            },
-            [](Atom &atom) -> void * {
-                return address_of(atom);
-            },
-            [](Atoms &) -> void * {
-                UNREACHABLE();
-            } },
-        val.payload);
-    trace("address of payload {}", ret);
-    return ret;
-}
+void  *address_of(Value &val);
+pType  type_of(Value &val, std::vector<uint64_t> path = {});
+void  *address_of(Value &val, uint64_t field);
+Value &subvalue_of(Value &val, uint64_t ix);
+void  *address_of(Value &val, std::vector<uint64_t> const &path);
 
 template<typename T>
 Value make_value(T const &val)
@@ -342,14 +330,14 @@ inline std::wostream &operator<<(std::wostream &os, Arwen::Value const &value)
             [&os](Atom const &atom) -> void {
                 os << atom;
             },
-            [&os](Atoms const &atoms) -> void {
+            [&os](Value::Values const &values) -> void {
                 auto first { true };
-                for (auto const &atom : atoms) {
+                for (auto const &value : values) {
                     if (!first) {
                         os << ", ";
                     }
                     first = false;
-                    os << atom;
+                    os << value;
                 }
             },
         },

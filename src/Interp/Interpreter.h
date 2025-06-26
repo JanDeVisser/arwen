@@ -80,7 +80,7 @@ struct Scope {
     size_t                                 vp { 0 };
 
     [[nodiscard]] ValueReference ref_of(std::wstring const &name) const;
-    [[nodiscard]] Value          ptr_to(ValueReference reference) const;
+    [[nodiscard]] Value          ptr_to(IR::VarPath const &var_path) const;
     void                         add_value(std::wstring const &name, Value const &value);
     [[nodiscard]] Value         &value(std::wstring const &name) const;
     void                         reassign(std::wstring const &name, Value const &value);

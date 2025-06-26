@@ -534,6 +534,7 @@ struct TypeRegistry {
     pType                error_of(pType success, pType error);
     pType                function_of(std::vector<pType> const &parameters, pType result);
     pType                typelist_of(std::vector<pType> const &typelist);
+    pType                struct_of(StructType::Fields const &fields);
 
     static pType u8;
     static pType u16;
@@ -588,6 +589,38 @@ pType make_error(TokenLocation location, std::wformat_string<Args...> const mess
 {
     return make_error(std::move(location), std::vformat(message.get(), std::make_wformat_args(args...)));
 }
+
+template<typename T>
+pType const &type_of()
+{
+    fatal("type_of<{}>() undefined", typeid(T).name());
+}
+
+#undef S
+#define S(W)                                                                  \
+    template<>                                                                \
+    inline pType const &type_of<uint##W##_t>() { return TypeRegistry::u##W; } \
+    template<>                                                                \
+    inline pType const &type_of<int##W##_t>() { return TypeRegistry::i##W; }
+BitWidths(S)
+#undef S
+
+#undef S
+#define S(W, T) \
+    template<>  \
+    inline pType const &type_of<T>() { return TypeRegistry::f##W; }
+    FloatBitWidths(S)
+#undef S
+
+        extern int __dummy__;
+
+template<>
+inline pType const &type_of<bool>() { return TypeRegistry::boolean; }
+template<>
+inline pType const &type_of<void *>() { return TypeRegistry::pointer; }
+template<>
+inline pType const &type_of<char *>() { return TypeRegistry::cstring; }
+
 }
 
 std::wostream &operator<<(std::wostream &os, Arwen::pType const &type);

@@ -7,6 +7,7 @@
 #pragma once
 
 #include "Util/Logging.h"
+#include <cstdint>
 #include <string>
 
 #include <App/SyntaxNode.h>
@@ -28,7 +29,7 @@ namespace Arwen::IR {
     S(NativeCall, CallOp)             \
     S(PushConstant, Value)            \
     S(PushValue, std::wstring)        \
-    S(PushVarAddress, std::wstring)   \
+    S(PushVarAddress, VarPath)        \
     S(Return, std::monostate)         \
     S(ScopeBegin, uint64_t)           \
     S(ScopeEnd, std::monostate)       \
@@ -39,6 +40,11 @@ namespace Arwen::IR {
 struct IRVariableDeclaration {
     std::wstring name;
     pType        type;
+};
+
+struct VarPath {
+    std::wstring          name;
+    std::vector<uint64_t> path;
 };
 
 struct Operation {
@@ -179,6 +185,7 @@ IRNode generate_ir(pSyntaxNode const &node);
 }
 
 std::wostream &operator<<(std::wostream &os, Arwen::IR::IRVariableDeclaration const &var_decl);
+std::wostream &operator<<(std::wostream &os, Arwen::IR::VarPath const &var_path);
 std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation::CallOp const &call);
 std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation::BinaryOp const &op);
 std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation::UnaryOp const &op);

@@ -125,43 +125,44 @@ TypeSpecification::TypeSpecification(ErrorDescriptionNode error)
 
 pSyntaxNode TypeSpecification::normalize(Parser &parser)
 {
-    auto descr = std::visit(overloads {
-                                [this, &parser](TypeNameNode const &d) -> TypeSpecificationDescription {
-                                    TypeSpecifications args;
-                                    for (auto const &arg : d.arguments) {
-                                        args.push_back(std::dynamic_pointer_cast<TypeSpecification>(normalize_node(arg, parser)));
-                                    }
-                                    return TypeNameNode { d.name, args };
-                                },
-                                [this, &parser](ReferenceDescriptionNode const &d) -> TypeSpecificationDescription {
-                                    return ReferenceDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.referencing, parser)) };
-                                },
-                                [this, &parser](SliceDescriptionNode const &d) -> TypeSpecificationDescription {
-                                    return SliceDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.slice_of, parser)) };
-                                },
-                                [this, &parser](ZeroTerminatedArrayDescriptionNode const &d) -> TypeSpecificationDescription {
-                                    return ZeroTerminatedArrayDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.array_of, parser)) };
-                                },
-                                [this, &parser](ArrayDescriptionNode const &d) -> TypeSpecificationDescription {
-                                    return ArrayDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.array_of, parser)), d.size };
-                                },
-                                [this, &parser](DynArrayDescriptionNode const &d) -> TypeSpecificationDescription {
-                                    return DynArrayDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.array_of, parser)) };
-                                },
-                                [this, &parser](OptionalDescriptionNode const &d) -> TypeSpecificationDescription {
-                                    return OptionalDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.optional_of, parser)) };
-                                },
-                                [this, &parser](ErrorDescriptionNode const &d) -> TypeSpecificationDescription {
-                                    return ErrorDescriptionNode {
-                                        std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.success, parser)),
-                                        std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.error, parser)),
-                                    };
-                                },
-                            },
+    auto descr = std::visit(
+        overloads {
+            [this, &parser](TypeNameNode const &d) -> TypeSpecificationDescription {
+                TypeSpecifications args;
+                for (auto const &arg : d.arguments) {
+                    args.push_back(std::dynamic_pointer_cast<TypeSpecification>(normalize_node(arg, parser)));
+                }
+                return TypeNameNode { d.name, args };
+            },
+            [this, &parser](ReferenceDescriptionNode const &d) -> TypeSpecificationDescription {
+                return ReferenceDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.referencing, parser)) };
+            },
+            [this, &parser](SliceDescriptionNode const &d) -> TypeSpecificationDescription {
+                return SliceDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.slice_of, parser)) };
+            },
+            [this, &parser](ZeroTerminatedArrayDescriptionNode const &d) -> TypeSpecificationDescription {
+                return ZeroTerminatedArrayDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.array_of, parser)) };
+            },
+            [this, &parser](ArrayDescriptionNode const &d) -> TypeSpecificationDescription {
+                return ArrayDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.array_of, parser)), d.size };
+            },
+            [this, &parser](DynArrayDescriptionNode const &d) -> TypeSpecificationDescription {
+                return DynArrayDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.array_of, parser)) };
+            },
+            [this, &parser](OptionalDescriptionNode const &d) -> TypeSpecificationDescription {
+                return OptionalDescriptionNode { std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.optional_of, parser)) };
+            },
+            [this, &parser](ErrorDescriptionNode const &d) -> TypeSpecificationDescription {
+                return ErrorDescriptionNode {
+                    std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.success, parser)),
+                    std::dynamic_pointer_cast<TypeSpecification>(normalize_node(d.error, parser)),
+                };
+            },
+        },
         this->description);
     auto ret = make_node<TypeSpecification>(location, description);
-    ret->bound_type = resolve(parser);
-    ret->status = Status::Bound;
+    ret->status = SyntaxNode::Status::Normalized;
+    bind_node(ret, parser);
     return ret;
 }
 
@@ -227,7 +228,7 @@ std::wstring TypeSpecification::to_string()
 
 pType TypeSpecification::resolve(Parser &parser)
 {
-    if (bound_type == nullptr) {
+    if (bound_type == nullptr || bound_type == TypeRegistry::undetermined) {
         bound_type = std::visit(
             [this, &parser](auto const &d) -> pType {
                 return Arwen::resolve(d, parser);

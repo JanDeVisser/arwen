@@ -84,12 +84,6 @@ struct LogMessage {
 };
 
 struct LoggingConfig {
-    explicit LoggingConfig(LogLevel lvl)
-        : level(lvl)
-    {
-        int x = 12;
-    }
-
     LogLevel level { LogLevel::Trace };
 };
 

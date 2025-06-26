@@ -4,7 +4,8 @@ struct Foo {
    c: []u8,
 }
 
-func foo(x: i64) void {
-  a: Foo
-  a.a = x
+func main() i32 {
+    a: Foo
+    a.a = 42
+    return 0
 }

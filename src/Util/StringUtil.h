@@ -12,6 +12,8 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <type_traits>
 #include <vector>
 
 namespace Util {
@@ -48,6 +50,7 @@ inline bool string_compare_ic(std::string_view const &s1, std::string_view const
 }
 
 template<typename T, typename ElementType, typename ToString>
+    requires(std::is_same_v<T, char> || std::is_same_v<T, wchar_t>)
 inline std::basic_string<T> join(std::vector<ElementType> const &collection, std::basic_string_view<T> const &sep, ToString const &tostring)
 {
     std::basic_string<T> ret;
@@ -63,20 +66,22 @@ inline std::basic_string<T> join(std::vector<ElementType> const &collection, std
 }
 
 template<typename T>
+    requires(std::is_same_v<T, char> || std::is_same_v<T, wchar_t>)
 inline std::basic_string<T> join(std::vector<std::basic_string<T>> const &collection, std::basic_string_view<T> const &sep)
 {
     return join(collection, sep, [](std::basic_string<T> const &s) { return s; });
 }
 
 template<typename ElementType, typename ToString, typename Char = char>
+    requires(std::is_same_v<Char, char> || std::is_same_v<Char, wchar_t>)
 inline std::string join(std::vector<ElementType> const &collection, Char sep, ToString const &tostring)
 {
-    std::basic_string<Char> s;
-    s += sep;
+    std::basic_string_view<Char> s { &sep, 1 };
     return join(collection, s, tostring);
 }
 
 template<typename Char>
+    requires(std::is_same_v<Char, char> || std::is_same_v<Char, wchar_t>)
 inline std::basic_string<Char> join(std::vector<std::basic_string<Char>> const &collection, Char sep)
 {
     std::basic_string_view<Char> s { &sep, 1 };

@@ -4,11 +4,11 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "App/Type.h"
 #include <algorithm>
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <string_view>
 
 #include <Util/Defer.h>
 #include <Util/Lexer.h>
@@ -20,7 +20,7 @@
 #include <App/Operator.h>
 #include <App/Parser.h>
 #include <App/SyntaxNode.h>
-#include <string_view>
+#include <App/Type.h>
 
 namespace Arwen {
 

@@ -39,10 +39,10 @@ pSyntaxNode StructMember::stamp(Parser &parser)
 
 pType StructMember::bind(Parser &parser)
 {
-    return nullptr;
+    return bind_node(member_type, parser);
 }
 
-std::wostream& StructMember::header(std::wostream &os)
+std::wostream &StructMember::header(std::wostream &os)
 {
     return os << label << ' ' << member_type->to_string();
 }
@@ -59,7 +59,7 @@ pSyntaxNode Struct::normalize(Parser &parser)
     return make_node<Struct>(
         location,
         name,
-        stamp_nodes(members, parser));
+        normalize_nodes(members, parser));
 }
 
 pSyntaxNode Struct::stamp(Parser &parser)
@@ -67,21 +67,20 @@ pSyntaxNode Struct::stamp(Parser &parser)
     return make_node<Struct>(
         location,
         name,
-        normalize_nodes(members, parser));
+        stamp_nodes(members, parser));
 }
 
 pType Struct::bind(Parser &parser)
 {
-    StructType strukt;
-    for (auto const& m : members) {
-        if (auto type = m->member_type->resolve(parser); type == nullptr) {
-            parser.append(m->member_type->location, L"Could not resolve type `{}`", m->member_type->to_string());
-            return nullptr;
-        } else {
-            strukt.fields.emplace_back(m->label, type);
+    StructType::Fields fields;
+    for (auto const &m : members) {
+        bind_node(m, parser);
+        if (m->status != SyntaxNode::Status::Bound) {
+            return m->bound_type;
         }
+        fields.emplace_back(m->label, m->bound_type);
     }
-    auto ret = make_type(name, strukt);
+    auto ret = TypeRegistry::the().struct_of(fields);
     parser.register_type(name, ret);
     return ret;
 }
@@ -93,7 +92,7 @@ void Struct::dump_node(int indent)
     }
 }
 
-std::wostream& Struct::header(std::wostream &os)
+std::wostream &Struct::header(std::wostream &os)
 {
     return os << name;
 }

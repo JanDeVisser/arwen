@@ -1,5 +1,6 @@
 .align 4
-.global scribble$puti
+.global arwen$puti
+.global _arwen$puti
 
 // putint - Print integer in base 10.
 //
@@ -12,7 +13,8 @@ num .req x0 // Number to print.
 // Work:
 //   ----
 
-scribble$puti:
+arwen$puti:
+_arwen$puti:
     stp     fp,lr,[sp,#-48]!
     mov     fp,sp
 

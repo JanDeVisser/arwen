@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "Util/StringUtil.h"
 #include <cmath>
 #include <concepts>
 #include <cstddef>
@@ -467,8 +468,8 @@ Value::Value(Value &other)
             [this](Atom const &atom) {
                 this->payload = atom;
             },
-            [this](Atoms const &atoms) {
-                this->payload = atoms;
+            [this](Values const &values) {
+                this->payload = values;
             } },
         other.payload);
 }
@@ -518,6 +519,14 @@ Value::Value(pType const &type)
     case TypeKind::VoidType:
         payload = std::monostate {};
         break;
+    case TypeKind::StructType: {
+        Value::Values fields;
+        auto          struct_type { std::get<StructType>(type->description) };
+        for (auto const &fd : struct_type.fields) {
+            fields.emplace_back(fd.type);
+        }
+        payload = fields;
+    } break;
     default:
         fatal(L"Need more types: {}", type->name);
         break;
@@ -606,43 +615,152 @@ std::optional<Value> Value::coerce(pType const &to_type) const
         auto const arr = as<StaticArray>(*this);
         return Value { to_type, Slice { arr.ptr, arr.size } };
     }
-    return std::visit(overloads {
-                          [this, &to_type](Atom const &atom) -> std::optional<Value> {
-                              if (auto const coerced_maybe = atom.coerce(to_type); coerced_maybe) {
-                                  return Value { *coerced_maybe };
-                              }
-                              return {};
-                          },
-                          [](auto const &) -> std::optional<Value> {
-                              fatal("Cannot apply operator to compound values");
-                          } },
+    return std::visit(
+        overloads {
+            [this, &to_type](Atom const &atom) -> std::optional<Value> {
+                if (auto const coerced_maybe = atom.coerce(to_type); coerced_maybe) {
+                    return Value { *coerced_maybe };
+                }
+                return {};
+            },
+            [](auto const &) -> std::optional<Value> {
+                fatal("Cannot apply operator to compound values");
+            } },
         payload);
 }
 
 std::wstring Value::to_string() const
 {
-    return std::visit(overloads {
-                          [](std::monostate const &) -> std::wstring {
-                              return L"``";
-                          },
-                          [](Atom const &atom) -> std::wstring {
-                              return atom.to_string();
-                          },
-                          [](auto const &) -> std::wstring {
-                              fatal("Cannot stringify compound values yet");
-                          } },
+    return std::visit(
+        overloads {
+            [](std::monostate const &) -> std::wstring {
+                return L"``";
+            },
+            [](Atom const &atom) -> std::wstring {
+                return atom.to_string();
+            },
+            [this](Value::Values const &values) -> std::wstring {
+                int  ix = 0;
+                auto strukt { std::get<StructType>(type->description) };
+                return std::format(L"{{ {} }}",
+                    join(
+                        values,
+                        std::wstring_view { L"," },
+                        [&ix, &strukt](Value const &v) -> std::wstring {
+                            return std::format(
+                                L"{}: {}",
+                                strukt.fields[ix++].name,
+                                v.to_string());
+                        }));
+            } },
         payload);
+}
+
+void *address_of(Value &val)
+{
+    trace("address_of {}", reinterpret_cast<void *>(&val));
+    auto ret = std::visit(
+        overloads {
+            [](std::monostate &) -> void * {
+                fatal("Cannot convert empty value pointer");
+            },
+            [](Atom &atom) -> void * {
+                return address_of(atom);
+            },
+            [](Value::Values &) -> void * {
+                UNREACHABLE();
+            } },
+        val.payload);
+    trace("address of payload {}", ret);
+    return ret;
+}
+
+pType type_of(Value &val, std::vector<uint64_t> path)
+{
+    if (path.size() > 1) {
+        std::vector<uint64_t> p;
+        for (auto ix = 1; ix < path.size(); ++ix) {
+            p.emplace_back(path[ix]);
+        }
+        return type_of(subvalue_of(val, path.front()), p);
+    }
+    return val.type;
+}
+
+void *address_of(Value &val, uint64_t field)
+{
+    trace("address_of({},{})", reinterpret_cast<void *>(&val), field);
+    auto ret = std::visit(
+        overloads {
+            [](std::monostate &) -> void * {
+                fatal("Cannot convert empty value pointer");
+            },
+            [](Atom &atom) -> void * {
+                UNREACHABLE();
+            },
+            [field](Value::Values &values) -> void * {
+                assert(field < values.size());
+                return address_of(values[field]);
+            } },
+        val.payload);
+    trace("address of payload {}", ret);
+    return ret;
+}
+
+Value &subvalue_of(Value &val, uint64_t ix)
+{
+    return std::visit(
+        overloads {
+            [ix](Value::Values &sub_values) -> Value & {
+                return sub_values[ix];
+            },
+            [](auto &) -> Value & {
+                UNREACHABLE();
+            } },
+        val.payload);
+}
+
+void *address_of(Value &val, std::vector<uint64_t> const &path)
+{
+    trace("address_of({},{})",
+        reinterpret_cast<void *>(&val),
+        join(path, ',', [](uint64_t i) { return std::format("{}", i); }));
+    auto ret = std::visit(
+        overloads {
+            [](std::monostate &) -> void * {
+                fatal("Cannot convert empty value pointer");
+            },
+            [&path, &val](Atom &atom) -> void * {
+                if (path.empty()) {
+                    return address_of(val);
+                }
+                UNREACHABLE();
+            },
+            [&path, &val](Value::Values &values) -> void * {
+                if (path.empty()) {
+                    return &val;
+                }
+                auto &v = val;
+                for (auto ix = 0; ix + 1 < values.size(); ++ix) {
+                    v = subvalue_of(v, path[ix]);
+                }
+                return address_of(v);
+            } },
+        val.payload);
+    trace("address of payload {}", ret);
+    return ret;
 }
 
 static Value evaluate_on_atoms(Value const &lhs, Operator op, Value const &rhs)
 {
-    return std::visit(overloads {
-                          [&lhs, op](Atom const &lhs_atom, Atom const &rhs_atom) -> Value {
-                              return Value { evaluate(lhs_atom, op, rhs_atom) };
-                          },
-                          [](auto, auto) -> Value {
-                              fatal("Cannot apply operator to compound values");
-                          } },
+    return std::visit(
+        overloads {
+            [&lhs, op](Atom const &lhs_atom, Atom const &rhs_atom) -> Value {
+                return Value { evaluate(lhs_atom, op, rhs_atom) };
+            },
+            [](auto, auto) -> Value {
+                fatal("Cannot apply operator to compound values");
+            } },
         lhs.payload, rhs.payload);
 }
 

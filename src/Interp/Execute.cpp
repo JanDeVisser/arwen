@@ -202,10 +202,9 @@ void execute_op<>(Interpreter &interpreter, Operation::PushValue const &impl)
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::PushVarAddress const &impl)
+void execute_op<>(Interpreter &interpreter, Operation::PusxhVarAddress const &impl)
 {
-    auto const ref = interpreter.current_scope().ref_of(impl.payload);
-    interpreter.stack.push(interpreter.current_scope().ptr_to(ref));
+    interpreter.stack.push(interpreter.current_scope().ptr_to(impl.payload));
     interpreter.call_stack.back().ip++;
 }
 

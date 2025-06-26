@@ -48,10 +48,11 @@ ValueReference Scope::ref_of(std::wstring const &name) const
     fatal(L"Variable `{}` not found", name);
 }
 
-Value Scope::ptr_to(ValueReference const reference) const
+Value Scope::ptr_to(IR::VarPath const &var_path) const
 {
-    Value &v = get(reference);
-    return Value { TypeRegistry::the().referencing(v.type), address_of(v) };
+    auto const reference = ref_of(var_path.name);
+    Value     &v = get(reference);
+    return Value { TypeRegistry::the().referencing(type_of(v, var_path.path)), address_of(v, var_path.path) };
 }
 
 Value &Scope::value(std::wstring const &name) const

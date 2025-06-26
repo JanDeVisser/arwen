@@ -4,12 +4,14 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "App/SyntaxNode.h"
 #include <algorithm>
 #include <cstdint>
 #include <format>
 #include <functional>
 #include <limits>
 #include <memory>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -166,7 +168,6 @@ std::wstring EnumType::to_string() const
 {
     return std::format(L"Enum({} values)", values.size());
 }
-
 
 intptr_t EnumType::size_of() const
 {
@@ -506,29 +507,61 @@ pType TypeRegistry::function_of(std::vector<pType> const &parameters, pType resu
 
 pType TypeRegistry::typelist_of(std::vector<pType> const &typelist)
 {
-    auto types_string = [](std::vector<pType> const &typelist) -> std::wstring {
-        return std::format(
-            L"({})",
-            join(
-                typelist,
-                std::wstring_view { L"," },
-                [](pType const &t) -> std::wstring_view { return std::wstring_view { t->name }; }));
-    };
-
     for (auto const &t : types) {
-        if (std::visit(overloads {
-                           [&typelist](TypeList const &descr) -> bool {
-                               return descr.types == typelist;
-                           },
-                           [](auto const &) -> bool {
-                               return false;
-                           } },
+        if (std::visit(
+                overloads {
+                    [&typelist](TypeList const &descr) -> bool {
+                        return descr.types == typelist;
+                    },
+                    [](auto const &) -> bool {
+                        return false;
+                    } },
                 t->description)) {
             return t;
         }
     }
 
-    auto ret = make_type(types_string(typelist), TypeList { typelist });
+    auto n = std::format(
+        L"({})",
+        join(
+            typelist,
+            std::wstring_view { L"," },
+            [](pType const &t) -> std::wstring_view { return std::wstring_view { t->name }; }));
+    auto ret = make_type(n, TypeList { typelist });
+    return ret;
+}
+
+pType TypeRegistry::struct_of(StructType::Fields const &fields)
+{
+    for (auto const &t : types) {
+        if (std::visit(
+                overloads {
+                    [&fields](StructType const &descr) -> bool {
+                        if (fields.size() != descr.fields.size()) {
+                            return false;
+                        }
+                        for (auto const &fld : std::ranges::views::zip(fields, descr.fields)) {
+                            if (std::get<0>(fld).name != std::get<1>(fld).name || std::get<0>(fld).type != std::get<1>(fld).type) {
+                                return false;
+                            }
+                        }
+                        return true;
+                    },
+                    [](auto const &) -> bool {
+                        return false;
+                    } },
+                t->description)) {
+            return t;
+        }
+    }
+
+    auto n = std::format(
+        L"{{{}}}",
+        join(
+            fields,
+            std::wstring_view { L"," },
+            [](StructType::Field const &f) -> std::wstring { return std::format(L"{}: {}", f.name, f.type->to_string()); }));
+    auto ret = make_type(n, StructType { fields });
     return ret;
 }
 
