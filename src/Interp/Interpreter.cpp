@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "App/Value.h"
 #include <cstdint>
 #include <memory>
 #include <ranges>
+#include <string>
 #include <variant>
 
 #include <Util/Logging.h>
@@ -15,6 +15,7 @@
 #include <App/Operator.h>
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
+#include <App/Value.h>
 
 #include <App/IR/IR.h>
 
@@ -33,26 +34,26 @@ Scope &Interpreter::current_scope()
     return scopes.back();
 }
 
-Scope &Interpreter::new_scope(IRNode const &ir, uint64_t variables)
+static void create_scope(Interpreter &interpreter, IRNode const &ir, std::vector<IRVariableDeclaration> const &variables)
 {
-    trace("new_scope");
-    if (scopes.empty()) {
-        scopes.emplace_back(this, variables, ir);
+    trace("create_scope");
+    if (interpreter.scopes.empty()) {
+        interpreter.scopes.emplace_back(interpreter, ir, variables);
     } else {
         auto parent = std::visit(
             overloads {
-                [this](IR::pProgram const &program) -> std::optional<uint64_t> {
+                [&interpreter](IR::pProgram const &program) -> std::optional<uint64_t> {
                     UNREACHABLE();
                 },
-                [this](IR::pModule const &module) -> std::optional<uint64_t> {
-                    if (auto *program_scope { &scopes[0] }; std::holds_alternative<pProgram>(program_scope->ir)) {
+                [&interpreter](IR::pModule const &module) -> std::optional<uint64_t> {
+                    if (auto *program_scope { &interpreter.scopes[0] }; std::holds_alternative<pProgram>(program_scope->ir)) {
                         return 0;
                     }
                     return {};
                 },
-                [this](IR::pFunction const &function) -> std::optional<uint64_t> {
-                    for (auto ix = 0; ix < scopes.size(); ++ix) {
-                        auto &s { scopes[ix] };
+                [&interpreter](IR::pFunction const &function) -> std::optional<uint64_t> {
+                    for (auto ix = 0; ix < interpreter.scopes.size(); ++ix) {
+                        auto &s { interpreter.scopes[ix] };
                         if (std::holds_alternative<IR::pModule>(s.ir)) {
                             if (auto const &mod = std::get<IR::pModule>(s.ir); mod == function->module) {
                                 return ix;
@@ -61,21 +62,41 @@ Scope &Interpreter::new_scope(IRNode const &ir, uint64_t variables)
                     }
                     UNREACHABLE();
                 },
-                [this](auto const &ir) -> std::optional<uint64_t> {
-                    return scopes.size() - 1;
+                [&interpreter](auto const &ir) -> std::optional<uint64_t> {
+                    return interpreter.scopes.size() - 1;
                 },
             },
             ir);
-        scopes.emplace_back(this, variables, ir, parent);
+        interpreter.scopes.emplace_back(interpreter, ir, variables, parent);
     }
+}
+
+Scope &Interpreter::new_scope(IRNode const &ir, std::vector<IRVariableDeclaration> const &variables)
+{
+    create_scope(*this, ir, variables);
     scopes.back().allocate();
     return scopes.back();
 }
 
-void Interpreter::drop_scope()
+Scope &Interpreter::emplace_scope(IRNode const &ir, std::vector<IRVariableDeclaration> const &variables)
 {
-    scopes.back().release();
+    create_scope(*this, ir, variables);
+    scopes.back().setup();
+    return scopes.back();
+}
+
+void Interpreter::drop_scope(pType const &return_type)
+{
+    scopes.back().release(return_type);
     scopes.pop_back();
+}
+
+Value Interpreter::pop(pType const &type)
+{
+    auto offset = stack.top - alignat(type->size_of(), 8);
+    auto ret = make_from_buffer(type, static_cast<void *>(stack.stack + offset));
+    stack.discard(type->size_of());
+    return ret;
 }
 
 void Interpreter::execute_operations(IRNode const &ir)
@@ -121,7 +142,7 @@ Value Interpreter::execute(IR::IRNode const &ir)
             },
             [this, &ir](pProgram const &program) -> Value {
                 trace(L"Running program {}", program->name);
-                new_scope(ir, 0);
+                new_scope(ir);
                 call_stack.emplace_back(ir, 0);
                 IR::pFunction main { nullptr };
                 for (auto const &mod : program->modules | std::views::values) {
@@ -131,30 +152,26 @@ Value Interpreter::execute(IR::IRNode const &ir)
                     }
                 }
                 if (main != nullptr) {
-                    Scope &param_scope = new_scope(main, 0);
+                    Scope &param_scope = new_scope(main);
                     call_stack.emplace_back(main, 0);
                     auto ret { execute(main) };
                     call_stack.pop_back();
-                    drop_scope();
+                    drop_scope(main->return_type);
                     return ret;
                 }
                 return make_void();
             },
             [this, &ir](IR::pModule const &mod) -> Value {
                 trace(L"Initializing module {}", mod->name);
-                new_scope(ir, 0);
+                new_scope(ir);
                 call_stack.emplace_back(ir, 0);
                 execute_operations(ir);
-                auto ret { stack.get(-1) };
-                stack.pop_back();
-                return ret;
+                return pop(mod->syntax_node->bound_type);
             },
             [this, &ir](pFunction const &n) -> Value {
                 trace(L"Executing function {}", n->name);
                 execute_operations(ir);
-                auto ret { stack.get(-1) };
-                stack.pop_back();
-                return ret;
+                return pop(n->syntax_node->bound_type);
             } },
         ir);
 }

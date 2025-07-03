@@ -113,13 +113,14 @@ add_executable(
         src/Interp/Interpreter.cpp
         src/Interp/Native.cpp
         src/Interp/Scope.cpp
-        src/Interp/ValueStack.cpp
+        src/Interp/Stack.cpp
 )
 
 
 target_link_libraries(
         arwen
         PRIVATE
+        arwenrt
         Util
         trampoline
         m

@@ -43,7 +43,7 @@ pSyntaxNode EnumValue::stamp(Parser &parser)
 
 pType EnumValue::bind(Parser &parser)
 {
-    UNREACHABLE();
+    return TypeRegistry::void_;
 }
 
 std::wostream &EnumValue::header(std::wostream &os)

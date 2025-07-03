@@ -15,6 +15,8 @@
 #include <variant>
 #include <vector>
 
+#include <rt/arwen.h>
+
 #include <Util/Align.h>
 #include <Util/Logging.h>
 #include <Util/Utf8.h>
@@ -58,21 +60,9 @@ enum class TypeKind {
 using pType = std::shared_ptr<const struct Type>;
 // using pConstType = std::shared_ptr<const struct Type>;
 
-struct Slice {
-    void   *ptr { nullptr };
-    int64_t size { 0 };
-};
-
-struct DynamicArray {
-    void   *ptr { nullptr };
-    int64_t size { 0 };
-    int64_t capacity { 0 };
-};
-
-struct StaticArray {
-    void   *ptr { nullptr };
-    int64_t size { 0 };
-};
+using Slice = slice_t;
+using DynamicArray = dynarr_t;
+using StaticArray = array_t;
 
 #define BitWidths(S) \
     S(8)             \

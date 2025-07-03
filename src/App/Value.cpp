@@ -656,6 +656,71 @@ std::wstring Value::to_string() const
         payload);
 }
 
+Value make_from_buffer(pType const &type, void *buffer)
+{
+    switch (type->kind()) {
+    case TypeKind::VoidType: {
+        return make_void();
+    }
+    case TypeKind::IntType: {
+        uint64_t dummy { 0 };
+        if (buffer == nullptr) {
+            buffer = &dummy;
+        }
+        switch (auto const &d = std::get<IntType>(type->description); d.width_bits) {
+#undef S
+#define S(W) \
+    case W:  \
+        return (d.is_signed) ? Value(*static_cast<int##W##_t *>(buffer)) : Value(*static_cast<uint##W##_t *>(buffer));
+            BitWidths(S) default : UNREACHABLE();
+        }
+    }
+    case TypeKind::FloatType: {
+        double dummy { 0 };
+        if (buffer == nullptr) {
+            buffer = &dummy;
+        }
+        switch (auto const &d = std::get<FloatType>(type->description); d.width_bits) {
+#undef S
+#define S(W, T) \
+    case W:     \
+        return Value(*static_cast<T *>(buffer));
+            FloatBitWidths(S) default : UNREACHABLE();
+        }
+    }
+    case TypeKind::BoolType: {
+        bool dummy { false };
+        if (buffer == nullptr) {
+            buffer = &dummy;
+        }
+        return Value(*static_cast<bool *>(buffer));
+    }
+    case TypeKind::SliceType: {
+        Slice dummy { nullptr, 0 };
+        if (buffer == nullptr) {
+            buffer = &dummy;
+        }
+        return make_value(type, *static_cast<Slice *>(buffer));
+    }
+    case TypeKind::DynArray: {
+        DynamicArray dummy { nullptr, 0, 0 };
+        if (buffer == nullptr) {
+            buffer = &dummy;
+        }
+        return make_value(type, *static_cast<DynamicArray *>(buffer));
+    }
+    case TypeKind::Array: {
+        StaticArray dummy { nullptr, 0 };
+        if (buffer == nullptr) {
+            buffer = &dummy;
+        }
+        return make_value(type, *static_cast<StaticArray *>(buffer));
+    }
+    default:
+        fatal(L"make_from_buffer(`{}`) not implemented", type->to_string());
+    }
+}
+
 void *address_of(Value &val)
 {
     trace("address_of {}", reinterpret_cast<void *>(&val));

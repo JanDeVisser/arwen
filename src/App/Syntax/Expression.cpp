@@ -313,7 +313,7 @@ pType BinaryExpression::bind(Parser &parser)
                 rhs_type->name,
                 lhs_type->name);
         }
-        return lhs_type;
+        return TypeRegistry::the().referencing(lhs_type);
     }
 
     if (op == Operator::Call && lhs_type->is<FunctionType>() && rhs_type->is<TypeList>()) {

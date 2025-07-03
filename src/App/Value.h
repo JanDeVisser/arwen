@@ -213,6 +213,7 @@ T const &as(Value const &val)
         val.payload);
 }
 
+Value  make_from_buffer(pType const &type, void *buffer);
 void  *address_of(Value &val);
 pType  type_of(Value &val, std::vector<uint64_t> path = {});
 void  *address_of(Value &val, uint64_t field);
@@ -250,36 +251,7 @@ Value make_value(pType const &type, T const &val)
 template<>
 inline Value make_value(pType const &type)
 {
-    switch (type->kind()) {
-    case TypeKind::IntType: {
-        switch (auto const &d = std::get<IntType>(type->description); d.width_bits) {
-#undef S
-#define S(W) \
-    case W:  \
-        return (d.is_signed) ? Value(static_cast<int##W##_t>(0)) : Value(static_cast<uint##W##_t>(0));
-            BitWidths(S) default : UNREACHABLE();
-        }
-    }
-    case TypeKind::FloatType: {
-        switch (auto const &d = std::get<FloatType>(type->description); d.width_bits) {
-#undef S
-#define S(W, T) \
-    case W:     \
-        return Value(static_cast<T>(0));
-            FloatBitWidths(S) default : UNREACHABLE();
-        }
-    }
-    case TypeKind::BoolType:
-        return Value(false);
-    case TypeKind::SliceType:
-        return make_value(type, Slice { nullptr, 0 });
-    case TypeKind::DynArray:
-        return make_value(type, DynamicArray { nullptr, 0, 0 });
-    case TypeKind::Array:
-        return make_value(type, StaticArray { nullptr, 0 });
-    default:
-        UNREACHABLE();
-    }
+    return make_from_buffer(type, nullptr);
 }
 
 inline Value make_void()

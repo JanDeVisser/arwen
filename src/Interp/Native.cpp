@@ -12,6 +12,7 @@
 #include <App/Value.h>
 
 #include <Interp/Native.h>
+#include <cstdint>
 
 extern "C" {
 struct Trampoline {
@@ -29,9 +30,23 @@ namespace Arwen::Interpreter {
 using namespace Util;
 using namespace Arwen;
 
-std::optional<Value> native_call(std::string_view const name, std::vector<Value> const &values, pType const &return_type)
+template<typename T>
+T as(void *ptr, intptr_t offset)
 {
-    if (values.size() > 8) {
+    T ret;
+    memcpy(&ret, static_cast<char *>(ptr) + offset, sizeof(T));
+    return ret;
+}
+
+template<typename T>
+void set(void *ptr, intptr_t offset, T val)
+{
+    memcpy(static_cast<char *>(ptr) + offset, &val, sizeof(T));
+}
+
+extern bool native_call(std::string_view name, void *params, std::vector<pType> const &types, pType const &return_type)
+{
+    if (types.size() > 8) {
         fatal("Can't do native calls with more than 8 parameters");
     }
     Trampoline t;
@@ -56,10 +71,11 @@ std::optional<Value> native_call(std::string_view const name, std::vector<Value>
     // stack-pointer value (SP).
     size_t nsaa = 0;
 
-    for (size_t ix = 0; ix < values.size(); ++ix) {
-        Value const &v = values[ix];
+    intptr_t offset { 0 };
+    for (size_t ix = 0; ix < types.size(); ++ix) {
+        pType const &type = types[ix];
 
-        trace(L"native_call [{}]: {}", ix, v.type->name);
+        trace(L"native_call [{}]: {}", ix, type->name);
         // Stage B – Pre-padding and extension of arguments
         // For each argument in the list the first matching rule from the
         // following list is applied. If no rule matches the argument is used
@@ -108,13 +124,13 @@ std::optional<Value> native_call(std::string_view const name, std::vector<Value>
         // the argument is allocated to the least significant bits of register
         // v[NSRN]. The NSRN is incremented by one. The argument has now been
         // allocated.
-        switch (pType const &et = v.type; et->kind()) {
+        switch (pType const &et = type; et->kind()) {
         case TypeKind::FloatType: {
             if (nsrn < 8) {
                 if (et == TypeRegistry::f32) {
-                    t.d[nsrn] = as<float>(v);
+                    t.d[nsrn] = as<float>(params, offset);
                 } else {
-                    t.d[nsrn] = as<double>(v);
+                    t.d[nsrn] = as<double>(params, offset);
                 }
                 ++nsrn;
             }
@@ -178,10 +194,18 @@ std::optional<Value> native_call(std::string_view const name, std::vector<Value>
             if (ngrn < 8) {
                 auto int_type = std::get<IntType>(et->description);
                 switch (int_type.width_bits) {
-                    case 8: t.x[ngrn] = (int_type.is_signed) ? as<int8_t>(v) : as<uint8_t>(v); break;
-                    case 16: t.x[ngrn] = (int_type.is_signed) ? as<int16_t>(v) : as<uint16_t>(v); break;
-                    case 32: t.x[ngrn] = (int_type.is_signed) ? as<int32_t>(v) : as<uint32_t>(v); break;
-                    case 64: t.x[ngrn] = (int_type.is_signed) ? as<int64_t>(v) : as<uint64_t>(v); break;
+                case 8:
+                    t.x[ngrn] = (int_type.is_signed) ? as<int8_t>(params, offset) : as<uint8_t>(params, offset);
+                    break;
+                case 16:
+                    t.x[ngrn] = (int_type.is_signed) ? as<int16_t>(params, offset) : as<uint16_t>(params, offset);
+                    break;
+                case 32:
+                    t.x[ngrn] = (int_type.is_signed) ? as<int32_t>(params, offset) : as<uint32_t>(params, offset);
+                    break;
+                case 64:
+                    t.x[ngrn] = (int_type.is_signed) ? as<int64_t>(params, offset) : as<uint64_t>(params, offset);
+                    break;
                 }
                 // #undef S
                 // #define S(W)                            \
@@ -199,7 +223,7 @@ std::optional<Value> native_call(std::string_view const name, std::vector<Value>
 
         case TypeKind::BoolType:
             if (ngrn < 8) {
-                t.x[ngrn] = as<bool>(v);
+                t.x[ngrn] = as<bool>(params, offset);
                 ++ngrn;
             }
             break;
@@ -208,14 +232,14 @@ std::optional<Value> native_call(std::string_view const name, std::vector<Value>
         case TypeKind::ReferenceType:
         case TypeKind::ZeroTerminatedArray:
             if (ngrn < 8) {
-                t.x[ngrn] = reinterpret_cast<intptr_t>(as<void *>(v));
+                t.x[ngrn] = reinterpret_cast<intptr_t>(as<void *>(params, offset));
                 ++ngrn;
             }
             break;
 
         case TypeKind::SliceType:
             if (ngrn < 7) {
-                auto const &[ptr, size] = as<Slice>(v);
+                auto const &[ptr, size] = as<Slice>(params, offset);
                 t.x[ngrn++] = reinterpret_cast<intptr_t>(ptr);
                 t.x[ngrn++] = size;
             }
@@ -223,16 +247,16 @@ std::optional<Value> native_call(std::string_view const name, std::vector<Value>
 
         case TypeKind::DynArray:
             if (ngrn < 6) {
-                t.x[ngrn++] = reinterpret_cast<intptr_t>(as<DynamicArray>(v).ptr);
-                t.x[ngrn++] = as<DynamicArray>(v).size;
-                t.x[ngrn++] = as<DynamicArray>(v).capacity;
+                t.x[ngrn++] = reinterpret_cast<intptr_t>(as<DynamicArray>(params, offset).ptr);
+                t.x[ngrn++] = as<DynamicArray>(params, offset).size;
+                t.x[ngrn++] = as<DynamicArray>(params, offset).capacity;
             }
             break;
 
         case TypeKind::Array:
             if (ngrn < 8) {
-                t.x[ngrn++] = reinterpret_cast<intptr_t>(as<StaticArray>(v).ptr);
-                t.x[ngrn++] = as<StaticArray>(v).size;
+                t.x[ngrn++] = reinterpret_cast<intptr_t>(as<StaticArray>(params, offset).ptr);
+                t.x[ngrn++] = as<StaticArray>(params, offset).size;
             }
             break;
 
@@ -290,6 +314,7 @@ std::optional<Value> native_call(std::string_view const name, std::vector<Value>
             // is incremented by the size of the argument. The argument has now been
             // allocated.
         }
+        offset += alignat(type->size_of(), 8);
     }
 
     trace("Trampoline:");
@@ -303,15 +328,18 @@ std::optional<Value> native_call(std::string_view const name, std::vector<Value>
         fatal("Error executing `{}`. Trampoline returned {}", name, trampoline_result);
     }
     trace("  Integer result: {}", t.int_return_value);
+
     switch (return_type->kind()) {
     case TypeKind::IntType: {
 #undef S
-#define S(W)                                                                        \
-    if (return_type == TypeRegistry::i##W) {                                        \
-        return Value { return_type, static_cast<int##W##_t>(t.int_return_value) };  \
-    }                                                                               \
-    if (return_type == TypeRegistry::u##W) {                                        \
-        return Value { return_type, static_cast<uint##W##_t>(t.int_return_value) }; \
+#define S(W)                                                               \
+    if (return_type == TypeRegistry::i##W) {                               \
+        set(params, offset, static_cast<int##W##_t>(t.int_return_value));  \
+        return true;                                                       \
+    }                                                                      \
+    if (return_type == TypeRegistry::u##W) {                               \
+        set(params, offset, static_cast<uint##W##_t>(t.int_return_value)); \
+        return true;                                                       \
     }
         BitWidths(S)
 #undef S
@@ -319,20 +347,24 @@ std::optional<Value> native_call(std::string_view const name, std::vector<Value>
     } break;
     case TypeKind::FloatType: {
         if (return_type == TypeRegistry::f32) {
-            return Value { return_type, static_cast<float>(t.double_return_value) };
+            set(params, offset, static_cast<float>(t.double_return_value));
+            return true;
         }
         if (return_type == TypeRegistry::f64) {
-            return Value { return_type, t.double_return_value };
+            set(params, offset, t.double_return_value);
+            return true;
         }
         UNREACHABLE();
     } break;
     case TypeKind::BoolType:
-        return Value { return_type, static_cast<bool>(t.int_return_value) };
+        set(params, offset, static_cast<bool>(t.int_return_value));
+        return true;
     case TypeKind::PointerType:
     case TypeKind::ReferenceType:
-        return Value { return_type, reinterpret_cast<void *>(static_cast<intptr_t>(t.int_return_value)) };
+        set(params, offset, reinterpret_cast<void *>(static_cast<intptr_t>(t.int_return_value)));
+        return true;
     case TypeKind::VoidType:
-        return make_void();
+        return true;
     default:
         UNREACHABLE();
     }

@@ -80,9 +80,8 @@ pType Struct::bind(Parser &parser)
         }
         fields.emplace_back(m->label, m->bound_type);
     }
-    auto ret = TypeRegistry::the().struct_of(fields);
-    parser.register_type(name, ret);
-    return ret;
+    parser.register_type(name, TypeRegistry::the().struct_of(fields));
+    return TypeRegistry::void_;
 }
 
 void Struct::dump_node(int indent)

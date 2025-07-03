@@ -172,7 +172,6 @@ pType FunctionDefinition::bind(Parser &parser)
     }
     parser.push_namespace(ns);
     Defer pop_namespace { [&parser] { parser.pop_namespace(); } };
-    bound_type = t; // Cheating? Needed when function is called recursively.
     for (auto const &param : declaration->parameters) {
         if (!parser.has_variable(param->name)) {
             parser.register_variable(param->name, param);
@@ -181,7 +180,7 @@ pType FunctionDefinition::bind(Parser &parser)
     if (auto impl_type = bind_node(implementation, parser); implementation->status != Status::Bound) {
         return impl_type;
     }
-    return t;
+    return TypeRegistry::void_;
 }
 
 void FunctionDefinition::dump_node(int indent)
@@ -403,7 +402,7 @@ pType Call::bind(Parser &parser)
         auto const overloads = parser.find_overloads(name, type_args);
         for (auto func_def : overloads) {
             if (func_def->status == Status::Initialized) {
-                func_def = normalize_node(func_def,  parser);
+                func_def = normalize_node(func_def, parser);
             }
             bind_node(func_def, parser);
             bound_overloads.push_back(func_def);

@@ -17,6 +17,6 @@ namespace Arwen::Interpreter {
 
 using namespace Arwen;
 
-extern std::optional<Value> native_call(std::string_view name, std::vector<Value> const &values, pType const &return_type);
+extern bool native_call(std::string_view name, void *params, std::vector<pType> const &types, pType const &return_type);
 
 }

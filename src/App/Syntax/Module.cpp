@@ -14,7 +14,7 @@
 
 namespace Arwen {
 
-Module::Module(std::wstring name, std::wstring source, SyntaxNodes const& statements, pNamespace const& ns)
+Module::Module(std::wstring name, std::wstring source, SyntaxNodes const &statements, pNamespace const &ns)
     : SyntaxNode(SyntaxNodeType::Module)
     , name(std::move(name))
     , source(std::move(source))
@@ -52,11 +52,7 @@ pSyntaxNode Module::stamp(Parser &parser)
 
 pType Module::bind(Parser &parser)
 {
-    if (auto stmt_type = bind_node(statements, parser); stmt_type == TypeRegistry::undetermined) {
-        return stmt_type;
-    }
-    auto ret = make_type(as_wstring(name), NamespaceType {});
-    return ret;
+    return bind_node(statements, parser);
 }
 
 std::wostream &Module::header(std::wostream &os)

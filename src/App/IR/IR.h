@@ -15,26 +15,25 @@
 
 namespace Arwen::IR {
 
-#define IROperationTypes(S)           \
-    S(Assign, std::monostate)         \
-    S(BinaryOperator, BinaryOp)       \
-    S(Call, CallOp)                   \
-    S(Cast, pType)                    \
-    S(DeclVar, IRVariableDeclaration) \
-    S(Discard, std::monostate)        \
-    S(Jump, uint64_t)                 \
-    S(JumpF, uint64_t)                \
-    S(JumpT, uint64_t)                \
-    S(Label, uint64_t)                \
-    S(NativeCall, CallOp)             \
-    S(PushConstant, Value)            \
-    S(PushValue, std::wstring)        \
-    S(PushVarAddress, VarPath)        \
-    S(Return, std::monostate)         \
-    S(ScopeBegin, uint64_t)           \
-    S(ScopeEnd, std::monostate)       \
-    S(Sub, uint64_t)                  \
-    S(SubRet, std::monostate)         \
+#define IROperationTypes(S)                           \
+    S(Assign, IRVariableDeclaration)                  \
+    S(BinaryOperator, BinaryOp)                       \
+    S(Call, CallOp)                                   \
+    S(DeclVar, IRVariableDeclaration)                 \
+    S(Discard, pType)                                 \
+    S(Jump, uint64_t)                                 \
+    S(JumpF, uint64_t)                                \
+    S(JumpT, uint64_t)                                \
+    S(Label, uint64_t)                                \
+    S(NativeCall, CallOp)                             \
+    S(PushConstant, Value)                            \
+    S(PushValue, VarPath)                             \
+    S(PushVarAddress, VarPath)                        \
+    S(Return, std::monostate)                         \
+    S(ScopeBegin, std::vector<IRVariableDeclaration>) \
+    S(ScopeEnd, pType)                                \
+    S(Sub, uint64_t)                                  \
+    S(SubRet, std::monostate)                         \
     S(UnaryOperator, UnaryOp)
 
 struct IRVariableDeclaration {
@@ -43,8 +42,9 @@ struct IRVariableDeclaration {
 };
 
 struct VarPath {
-    std::wstring          name;
-    std::vector<uint64_t> path;
+    std::wstring name;
+    pType        type;
+    intptr_t     offset;
 };
 
 struct Operation {

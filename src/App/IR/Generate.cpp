@@ -4,16 +4,20 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "App/Type.h"
-#include "Util/Logging.h"
-#include <Util/Defer.h>
-
-#include <App/IR/IR.h>
 #include <cstdint>
 #include <memory>
 #include <ranges>
 #include <variant>
 #include <vector>
+
+#include <Util/Align.h>
+#include <Util/Defer.h>
+#include <Util/Logging.h>
+
+#include <App/SyntaxNode.h>
+#include <App/Type.h>
+
+#include <App/IR/IR.h>
 
 namespace Arwen::IR {
 
@@ -119,29 +123,27 @@ void generate_node(Generator &generator, std::shared_ptr<BinaryExpression> const
     if (node->op == Operator::Assign) {
         auto path = std::dynamic_pointer_cast<MemberPath>(node->lhs);
         assert(path != nullptr);
-        std::vector<uint64_t> var_path;
+        intptr_t offset { 0 };
+        pType   &type = path->path[0]->bound_type;
         for (auto ix = 1; ix < path->path.size(); ++ix) {
-            auto &t { path->path[ix - 1]->bound_type };
-            assert(std::holds_alternative<StructType>(t->description));
-            auto st = std::get<StructType>(t->description);
+            type = path->path[ix - 1]->bound_type;
+            assert(std::holds_alternative<StructType>(type->description));
+            auto     st = std::get<StructType>(type->description);
+            intptr_t local_offset { 0 };
             for (auto fld_ix = 0; fld_ix < st.fields.size(); ++fld_ix) {
+                local_offset = alignat(local_offset, st.fields[fld_ix].type->align_of());
                 if (st.fields[fld_ix].name == path->path[ix]->identifier) {
-                    var_path.push_back(fld_ix);
                     break;
+                } else {
+                    local_offset += st.fields[fld_ix].type->size_of();
                 }
             }
-            assert(var_path.size() == ix);
+            assert(local_offset < type->size_of());
+            offset = alignat(offset + local_offset, type->align_of());
         }
         generator.generate(node->rhs);
-        add_operation<Operation::PushVarAddress>(generator, VarPath { path->path[0]->identifier, var_path });
-        add_operation<Operation::Assign>(generator);
-        return;
-    }
-    if (node->op == Operator::Cast) {
-        generator.generate(node->lhs);
-        auto const rhs_type = std::dynamic_pointer_cast<TypeSpecification>(node->rhs);
-        assert(rhs_type != nullptr && rhs_type->bound_type != nullptr);
-        add_operation<Operation::Cast>(generator, rhs_type->bound_type);
+        add_operation<Operation::PushVarAddress>(generator, VarPath { path->path[0]->identifier, type, offset });
+        add_operation<Operation::Assign>(generator, IR::IRVariableDeclaration { path->path[0]->identifier, node->bound_type });
         return;
     }
     generator.generate(node->lhs);
@@ -156,22 +158,23 @@ void generate_node(Generator &generator, std::shared_ptr<Block> const &node)
         auto module = std::make_shared<Module>(L"anonymous", node);
         generator.ctxs.push_back(Context { module, {} });
     }
-    add_operation<Operation::ScopeBegin>(generator, node->ns->variables.size());
+    std::vector<IRVariableDeclaration> variables;
+    for (auto const &var : node->ns->variables) {
+        variables.emplace_back(var.first, var.second->bound_type);
+    }
+    add_operation<Operation::ScopeBegin>(generator, variables);
     generator.ctxs.emplace_back(Context { {}, Context::BlockDescriptor {} });
     {
         Defer _ { [&generator]() { generator.ctxs.pop_back(); } };
 
-        auto discard { false };
-        auto empty { true };
+        pType discard { nullptr };
+        auto  empty { true };
         for (auto const &stmt : node->statements) {
-            if (discard) {
-                add_operation<Operation::Discard>(generator);
+            if (discard != nullptr) {
+                add_operation<Operation::Discard>(generator, discard);
             }
-            discard = stmt->type != SyntaxNodeType::DeferStatement
-                && stmt->type != SyntaxNodeType::FunctionDefinition
-                && stmt->type != SyntaxNodeType::Enum
-                && stmt->type != SyntaxNodeType::Struct;
-            empty &= !discard;
+            discard = stmt->bound_type;
+            empty &= (discard == nullptr);
             generator.generate(stmt);
         }
 
@@ -189,13 +192,13 @@ void generate_node(Generator &generator, std::shared_ptr<Block> const &node)
             for (auto const &[defer, label] : defer_stmts) {
                 add_operation<Operation::Label>(generator, label);
                 generator.generate(defer);
-                add_operation<Operation::Discard>(generator);
+                add_operation<Operation::Discard>(generator, defer->bound_type);
             }
             add_operation<Operation::SubRet>(generator);
             add_operation<Operation::Label>(generator, end_block);
         }
     }
-    add_operation<Operation::ScopeEnd>(generator);
+    add_operation<Operation::ScopeEnd>(generator, node->bound_type);
 }
 
 template<>
@@ -237,7 +240,7 @@ void generate_node(Generator &generator, std::shared_ptr<Call> const &node)
     for (auto const &param_def : node->function->declaration->parameters) {
         params.emplace_back(param_def->name, param_def->bound_type);
     }
-    for (auto const &expression : std::ranges::reverse_view(node->arguments->expressions)) {
+    for (auto const &expression : node->arguments->expressions) {
         generator.generate(expression);
     }
     if (auto const &extern_link = std::dynamic_pointer_cast<ExternLink>(node->function->implementation); extern_link != nullptr) {
@@ -301,10 +304,17 @@ void generate_node(Generator &generator, std::shared_ptr<DeferStatement> const &
                         return false;
                     } },
                 ctx.unwind)) {
+            add_operation<Operation::PushConstant>(generator, make_void());
             return;
         }
     }
     UNREACHABLE();
+}
+
+template<>
+void generate_node(Generator &generator, std::shared_ptr<Enum> const &node)
+{
+    add_operation<Operation::PushConstant>(generator, make_void());
 }
 
 template<>
@@ -313,6 +323,7 @@ void generate_node(Generator &generator, std::shared_ptr<FunctionDefinition> con
     if (auto const &extern_link = std::dynamic_pointer_cast<ExternLink>(node->implementation); extern_link == nullptr) {
         auto const &module = find_ir_node<pModule>(generator);
         auto        function = std::make_shared<Function>(node->name, node, module);
+        function->return_type = node->declaration->return_type->bound_type;
         module->functions.emplace(node->name, function);
         for (auto const &param : node->declaration->parameters) {
             function->parameters.emplace_back(param->name, param->bound_type);
@@ -320,13 +331,14 @@ void generate_node(Generator &generator, std::shared_ptr<FunctionDefinition> con
         generator.ctxs.push_back(Context { function, {} });
         generator.generate(node->implementation);
         generator.ctxs.pop_back();
+        add_operation<Operation::PushConstant>(generator, make_void());
     }
 }
 
 template<>
 void generate_node(Generator &generator, std::shared_ptr<Identifier> const &node)
 {
-    add_operation<Operation::PushValue>(generator, node->identifier);
+    add_operation<Operation::PushValue>(generator, VarPath { node->identifier, 0 });
 }
 
 template<>
@@ -350,11 +362,11 @@ void generate_node(Generator &generator, std::shared_ptr<IfStatement> const &nod
 template<>
 void generate_node(Generator &generator, std::shared_ptr<LoopStatement> const &node)
 {
-    add_operation<Operation::PushConstant>(generator, make_void());
+    add_operation<Operation::PushConstant>(generator, make_value(node->statement->bound_type));
     Context::LoopDescriptor const ld { node->label.value_or(std::wstring {}), next_label(), next_label() };
     generator.ctxs.push_back(Context { {}, ld });
     add_operation<Operation::Label>(generator, ld.loop_begin);
-    add_operation<Operation::Discard>(generator);
+    add_operation<Operation::Discard>(generator, node->statement->bound_type);
     generator.generate(node->statement);
     add_operation<Operation::Jump>(generator, ld.loop_begin);
     add_operation<Operation::Label>(generator, ld.loop_end);
@@ -397,6 +409,12 @@ void generate_node(Generator &generator, std::shared_ptr<Return> const &node)
 }
 
 template<>
+void generate_node(Generator &generator, std::shared_ptr<Struct> const &node)
+{
+    add_operation<Operation::PushConstant>(generator, make_void());
+}
+
+template<>
 void generate_node(Generator &generator, std::shared_ptr<UnaryExpression> const &node)
 {
     if (node->op == Operator::AddressOf) {
@@ -417,6 +435,11 @@ void generate_node(Generator &generator, std::shared_ptr<UnaryExpression> const 
 }
 
 template<>
+void generate_node(Generator &, std::shared_ptr<TypeSpecification> const &)
+{
+}
+
+template<>
 void generate_node(Generator &generator, std::shared_ptr<VariableDeclaration> const &node)
 {
     add_operation<Operation::DeclVar>(generator, IRVariableDeclaration { node->name, node->bound_type });
@@ -425,13 +448,13 @@ void generate_node(Generator &generator, std::shared_ptr<VariableDeclaration> co
 template<>
 void generate_node(Generator &generator, std::shared_ptr<WhileStatement> const &node)
 {
-    add_operation<Operation::PushConstant>(generator, make_void());
+    add_operation<Operation::PushConstant>(generator, make_value(node->statement->bound_type));
     Context::LoopDescriptor const ld { node->label.value_or(std::wstring {}), next_label(), next_label() };
     generator.ctxs.push_back(Context { {}, ld });
     add_operation<Operation::Label>(generator, ld.loop_begin);
     generator.generate(node->condition);
     add_operation<Operation::JumpF>(generator, ld.loop_end);
-    add_operation<Operation::Discard>(generator);
+    add_operation<Operation::Discard>(generator, node->statement->bound_type);
     generator.generate(node->statement);
     add_operation<Operation::Jump>(generator, ld.loop_begin);
     add_operation<Operation::Label>(generator, ld.loop_end);
@@ -481,12 +504,20 @@ std::wostream &operator<<(std::wostream &os, Arwen::IR::IRVariableDeclaration co
     return os;
 }
 
+std::wostream &operator<<(std::wostream &os, std::vector<Arwen::IR::IRVariableDeclaration> const &var_decls)
+{
+    auto sep = '[';
+    for (auto const &var_decl : var_decls) {
+        os << sep << var_decl;
+        sep = ',';
+    }
+    os << ']';
+    return os;
+}
+
 std::wostream &operator<<(std::wostream &os, Arwen::IR::VarPath const &var_path)
 {
-    os << var_path.name;
-    for (auto ix : var_path.path) {
-        os << '.' << ix;
-    }
+    os << var_path.name << ':' << var_path.offset << ' ' << var_path.type->to_string();
     return os;
 }
 
