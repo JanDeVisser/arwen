@@ -33,10 +33,10 @@ pType Identifier::bind(Parser &parser)
                 std::format(L"Unresolved identifier `{}`", identifier));
         }
     }
-    return type;
+    return TypeRegistry::the().referencing(type);
 }
 
-std::wostream& Identifier::header(std::wostream &os)
+std::wostream &Identifier::header(std::wostream &os)
 {
     return os << identifier;
 }
@@ -149,7 +149,7 @@ void VariableDeclaration::dump_node(int indent)
     }
 }
 
-std::wostream& VariableDeclaration::header(std::wostream &os)
+std::wostream &VariableDeclaration::header(std::wostream &os)
 {
     if (is_const) {
         os << "const ";

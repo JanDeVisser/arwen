@@ -86,112 +86,40 @@ std::string c_escape(std::string const &s)
     return ret;
 }
 
-StringList split(std::string_view const &s, std::string_view const &sep)
-{
-    auto       start = 0u;
-    auto       ptr = 0u;
-    StringList ret;
-    do {
-        start = ptr;
-        for (; ptr < s.length() && !s.substr(ptr).starts_with(sep); ++ptr)
-            ;
-        ret.emplace_back(s.substr(start, ptr - start));
-        ptr += sep.length();
-        start = ptr;
-    } while (ptr < s.length());
-    if (s.ends_with(sep)) { // This is ugly...
-        ret.emplace_back("");
-    }
-    return ret;
-}
-
-StringList split(std::string_view const &s, char sep)
-{
-    char const buf[2] = { sep, 0 };
-    return split(s, buf);
-}
-
-StringList split_by_whitespace(std::string_view const &s)
-{
-    auto       start = 0u;
-    auto       ptr = 0u;
-    StringList ret;
-    do {
-        start = ptr;
-        for (; ptr < s.length() && !isspace(s[ptr]); ++ptr)
-            ;
-        ret.emplace_back(s.substr(start, ptr - start));
-        for (; ptr < s.length() && isspace(s[ptr]); ++ptr)
-            ;
-        start = ptr;
-    } while (ptr < s.length());
-    return ret;
-}
-
-std::string_view strip(std::string_view const &s)
-{
-    size_t start;
-    for (start = 0; (start < s.length()) && std::isspace(s[start]); start++)
-        ;
-    if (start == s.length()) {
-        return { s.data(), 0 };
-    }
-    size_t end;
-    for (end = s.length() - 1; std::isspace(s[end]); end--)
-        ;
-    return s.substr(start, end - start + 1);
-}
-
-std::string_view rstrip(std::string_view const &s)
-{
-    size_t end;
-    for (end = s.length() - 1; std::isspace(s[end]); end--)
-        ;
-    return s.substr(0, end + 1);
-}
-
-std::string_view lstrip(std::string_view const &s)
-{
-    size_t start;
-    for (start = 0; (start < s.length()) && std::isspace(s[start]); start++)
-        ;
-    return s.substr(start, s.length() - start);
-}
-
-std::vector<std::pair<std::string, std::string>> parse_pairs(std::string const &s, char pair_sep, char name_value_sep)
-{
-    auto                                             pairs = split(s, pair_sep);
-    std::vector<std::pair<std::string, std::string>> ret;
-    for (auto &pair : pairs) {
-        auto nvp = split(strip(pair), name_value_sep);
-        switch (nvp.size()) {
-        case 0:
-            break;
-        case 1:
-            if (!strip(nvp[0]).empty())
-                ret.emplace_back(strip(nvp[0]), "");
-            break;
-        case 2:
-            if (!strip(nvp[0]).empty())
-                ret.emplace_back(strip(nvp[0]), strip(nvp[1]));
-            break;
-        default:
-            if (!strip(nvp[0]).empty()) {
-                std::vector<std::string> tail;
-                for (auto ix = 1u; ix < nvp.size(); ix++) {
-                    tail.emplace_back(nvp[ix]);
-                }
-                auto value = strip(join(tail, name_value_sep));
-                ret.emplace_back(strip(nvp[0]), strip(value));
-            }
-        }
-    }
-    return ret;
-}
+// std::vector<std::pair<std::string, std::string>> parse_pairs(std::string const &s, char pair_sep, char name_value_sep)
+// {
+//     auto                                             pairs = split(s, pair_sep);
+//     std::vector<std::pair<std::string, std::string>> ret;
+//     for (auto &pair : pairs) {
+//         auto nvp = split(strip(pair), name_value_sep);
+//         switch (nvp.size()) {
+//         case 0:
+//             break;
+//         case 1:
+//             if (!strip(nvp[0]).empty())
+//                 ret.emplace_back(strip(nvp[0]), "");
+//             break;
+//         case 2:
+//             if (!strip(nvp[0]).empty())
+//                 ret.emplace_back(strip(nvp[0]), strip(nvp[1]));
+//             break;
+//         default:
+//             if (!strip(nvp[0]).empty()) {
+//                 std::vector<std::string> tail;
+//                 for (auto ix = 1u; ix < nvp.size(); ix++) {
+//                     tail.emplace_back(nvp[ix]);
+//                 }
+//                 auto value = strip(join(tail, name_value_sep));
+//                 ret.emplace_back(strip(nvp[0]), strip(value));
+//             }
+//         }
+//     }
+//     return ret;
+// }
 
 std::string dequote(std::string const &str, char quote)
 {
-    auto s = strip(str);
+    auto s = strip(std::string_view { str });
     if (!s.empty() && s.starts_with(quote) && s.ends_with(quote))
         s = s.substr(1, s.length() - 2);
     return std::string { s };

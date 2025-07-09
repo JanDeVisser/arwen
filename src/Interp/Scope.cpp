@@ -4,8 +4,9 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "Util/Align.h"
 #include <variant>
+
+#include <Util/Align.h>
 
 #include <App/IR/IR.h>
 #include <App/Value.h>
@@ -55,6 +56,7 @@ void Scope::setup()
 
 void Scope::release(pType const &return_type)
 {
+    trace(L"Scope::release: bubbling up {} ({} bytes)", return_type->to_string(), return_type->size_of());
     if (std::holds_alternative<IR::pProgram>(ir) || std::holds_alternative<IR::pModule>(ir)) {
         trace("Scope::release: static Scope bp: {}", bp);
         return;

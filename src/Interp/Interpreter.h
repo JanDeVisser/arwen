@@ -7,6 +7,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 
 #include <Util/Logging.h>
@@ -16,6 +17,7 @@
 #include <App/SyntaxNode.h>
 
 #include <Interp/Stack.h>
+#include <variant>
 
 namespace Arwen::Interpreter {
 
@@ -24,6 +26,14 @@ using namespace Arwen;
 using namespace Arwen::IR;
 
 using ValueAddress = intptr_t;
+
+struct Interpreter;
+
+void  execute_op(IR::Operation const &op, Interpreter &interpreter);
+Value execute_node(Interpreter &interpreter, IR::pFunction const &function);
+Value execute_node(Interpreter &interpreter, IR::pProgram const &program);
+Value execute_node(Interpreter &interpreter, IR::pModule const &module);
+Value execute_ir(IR::IRNode const &ir);
 
 struct Scope {
     struct Variable {
@@ -52,9 +62,24 @@ struct Interpreter {
         uint64_t   ip;
     };
 
-    std::vector<Scope>   scopes;
-    Stack                stack;
-    std::vector<Context> call_stack;
+    enum class CallbackType {
+        StartModule,
+        EndModule,
+        StartFunction,
+        EndFunction,
+        BeforeOperation,
+        AfterOperation,
+        AfterScopeStart,
+        OnScopeDrop,
+    };
+    using CallbackPayload = std::variant<std::monostate, Operation, pFunction, IR::pModule, pType>;
+    using Callback = std::function<bool(CallbackType, Interpreter &, CallbackPayload)>;
+
+    std::map<IRNode, std::map<uint64_t, uint64_t>> labels;
+    std::vector<Scope>                             scopes;
+    Stack                                          stack;
+    std::vector<Context>                           call_stack;
+    Callback                                       callback { nullptr };
 
     Interpreter() = default;
     Interpreter(Interpreter &) = delete;
@@ -68,8 +93,5 @@ struct Interpreter {
     void   drop_scope(pType const &return_type);
     Value  pop(pType const &type);
 };
-
-void  execute_op(IR::Operation const &op, Interpreter &interpreter);
-Value execute_ir(IR::IRNode const &ir);
 
 }

@@ -137,44 +137,6 @@ pSyntaxNode BinaryExpression::normalize(Parser &parser)
         return normalize_node(make_node<ExpressionList>(nodes, nodes), parser);
     };
 
-    auto make_member_path = [this, &parser]() -> pSyntaxNode {
-        Identifiers path;
-        auto        add_identifier = [&parser, &path](pSyntaxNode const &n) -> bool {
-            if (auto const ident = std::dynamic_pointer_cast<Identifier>(n); ident == nullptr) {
-                parser.append(n->location, "Member path segment must be identifier");
-                return false;
-            } else {
-                path.push_back(ident);
-                return true;
-            }
-        };
-
-        std::function<void(pSyntaxNode)> flatten;
-        flatten = [&parser, &path, &flatten, &add_identifier](pSyntaxNode const &n) {
-            if (auto const binex = std::dynamic_pointer_cast<BinaryExpression>(n); binex) {
-                if (binex->op == Operator::MemberAccess) {
-                    if (!add_identifier(binex->lhs)) {
-                        path.clear();
-                        return;
-                    }
-                    flatten(binex->rhs);
-                } else {
-                    parser.append(n->location, "Member path segment must be identifier");
-                    path.clear();
-                }
-            } else {
-                if (!add_identifier(n)) {
-                    path.clear();
-                }
-            }
-        };
-        flatten(shared_from_this());
-        if (path.empty()) {
-            return nullptr;
-        }
-        return normalize_node(make_node<MemberPath>(path[0]->location + path.back()->location, path), parser);
-    };
-
     auto const_evaluate = [this, &parser](pSyntaxNode const &lhs, Operator op, pSyntaxNode const &rhs) -> pSyntaxNode {
         auto const &lhs_const = std::dynamic_pointer_cast<Constant>(lhs);
         if (lhs_const == nullptr || !lhs_const->bound_value) {
@@ -199,29 +161,6 @@ pSyntaxNode BinaryExpression::normalize(Parser &parser)
     };
 
     switch (op) {
-    case Operator::Assign: {
-        auto new_lhs = normalize_node(lhs, parser);
-        auto new_rhs = normalize_node(rhs, parser);
-        if (auto const ident = std::dynamic_pointer_cast<Identifier>(new_lhs); ident != nullptr) {
-            Identifiers path { ident };
-            return normalize_node(
-                make_node<BinaryExpression>(
-                    location,
-                    make_node<MemberPath>(new_lhs->location, path),
-                    op,
-                    new_rhs),
-                parser);
-        }
-        if (std::dynamic_pointer_cast<MemberPath>(new_lhs) == nullptr) {
-            parser.append(location, "Cannot assign to non-lvalues");
-            return nullptr;
-        }
-        return make_node<BinaryExpression>(
-            location,
-            new_lhs,
-            op,
-            new_rhs);
-    }
     case Operator::Call: {
         auto arg_list = normalize_node(rhs, parser);
         if (std::dynamic_pointer_cast<Void>(arg_list) != nullptr) {
@@ -232,8 +171,6 @@ pSyntaxNode BinaryExpression::normalize(Parser &parser)
         }
         return make_node<Call>(location, normalize_node(lhs, parser), std::dynamic_pointer_cast<ExpressionList>(arg_list));
     }
-    case Operator::MemberAccess:
-        return make_member_path();
     case Operator::Sequence:
         return make_expression_list();
     default:
@@ -294,6 +231,44 @@ pType BinaryExpression::bind(Parser &parser)
     if (lhs->status == Status::Ambiguous) {
         return parser.bind_error(lhs->location, L"Type ambiguity");
     }
+    if (lhs_type == TypeRegistry::undetermined) {
+        return TypeRegistry::undetermined;
+    }
+
+    if (op == Operator::MemberAccess) {
+        if (lhs_type->kind() != TypeKind::ReferenceType) {
+            return parser.bind_error(
+                location,
+                L"Left hand side of member access operator must be value reference");
+        }
+        auto const &ref = std::get<ReferenceType>(lhs_type->description);
+        if (ref.referencing->kind() != TypeKind::StructType) {
+            return parser.bind_error(
+                location,
+                L"Left hand side of member access operator must have struct type");
+        }
+        if (auto rhs_id = std::dynamic_pointer_cast<Identifier>(rhs); rhs_id == nullptr) {
+            return parser.bind_error(
+                location,
+                L"Right hand side of member access operator must be identifier");
+        } else {
+            auto const &s = std::get<StructType>(ref.referencing->description);
+            for (auto const &f : s.fields) {
+                if (f.name == rhs_id->identifier) {
+                    return TypeRegistry::the().referencing(f.type);
+                }
+            }
+            return parser.bind_error(
+                location,
+                L"Unknown field `{}`", rhs_id->identifier);
+        }
+    }
+
+    auto lhs_value_type { lhs_type };
+    if (lhs_value_type->kind() == TypeKind::ReferenceType) {
+        lhs_value_type = std::get<ReferenceType>(lhs_value_type->description).referencing;
+    }
+
     auto rhs_type = bind_node(rhs, parser);
     if (rhs->status == Status::BindErrors || rhs->status == Status::Ambiguous) {
         return lhs_type;
@@ -301,24 +276,28 @@ pType BinaryExpression::bind(Parser &parser)
     if (rhs->status == Status::Ambiguous) {
         return parser.bind_error(lhs->location, L"Type ambiguity");
     }
+    auto rhs_value_type { rhs_type };
+    if (rhs_value_type->kind() == TypeKind::ReferenceType) {
+        rhs_value_type = std::get<ReferenceType>(rhs_value_type->description).referencing;
+    }
 
     if (op == Operator::Assign) {
-        if (auto const member_path = std::dynamic_pointer_cast<MemberPath>(lhs); member_path == nullptr) {
-            return parser.bind_error(location, L"Cannot assign to non-lvalues");
+        if (lhs_type->kind() != TypeKind::ReferenceType) {
+            return parser.bind_error(location, L"Cannot assign to non-references");
         }
-        if (lhs_type != rhs_type) {
+        if (lhs_value_type != rhs_value_type) {
             return parser.bind_error(
                 location,
                 L"Cannot assign a value of type `{}` to a variable of type `{}`",
                 rhs_type->name,
                 lhs_type->name);
         }
-        return TypeRegistry::the().referencing(lhs_type);
+        return lhs_type;
     }
 
-    if (op == Operator::Call && lhs_type->is<FunctionType>() && rhs_type->is<TypeList>()) {
-        auto const [parameters, result] = std::get<FunctionType>(lhs_type->description);
-        auto const [types] = std::get<TypeList>(rhs_type->description);
+    if (op == Operator::Call && lhs_value_type->is<FunctionType>() && rhs_value_type->is<TypeList>()) {
+        auto const [parameters, result] = std::get<FunctionType>(lhs_value_type->description);
+        auto const [types] = std::get<TypeList>(rhs_value_type->description);
         if (parameters.size() != types.size()) {
             if (auto const ident_node = std::dynamic_pointer_cast<Identifier>(lhs); ident_node != nullptr) {
                 return parser.bind_error(
@@ -348,8 +327,8 @@ pType BinaryExpression::bind(Parser &parser)
 
     if (op == Operator::Cast) {
         if (auto const &lhs_const = std::dynamic_pointer_cast<Constant>(lhs); lhs_const != nullptr) {
-            if (auto const &rhs_type_node = std::dynamic_pointer_cast<TypeSpecification>(rhs); rhs_type_node != nullptr) {
-                if (auto type = rhs_type_node->resolve(parser); type != nullptr) {
+            if (auto const &rhs_value_type_node = std::dynamic_pointer_cast<TypeSpecification>(rhs); rhs_value_type_node != nullptr) {
+                if (auto type = rhs_value_type_node->resolve(parser); type != nullptr) {
                     if (auto const &casted = lhs_const->coerce(type, parser); casted != nullptr) {
                         return type;
                     }
@@ -357,28 +336,28 @@ pType BinaryExpression::bind(Parser &parser)
             }
         }
         return std::visit(overloads {
-                              [&rhs_type, this, &parser](IntType const &lhs_int_type, IntType const &rhs_int_type) {
+                              [&rhs_value_type, this, &parser](IntType const &lhs_int_type, IntType const &rhs_int_type) {
                                   if (lhs_int_type.width_bits > rhs_int_type.width_bits) {
                                       return parser.bind_error(
                                           location,
                                           L"Invalid argument type. Cannot narrow integers");
                                   }
-                                  return rhs_type;
+                                  return rhs_value_type;
                               },
-                              [&rhs_type, this, &parser](SliceType const &lhs_slice_type, ZeroTerminatedArray const &rhs_zero_terminated_type) {
+                              [&rhs_value_type, this, &parser](SliceType const &lhs_slice_type, ZeroTerminatedArray const &rhs_zero_terminated_type) {
                                   if (lhs_slice_type.slice_of != TypeRegistry::u32 || rhs_zero_terminated_type.array_of != TypeRegistry::u8) {
                                       return parser.bind_error(
                                           location,
                                           L"Invalid argument type. Cannot cast slices to zero-terminated arrays except for strings");
                                   }
-                                  return rhs_type;
+                                  return rhs_value_type;
                               },
                               [this, &parser](auto const &, auto const &) {
                                   return parser.bind_error(
                                       location,
                                       L"Invalid argument type. Can only cast integers");
                               } },
-            lhs_type->description, rhs_type->description);
+            lhs_value_type->description, rhs_value_type->description);
     }
 
     auto check_operators = [](pType const &op_lhs_type, pType const &op_rhs_type) -> pType {
@@ -404,17 +383,17 @@ pType BinaryExpression::bind(Parser &parser)
         return nullptr;
     };
 
-    if (auto result = check_operators(lhs_type, rhs_type); result != nullptr) {
+    if (auto result = check_operators(lhs_value_type, rhs_value_type); result != nullptr) {
         return result;
     }
-    if (auto const rhs_coerced_to_lhs = rhs->coerce(lhs_type, parser); rhs_coerced_to_lhs != nullptr) {
-        if (auto result = check_operators(lhs_type, rhs_coerced_to_lhs->bound_type); result != nullptr) {
+    if (auto const rhs_coerced_to_lhs = rhs->coerce(lhs_value_type, parser); rhs_coerced_to_lhs != nullptr) {
+        if (auto result = check_operators(lhs_value_type, rhs_coerced_to_lhs->bound_type); result != nullptr) {
             rhs = rhs_coerced_to_lhs;
             return result;
         }
     }
-    if (auto const lhs_coerced_to_rhs = lhs->coerce(rhs_type, parser); lhs_coerced_to_rhs != nullptr) {
-        if (auto result = check_operators(lhs_coerced_to_rhs->bound_type, rhs_type); result != nullptr) {
+    if (auto const lhs_coerced_to_rhs = lhs->coerce(rhs_value_type, parser); lhs_coerced_to_rhs != nullptr) {
+        if (auto result = check_operators(lhs_coerced_to_rhs->bound_type, rhs_value_type); result != nullptr) {
             lhs = lhs_coerced_to_rhs;
             return result;
         }
@@ -424,8 +403,8 @@ pType BinaryExpression::bind(Parser &parser)
         location,
         L"Operator `{}` cannot be applied to left hand type `{}` and right hand type `{}`",
         as_wstring(Operator_name(op)),
-        lhs_type->name,
-        rhs_type->name);
+        lhs_value_type->name,
+        rhs_value_type->name);
 }
 
 std::wostream &BinaryExpression::header(std::wostream &os)
@@ -449,21 +428,6 @@ UnaryExpression::UnaryExpression(Operator const op, pSyntaxNode operand)
 pSyntaxNode UnaryExpression::normalize(Parser &parser)
 {
     auto normalized_operand = normalize_node(operand, parser);
-    if (op == Operator::AddressOf) {
-        if (auto const ident = std::dynamic_pointer_cast<Identifier>(normalized_operand); ident != nullptr) {
-            Identifiers path { ident };
-            return normalize_node(
-                make_node<UnaryExpression>(
-                    location,
-                    op,
-                    make_node<MemberPath>(normalized_operand->location, path)),
-                parser);
-        }
-        if (normalized_operand->type != SyntaxNodeType::MemberPath) {
-            parser.append(location, "Cannot get address of to non-lvalues");
-            return nullptr;
-        }
-    }
     if (auto operand_const = std::dynamic_pointer_cast<Constant>(operand); operand_const != nullptr) {
         auto res = evaluate(op, operand_const->bound_value.value());
         return make_node<Constant>(location, res);
@@ -511,10 +475,10 @@ pType UnaryExpression::bind(Parser &parser)
         return TypeRegistry::i64;
     }
     if (op == Operator::AddressOf) {
-        if (operand->type != SyntaxNodeType::MemberPath) {
-            return parser.bind_error(location, L"Cannot get address of non-lvalues");
+        if (operand_type->kind() != TypeKind::ReferenceType) {
+            return parser.bind_error(location, L"Cannot get address of non-references");
         }
-        return TypeRegistry::the().referencing(operand_type);
+        return TypeRegistry::pointer;
     }
     for (auto const &[oper, operand, result] : unary_ops) {
         if (op == oper && operand.matches(operand_type)) {
@@ -588,72 +552,6 @@ void ExpressionList::dump_node(int const indent)
 {
     for (auto const &stmt : expressions) {
         stmt->dump(indent + 4);
-    }
-}
-
-MemberPath::MemberPath(Identifiers path)
-    : SyntaxNode(SyntaxNodeType::MemberPath)
-    , path(std::move(path))
-{
-}
-
-pSyntaxNode MemberPath::normalize(Parser &parser)
-{
-    return make_node<MemberPath>(location, normalize_nodes(path, parser));
-}
-
-pSyntaxNode MemberPath::stamp(Parser &parser)
-{
-    return make_node<MemberPath>(location, stamp_nodes(path, parser));
-}
-
-pType MemberPath::bind(Parser &parser)
-{
-    pType type = nullptr;
-    for (auto &segment : path) {
-        if (type == nullptr) {
-            type = bind_node(segment, parser);
-        } else {
-            if (!std::holds_alternative<StructType>(type->description)) {
-                return parser.bind_error(
-                    location,
-                    L"Value `{}` of type `{}` is not a struct",
-                    segment->identifier,
-                    type->name);
-            }
-            auto strukt = std::get<StructType>(type->description);
-            auto field_iter = strukt.field(segment->identifier);
-            if (field_iter == strukt.fields.end()) {
-                return parser.bind_error(
-                    location,
-                    L"Type `{}` has no field `{}`",
-                    type->name,
-                    segment->identifier);
-            }
-            type = field_iter->type;
-        }
-        segment->bound_type = type;
-    }
-    return type;
-}
-
-std::wostream &MemberPath::header(std::wostream &os)
-{
-    bool first = true;
-    for (auto const &segment : path) {
-        if (!first) {
-            os << '.';
-        }
-        first = false;
-        os << segment->identifier;
-    }
-    return os;
-}
-
-void MemberPath::dump_node(int const indent)
-{
-    for (int ix = 0; ix + 1 < path.size(); ++ix) {
-        path[ix]->dump(indent + 4);
     }
 }
 

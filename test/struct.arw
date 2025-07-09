@@ -2,10 +2,11 @@ struct Foo {
    a: i64,
    b: string,
    c: []u8,
+   d: i64,
 }
 
 func main() i32 {
     a: Foo
-    a.a = 42
+    a.d = 42
     return 0
 }

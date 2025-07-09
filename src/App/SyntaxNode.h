@@ -48,7 +48,6 @@ using namespace Util;
     S(Import)              \
     S(Insert)              \
     S(LoopStatement)       \
-    S(MemberPath)          \
     S(Module)              \
     S(Nullptr)             \
     S(Number)              \
@@ -384,17 +383,6 @@ struct ExpressionList final : SyntaxNode {
 
 using pIdentifier = std::shared_ptr<struct Identifier>;
 using Identifiers = std::vector<pIdentifier>;
-
-struct MemberPath final : SyntaxNode {
-    Identifiers path;
-
-    MemberPath(Identifiers path);
-    pSyntaxNode    normalize(Parser &parser) override;
-    pType          bind(Parser &parser) override;
-    pSyntaxNode    stamp(Parser &parser) override;
-    std::wostream &header(std::wostream &os) override;
-    void           dump_node(int indent) override;
-};
 
 struct ExternLink final : SyntaxNode {
     std::wstring link_name;

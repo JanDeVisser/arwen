@@ -75,6 +75,9 @@ Scope &Interpreter::new_scope(IRNode const &ir, std::vector<IRVariableDeclaratio
 {
     create_scope(*this, ir, variables);
     scopes.back().allocate();
+    if (callback != nullptr) {
+        callback(Interpreter::CallbackType::AfterScopeStart, *this, std::monostate {});
+    }
     return scopes.back();
 }
 
@@ -87,6 +90,9 @@ Scope &Interpreter::emplace_scope(IRNode const &ir, std::vector<IRVariableDeclar
 
 void Interpreter::drop_scope(pType const &return_type)
 {
+    if (callback != nullptr) {
+        callback(Interpreter::CallbackType::OnScopeDrop, *this, return_type);
+    }
     scopes.back().release(return_type);
     scopes.pop_back();
 }
@@ -119,14 +125,16 @@ void Interpreter::execute_operations(IRNode const &ir)
             } },
         ir);
 
-    std::map<uint64_t, uint64_t> labels;
-    uint64_t                     ip = 0;
-    for (auto const &op : operations) {
-        if (std::holds_alternative<Operation::Label>(op.op)) {
-            auto const [lbl] = std::get<Operation::Label>(op.op);
-            labels[lbl] = ip;
+    if (!labels.contains(ir)) {
+        uint64_t ip = 0;
+        auto    &l { labels[ir] };
+        for (auto const &op : operations) {
+            if (std::holds_alternative<Operation::Label>(op.op)) {
+                auto const [lbl] = std::get<Operation::Label>(op.op);
+                l[lbl] = ip;
+            }
+            ++ip;
         }
-        ++ip;
     }
     while (call_stack.back().ip < operations.size()) {
         execute_op(operations[call_stack.back().ip], *this);
@@ -140,40 +148,59 @@ Value Interpreter::execute(IR::IRNode const &ir)
             [](std::monostate const &) -> Value {
                 fatal("Can't execute null IR Node");
             },
-            [this, &ir](pProgram const &program) -> Value {
-                trace(L"Running program {}", program->name);
-                new_scope(ir);
-                call_stack.emplace_back(ir, 0);
-                IR::pFunction main { nullptr };
-                for (auto const &mod : program->modules | std::views::values) {
-                    execute(mod);
-                    if (main == nullptr && mod->functions.contains(L"main")) {
-                        main = mod->functions[L"main"];
-                    }
-                }
-                if (main != nullptr) {
-                    Scope &param_scope = new_scope(main);
-                    call_stack.emplace_back(main, 0);
-                    auto ret { execute(main) };
-                    call_stack.pop_back();
-                    drop_scope(main->return_type);
-                    return ret;
-                }
-                return make_void();
-            },
-            [this, &ir](IR::pModule const &mod) -> Value {
-                trace(L"Initializing module {}", mod->name);
-                new_scope(ir);
-                call_stack.emplace_back(ir, 0);
-                execute_operations(ir);
-                return pop(mod->syntax_node->bound_type);
-            },
-            [this, &ir](pFunction const &n) -> Value {
-                trace(L"Executing function {}", n->name);
-                execute_operations(ir);
-                return pop(n->syntax_node->bound_type);
+            [this](auto const &obj) -> Value {
+                return execute_node(*this, obj);
             } },
         ir);
+}
+
+Value execute_node(Interpreter &interpreter, IR::pProgram const &program)
+{
+    trace(L"Running program {}", program->name);
+    interpreter.new_scope(program);
+    interpreter.call_stack.emplace_back(program, 0);
+    IR::pFunction main { nullptr };
+    for (auto const &mod : program->modules | std::views::values) {
+        interpreter.execute(mod);
+        if (main == nullptr && mod->functions.contains(L"main")) {
+            main = mod->functions[L"main"];
+        }
+    }
+    if (main != nullptr) {
+        auto ret { execute_node(interpreter, main) };
+        return ret;
+    }
+    return make_void();
+}
+
+Value execute_node(Interpreter &interpreter, IR::pModule const &module)
+{
+    if (interpreter.callback != nullptr) {
+        interpreter.callback(Interpreter::CallbackType::StartModule, interpreter, module);
+    }
+    interpreter.call_stack.emplace_back(module, 0);
+    interpreter.new_scope(module, module->variables);
+    interpreter.execute_operations(module);
+    if (interpreter.callback != nullptr) {
+        interpreter.callback(Interpreter::CallbackType::EndModule, interpreter, module);
+    }
+    return interpreter.pop(module->syntax_node->bound_type);
+}
+
+Value execute_node(Interpreter &interpreter, IR::pFunction const &function)
+{
+    if (interpreter.callback != nullptr) {
+        interpreter.callback(Interpreter::CallbackType::StartFunction, interpreter, function);
+    }
+    Scope &param_scope = interpreter.new_scope(function);
+    interpreter.call_stack.emplace_back(function, 0);
+    interpreter.execute_operations(function);
+    interpreter.call_stack.pop_back();
+    interpreter.drop_scope(function->return_type);
+    if (interpreter.callback != nullptr) {
+        interpreter.callback(Interpreter::CallbackType::EndFunction, interpreter, function);
+    }
+    return interpreter.pop(function->syntax_node->bound_type);
 }
 
 Value execute_ir(IRNode const &ir)

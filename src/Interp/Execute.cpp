@@ -41,11 +41,21 @@ void execute_op(Interpreter &interpreter, OpImpl const &impl)
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::Assign const &impl)
+void execute_op<>(Interpreter &interpreter, Operation::AssignFromRef const &impl)
 {
-    auto const ref = pop<uint64_t>(interpreter.stack);
-    interpreter.stack.copy_and_pop(ref, impl.payload.type->size_of());
-    push<uint64_t>(interpreter.stack, ref);
+    auto const val_ref = pop<uint64_t>(interpreter.stack);
+    auto const var_ref = pop<uint64_t>(interpreter.stack);
+    interpreter.stack.copy(var_ref, val_ref, impl.payload->size_of());
+    push<uint64_t>(interpreter.stack, var_ref);
+    interpreter.call_stack.back().ip++;
+}
+
+template<>
+void execute_op<>(Interpreter &interpreter, Operation::AssignValue const &impl)
+{
+    auto const var_ref = pop<uint64_t>(interpreter.stack);
+    interpreter.stack.copy_and_pop(var_ref, impl.payload->size_of());
+    push<uint64_t>(interpreter.stack, var_ref);
     interpreter.call_stack.back().ip++;
 }
 
@@ -103,6 +113,14 @@ void execute_op<>(Interpreter &interpreter, Operation::Call const &impl)
 template<>
 void execute_op<>(Interpreter &interpreter, Operation::DeclVar const &impl)
 {
+    interpreter.call_stack.back().ip++;
+}
+
+template<>
+void execute_op<>(Interpreter &interpreter, Operation::Dereference const &impl)
+{
+    auto const ref = pop<uint64_t>(interpreter.stack);
+    interpreter.stack.push_copy(ref, impl.payload->size_of());
     interpreter.call_stack.back().ip++;
 }
 
@@ -209,15 +227,15 @@ void execute_op<>(Interpreter &interpreter, Operation::Sub const &impl)
 {
     auto &ctx { interpreter.call_stack.back() };
     ctx.ip += 1;
-    interpreter.call_stack.emplace_back(ctx.ir, as<uint64_t>(impl.payload));
-    interpreter.call_stack.back().ip++;
+    assert(interpreter.labels.contains(ctx.ir));
+    auto ip { interpreter.labels[ctx.ir][impl.payload] };
+    interpreter.call_stack.emplace_back(ctx.ir, ip);
 }
 
 template<>
 void execute_op<>(Interpreter &interpreter, Operation::SubRet const &impl)
 {
     interpreter.call_stack.pop_back();
-    interpreter.call_stack.back().ip++;
 }
 
 template<>
@@ -230,11 +248,19 @@ void execute_op<>(Interpreter &interpreter, Operation::UnaryOperator const &impl
 void execute_op(Operation const &op, Interpreter &interpreter)
 {
     trace("Executing {} ip {}", op.type_name(), interpreter.call_stack.back().ip);
-    return std::visit(
+    if (interpreter.callback != nullptr
+        && !interpreter.callback(Interpreter::CallbackType::BeforeOperation, interpreter, op)) {
+        return;
+    }
+    std::visit(
         [&interpreter]<typename Op>(Op const &payload) -> void {
             return execute_op<Op>(interpreter, payload);
         },
         op.op);
+    if (interpreter.callback != nullptr
+        && !interpreter.callback(Interpreter::CallbackType::AfterOperation, interpreter, op)) {
+        return;
+    }
 }
 
 }

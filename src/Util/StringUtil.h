@@ -18,10 +18,15 @@
 
 namespace Util {
 
-using StringList = std::vector<std::string>;
-using WStringList = std::vector<std::wstring>;
-using StringViewList = std::vector<std::string_view>;
-using WStringViewList = std::vector<std::wstring_view>;
+template<typename Char>
+using BasicStringList = std::vector<std::basic_string<Char>>;
+template<typename Char>
+using BasicStringViewList = std::vector<std::basic_string_view<Char>>;
+
+using StringList = BasicStringList<char>;
+using WStringList = BasicStringList<wchar_t>;
+using StringViewList = BasicStringViewList<char>;
+using WStringViewList = BasicStringViewList<wchar_t>;
 
 int isbdigit(int ch);
 
@@ -32,15 +37,108 @@ std::string  capitalize(std::string_view const &s);
 std::wstring capitalize(std::wstring_view const &s);
 
 std::size_t replace_all(std::string &, std::string_view, std::string_view);
-StringList  split(std::string_view const &s, std::string_view const &sep);
-StringList  split(std::string_view const &s, char sep);
-StringList  split_by_whitespace(std::string_view const &s);
+
+template<typename Char>
+BasicStringViewList<Char> split(std::basic_string_view<Char> const &s, std::basic_string_view<Char> const &sep)
+{
+    auto                      start = 0u;
+    auto                      ptr = 0u;
+    BasicStringViewList<Char> ret;
+    do {
+        start = ptr;
+        for (; ptr < s.length() && !s.substr(ptr).starts_with(sep); ++ptr)
+            ;
+        ret.emplace_back(s.substr(start, ptr - start));
+        ptr += sep.length();
+        start = ptr;
+    } while (ptr < s.length());
+    if (s.ends_with(sep)) { // This is ugly...
+        ret.emplace_back(std::basic_string_view<Char> {});
+    }
+    return ret;
+}
+
+template<typename Char>
+BasicStringViewList<Char> split(std::basic_string<Char> const &s, std::basic_string_view<Char> const &sep)
+{
+    return split(std::basic_string_view<Char> { s }, sep);
+}
+
+template<typename Char>
+BasicStringViewList<Char> split(std::basic_string_view<Char> const &s, wchar_t sep)
+{
+    Char const buf[2] = { sep, 0 };
+    return split(s, buf);
+}
+
+template<typename Char>
+BasicStringViewList<Char> split(std::basic_string<Char> const &s, wchar_t sep)
+{
+    return split(std::basic_string_view<Char> { s }, sep);
+}
+
+template<typename Char>
+BasicStringViewList<Char> split(std::basic_string_view<Char> const &s, char sep)
+{
+    Char const buf[2] = { sep, 0 };
+    return split(s, std::basic_string_view<Char>(buf));
+}
+
+template<typename Char>
+BasicStringViewList<Char> split_by_whitespace(std::basic_string_view<Char> const &s)
+{
+    auto                      start = 0u;
+    auto                      ptr = 0u;
+    BasicStringViewList<Char> ret;
+    do {
+        start = ptr;
+        for (; ptr < s.length() && !isspace(s[ptr]); ++ptr)
+            ;
+        ret.emplace_back(s.substr(start, ptr - start));
+        for (; ptr < s.length() && isspace(s[ptr]); ++ptr)
+            ;
+        start = ptr;
+    } while (ptr < s.length());
+    return ret;
+}
+
 //
 // std::string c_escape(std::string const& s);
 // std::string join(StringList const& collection, char sep);
-std::string_view strip(std::string_view const &s);
-std::string_view rstrip(std::string_view const &s);
-std::string_view lstrip(std::string_view const &s);
+
+template<typename Char>
+std::basic_string_view<Char> strip(std::basic_string_view<Char> const &s)
+{
+    size_t start;
+    for (start = 0; (start < s.length()) && std::isspace(s[start]); start++)
+        ;
+    if (start == s.length()) {
+        return { s.data(), 0 };
+    }
+    size_t end;
+    for (end = s.length() - 1; std::isspace(s[end]); end--)
+        ;
+    return s.substr(start, end - start + 1);
+}
+
+template<typename Char>
+std::basic_string_view<Char> rstrip(std::basic_string_view<Char> const &s)
+{
+    size_t end;
+    for (end = s.length() - 1; std::isspace(s[end]); end--)
+        ;
+    return s.substr(0, end + 1);
+}
+
+template<typename Char>
+std::basic_string_view<Char> lstrip(std::basic_string_view<Char> const &s)
+{
+    size_t start;
+    for (start = 0; (start < s.length()) && std::isspace(s[start]); start++)
+        ;
+    return s.substr(start, s.length() - start);
+}
+
 // std::vector<std::pair<std::string, std::string>> parse_pairs(std::string const& s, char pair_sep = ';', char name_value_sep = '=');
 // std::string dequote(std::string const& s, char = '"');
 

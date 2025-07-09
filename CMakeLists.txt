@@ -77,6 +77,50 @@ target_link_libraries(
         dl
 )
 
+add_library(
+    ArwenLang
+    STATIC
+    src/App/Parser.cpp
+    src/App/Operator.cpp
+    src/App/SyntaxNode.cpp
+    src/App/Syntax/Block.cpp
+    src/App/Syntax/Branch.cpp
+    src/App/Syntax/Constant.cpp
+    src/App/Syntax/Embed.cpp
+    src/App/Syntax/Enum.cpp
+    src/App/Syntax/Expression.cpp
+    src/App/Syntax/Function.cpp
+    src/App/Syntax/Import.cpp
+    src/App/Syntax/Include.cpp
+    src/App/Syntax/Insert.cpp
+    src/App/Syntax/Loop.cpp
+    src/App/Syntax/Module.cpp
+    src/App/Syntax/Namespace.cpp
+    src/App/Syntax/Program.cpp
+    src/App/Syntax/Public.cpp
+    src/App/Syntax/Return.cpp
+    src/App/Syntax/Struct.cpp
+    src/App/Syntax/Type.cpp
+    src/App/Syntax/Variable.cpp
+    src/App/Type.cpp
+    src/App/Value.cpp
+    src/App/IR/Generate.cpp
+    src/Interp/Execute.cpp
+    src/Interp/Interpreter.cpp
+    src/Interp/Native.cpp
+    src/Interp/Scope.cpp
+    src/Interp/Stack.cpp
+)
+
+target_link_libraries(
+        ArwenLang
+        PRIVATE
+        arwenrt
+        Util
+        trampoline
+        m
+)
+
 add_subdirectory(rt)
 
 include_directories(. src)
@@ -84,42 +128,27 @@ include_directories(. src)
 add_executable(
         arwen
         src/App/arwen.cpp
-        src/App/Parser.cpp
-        src/App/Operator.cpp
-        src/App/SyntaxNode.cpp
-        src/App/Syntax/Block.cpp
-        src/App/Syntax/Branch.cpp
-        src/App/Syntax/Constant.cpp
-        src/App/Syntax/Embed.cpp
-        src/App/Syntax/Enum.cpp
-        src/App/Syntax/Expression.cpp
-        src/App/Syntax/Function.cpp
-        src/App/Syntax/Import.cpp
-        src/App/Syntax/Include.cpp
-        src/App/Syntax/Insert.cpp
-        src/App/Syntax/Loop.cpp
-        src/App/Syntax/Module.cpp
-        src/App/Syntax/Namespace.cpp
-        src/App/Syntax/Program.cpp
-        src/App/Syntax/Public.cpp
-        src/App/Syntax/Return.cpp
-        src/App/Syntax/Struct.cpp
-        src/App/Syntax/Type.cpp
-        src/App/Syntax/Variable.cpp
-        src/App/Type.cpp
-        src/App/Value.cpp
-        src/App/IR/Generate.cpp
-        src/Interp/Execute.cpp
-        src/Interp/Interpreter.cpp
-        src/Interp/Native.cpp
-        src/Interp/Scope.cpp
-        src/Interp/Stack.cpp
 )
-
 
 target_link_libraries(
         arwen
         PRIVATE
+        ArwenLang
+        arwenrt
+        Util
+        trampoline
+        m
+)
+
+add_executable(
+        arwen_debugger
+        src/App/Debugger.cpp
+)
+
+target_link_libraries(
+        arwen_debugger
+        PRIVATE
+        ArwenLang
         arwenrt
         Util
         trampoline
@@ -128,7 +157,7 @@ target_link_libraries(
 
 #add_compile_options("-fno-inline-functions")
 
-install(TARGETS Util arwen
+install(TARGETS Util arwen arwen_debugger
         ARCHIVE DESTINATION lib
         RUNTIME DESTINATION bin
         LIBRARY DESTINATION lib

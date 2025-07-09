@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "App/Type.h"
 #include <cstddef>
 #include <cstdint>
 #include <iomanip>
@@ -78,12 +79,18 @@ void Stack::load(void *dest, intptr_t offset, size_t size)
 
 void Stack::discard(size_t size, size_t return_size)
 {
+    assert(return_size <= size);
     if (size != 0) {
         trace("Discarding {} byte frame from stack, sliding down {} bytes", size, return_size);
         if (return_size > 0) {
+            if (return_size == size) {
+                return;
+            }
             store(stack + (top - alignat(return_size, 8)), top - alignat(size, 8) - alignat(return_size, 8), return_size);
+            top -= (alignat(size, 8) - alignat(return_size, 8));
+        } else {
+            top -= alignat(size, 8);
         }
-        top -= alignat(size, 8);
         trace("Top is now {}", top);
     }
 }
@@ -142,8 +149,15 @@ concept numeric_or_bool = std::is_integral_v<T> || std::is_floating_point_v<T> |
 Operators(S)
 #undef S
 
-    template<std::integral Operand>
-    intptr_t evaluate_unary_BinaryInvert(Stack &stack, TypeDescription const &, TypeDescription const &)
+    template<>
+    intptr_t evaluate_unary_AddressOf<Reference>(Stack &stack, TypeDescription const &)
+{
+    auto operand = pop<uint64_t>(stack);
+    return push<void *>(stack, stack.stack + operand);
+}
+
+template<std::integral Operand>
+intptr_t evaluate_unary_BinaryInvert(Stack &stack, TypeDescription const &, TypeDescription const &)
 {
     auto operand = pop<Operand>(stack);
     return push<Operand>(stack, ~operand);
@@ -462,6 +476,12 @@ intptr_t evaluate(Stack &stack, SliceType const &operand, Operator op)
 }
 
 template<>
+intptr_t evaluate(Stack &stack, ReferenceType const &operand, Operator op)
+{
+    return evaluate_unary_op<Reference>(stack, op, operand);
+}
+
+template<>
 intptr_t evaluate(Stack &stack, DynArray const &operand, Operator op)
 {
     return evaluate_unary_op<DynamicArray>(stack, op, operand);
@@ -474,9 +494,9 @@ intptr_t evaluate(Stack &stack, Array const &operand, Operator op)
 }
 
 template<typename LHSDescr, typename RHSDescr>
-intptr_t evaluate(Stack &, LHSDescr const &, Operator, RHSDescr const &)
+intptr_t evaluate(Stack &stack, LHSDescr const &lhs, Operator op, RHSDescr const &rhs)
 {
-    UNREACHABLE();
+    return evaluate_op<LHSDescr, RHSDescr>(stack, op, lhs, rhs);
 }
 
 template<typename LHSDescr>

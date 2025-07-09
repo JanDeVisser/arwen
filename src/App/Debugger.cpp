@@ -1,0 +1,338 @@
+/*
+ * Copyright (c) 2025, Jan de Visser <jan@finiandarcy.com>
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
+#include <cctype>
+#include <ios>
+#include <iostream>
+#include <locale.h>
+#include <optional>
+#include <ostream>
+#include <string>
+#include <string_view>
+#include <variant>
+#include <wchar.h>
+
+#include <Util/IO.h>
+#include <Util/Lexer.h>
+#include <Util/Logging.h>
+#include <Util/Options.h>
+#include <Util/Result.h>
+#include <Util/StringUtil.h>
+#include <Util/TokenLocation.h>
+#include <Util/Utf8.h>
+
+#include <App/Parser.h>
+#include <App/SyntaxNode.h>
+#include <App/Type.h>
+
+#include <App/IR/IR.h>
+
+#include <Interp/Interpreter.h>
+
+namespace Arwen {
+
+using namespace Util;
+using namespace Interpreter;
+using namespace IR;
+
+using Interp = Arwen::Interpreter::Interpreter;
+
+std::optional<std::wstring> get_command_string()
+{
+    std::cout << "*> " << std::flush;
+    std::wstring ret;
+    std::getline(std::wcin, ret);
+    if (std::wcin.eof()) {
+        return {};
+    }
+    return ret;
+}
+
+void dump_scopes(Interp &interpreter)
+{
+    std::cout << "Scopes: " << interpreter.scopes.size() << " top: " << interpreter.stack.top << std::endl;
+    if (interpreter.stack.top == 0) {
+        std::cout << std::endl;
+        return;
+    }
+    auto scopes { 0 };
+    for (auto ix = 0; ix < interpreter.scopes.size(); ++ix) {
+        auto &scope { interpreter.scopes[ix] };
+        auto  next_bp = (ix < interpreter.scopes.size() - 1) ? interpreter.scopes[ix + 1].bp : interpreter.stack.top;
+        if (scopes == 0) {
+            std::cout << std::right << std::setw(2) << std::setfill(' ') << scope.bp;
+        }
+        std::cout << '.';
+        ++scopes;
+        if (next_bp > scope.bp) {
+            std::cout << std::right << std::setw(4 - scopes) << std::setfill(' ') << " ";
+            for (auto stix = scope.bp; stix < next_bp; stix += 8) {
+                if (stix == scope.bp) {
+                    std::cout << "   ";
+                } else {
+                    std::cout << "          ";
+                }
+                for (auto bix { 0 }; bix < 8 && stix + bix < next_bp; ++bix) {
+                    std::cout << " 0x" << std::hex << std::setw(2) << std::setfill('0') << (interpreter.stack.stack[stix + bix] & 0xFF);
+                }
+                std::cout << " ";
+                for (auto bix { 0 }; bix < 8 && stix + bix < next_bp; ++bix) {
+                    if (isprint(interpreter.stack.stack[stix + bix])) {
+                        std::cout << " " << interpreter.stack.stack[stix + bix];
+                    } else {
+                        std::cout << " .";
+                    }
+                }
+                std::cout << std::endl;
+            }
+            scopes = 0;
+        } else if (ix == interpreter.scopes.size() - 1) {
+            std::cout << std::endl;
+        }
+    }
+    std::cout << std::endl;
+}
+
+int debugger_main(int argc, char const **argv)
+{
+    struct Context {
+        std::wstring file_name;
+        std::wstring contents;
+        Parser       parser;
+        pSyntaxNode  syntax;
+        pSyntaxNode  normalized;
+        IR::IRNode   ir { std::monostate {} };
+
+        void reset()
+        {
+            file_name = L"";
+            contents = L"";
+            syntax = nullptr;
+            normalized = nullptr;
+            ir = std::monostate {};
+        }
+    };
+    Context ctx;
+    auto    arg_ix = parse_options(argc, argv);
+
+    auto load_file = [&ctx](std::wstring_view fname) -> bool {
+        ctx.contents = L"";
+        ctx.file_name = L"";
+        if (auto contents_maybe = read_file_by_name<wchar_t>(as_utf8(fname)); !contents_maybe.has_value()) {
+            std::wcerr << L"Could not read file `" << fname << '`' << std::endl;
+            return false;
+        } else {
+            ctx.contents = contents_maybe.value();
+            ctx.file_name = fname;
+            return true;
+        }
+    };
+
+    auto parse = [&ctx]() -> bool {
+        std::wcout << "STAGE 1 - Parsing" << std::endl;
+        ctx.parser.program = make_node<Arwen::Program>(TokenLocation {}, ctx.file_name, std::make_shared<Namespace>(ctx.parser.root));
+        ctx.parser.namespaces.clear();
+        ctx.parser.push_namespace(ctx.parser.root);
+        ctx.parser.push_namespace(ctx.parser.program->ns);
+        auto mod = ctx.parser.parse_module(as_utf8(ctx.file_name), std::move(ctx.contents));
+        for (auto const &err : ctx.parser.errors) {
+            std::wcerr << err.location.line + 1 << ':' << err.location.column + 1 << " " << err.message << std::endl;
+        }
+        if (!mod) {
+            std::cerr << "Syntax error(s) found" << std::endl;
+            ctx.reset();
+            return false;
+        }
+        ctx.parser.program->modules[mod->name] = mod;
+        ctx.parser.errors.clear();
+        ctx.syntax = ctx.parser.program;
+
+        std::wcout << "STAGE 2 - Folding" << std::endl;
+        ctx.parser.namespaces.clear();
+        ctx.parser.push_namespace(ctx.parser.root);
+        ctx.parser.push_namespace(ctx.parser.program->ns);
+        ctx.normalized = normalize_node(ctx.syntax, ctx.parser);
+        if (!ctx.normalized) {
+            std::cerr << "Internal error(s) encountered" << std::endl;
+            ctx.reset();
+            return false;
+        }
+        for (auto const &err : ctx.parser.errors) {
+            std::wcerr << err.location.line << ':' << err.location.column << " " << err.message << std::endl;
+            ctx.reset();
+            return false;
+        }
+
+        std::wcout << "STAGE 3 - Binding. Pass ";
+        ctx.parser.pass = 0;
+        ctx.parser.unbound = std::numeric_limits<int>::max();
+        int prev_pass;
+        do {
+            std::wcout << ctx.parser.pass << " ";
+            std::flush(std::wcout);
+            prev_pass = ctx.parser.unbound;
+            ctx.parser.unbound = 0;
+            ctx.parser.unbound_nodes.clear();
+            auto bound_type = bind_node(ctx.normalized, ctx.parser);
+            if (!bound_type) {
+                std::wcout << std::endl;
+                std::cerr << "Internal error(s) encountered" << std::endl;
+                ctx.reset();
+                return false;
+            }
+            if (!ctx.parser.errors.empty()) {
+                std::wcout << std::endl;
+                for (auto const &err : ctx.parser.errors) {
+                    std::wcerr << err.location.line << ':' << err.location.column << " " << err.message << std::endl;
+                    ctx.reset();
+                    return false;
+                }
+            }
+            ++ctx.parser.pass;
+        } while (ctx.parser.unbound > 0 && ctx.parser.unbound < prev_pass);
+        std::cout << std::endl;
+        return true;
+    };
+
+    auto trace_program = [&ctx]() {
+        auto cb = [](Interp::CallbackType cb_type, Interp &interpreter, Interp::CallbackPayload const &payload) -> bool {
+            switch (cb_type) {
+            case Interp::CallbackType::BeforeOperation:
+                std::wcout << std::get<Operation>(payload) << std::endl;
+                dump_scopes(interpreter);
+                break;
+            case Interp::CallbackType::AfterOperation:
+                //     std::wcout << L"After:" << std::endl;
+                //     dump_scopes(interpreter);
+                break;
+            case Interp::CallbackType::StartModule:
+                std::wcout << "Initializing module " << std::get<IR::pModule>(payload)->name << std::endl;
+                break;
+            case Interp::CallbackType::EndModule:
+                std::wcout << "Module " << std::get<IR::pModule>(payload)->name << " initialized" << std::endl;
+                break;
+            case Interp::CallbackType::StartFunction:
+                std::wcout << "Entering function " << std::get<pFunction>(payload)->name << std::endl;
+                break;
+            case Interp::CallbackType::EndFunction:
+                std::wcout << "Leaving function " << std::get<pFunction>(payload)->name << std::endl;
+                break;
+            case Interp::CallbackType::AfterScopeStart:
+                std::wcout << "Scope created" << std::endl;
+                break;
+            case Interp::CallbackType::OnScopeDrop: {
+                auto const &type { std::get<pType>(payload) };
+                std::wcout << "Dropping scope. Sliding down " << type->to_string() << " (" << type->size_of() << " bytes)" << std::endl;
+            } break;
+            }
+            return true;
+        };
+        Interp interpreter;
+        interpreter.callback = cb;
+        interpreter.execute(ctx.ir);
+    };
+
+    setlocale(LC_ALL, "en_US.UTF-8");
+    set_logging_config(LoggingConfig { has_option("trace") ? LogLevel::Trace : LogLevel::Info });
+    auto quit { false };
+    do {
+        std::wstring cmdline {};
+        for (; arg_ix < argc; ++arg_ix) {
+            cmdline += as_wstring(argv[arg_ix]);
+            cmdline += ' ';
+        }
+        if (cmdline.empty()) {
+            auto cmdline_maybe = get_command_string();
+            if (!cmdline_maybe.has_value()) {
+                break;
+            }
+            cmdline = *cmdline_maybe;
+        }
+        if (auto stripped = strip(std::wstring_view { cmdline }); !stripped.empty()) {
+            auto parts = split(stripped, ' ');
+            if (parts[0] == L"quit") {
+                quit = true;
+            } else if (parts[0] == L"load") {
+                if (parts.size() != 2) {
+                    std::cerr << "Error: filename missing\n";
+                } else {
+                    load_file(parts[1]);
+                }
+            } else if (parts[0] == L"parse") {
+                if (ctx.contents.empty()) {
+                    std::cerr << "Error: no file loaded\n";
+                } else {
+                    parse();
+                }
+            } else if (parts[0] == L"build") {
+                if (parts.size() != 2) {
+                    std::cerr << "Error: filename missing\n";
+                } else {
+                    load_file(parts[1]);
+                    parse();
+                    if (ctx.normalized == nullptr || ctx.normalized->status != SyntaxNode::Status::Bound) {
+                        std::cerr << "Error: parse failed\n";
+                    } else {
+                        ctx.ir = IR::generate_ir(ctx.normalized);
+                    }
+                }
+            } else if (parts[0] == L"print") {
+                if (parts.size() != 2) {
+                    std::cerr << "Error: name of tree to print missing\n";
+                } else {
+                    if (parts[1] == L"syntax") {
+                        if (ctx.syntax == nullptr) {
+                            std::cerr << "Error: no syntax tree available\n";
+                        } else {
+                            ctx.syntax->dump();
+                        }
+                    } else if (parts[1] == L"normalized") {
+                        if (ctx.normalized == nullptr) {
+                            std::cerr << "Error: no normalized tree available\n";
+                        } else {
+                            ctx.normalized->dump();
+                        }
+                    }
+                }
+            } else if (parts[0] == L"generate") {
+                if (ctx.normalized == nullptr || ctx.normalized->status != SyntaxNode::Status::Bound) {
+                    std::cerr << "Error: no bound tree available\n";
+                } else {
+                    ctx.ir = IR::generate_ir(ctx.normalized);
+                }
+            } else if (parts[0] == L"list") {
+                if (std::holds_alternative<std::monostate>(ctx.ir)) {
+                    std::cerr << "Error: no IR available\n";
+                } else {
+                    IR::list(ctx.ir);
+                }
+            } else if (parts[0] == L"run") {
+                if (std::holds_alternative<IR::pProgram>(ctx.ir)) {
+                    auto ret = Arwen::Interpreter::execute_ir(ctx.ir);
+                    std::wcout << ret << "\n";
+                } else {
+                    std::cerr << "Error: no IR available\n";
+                }
+            } else if (parts[0] == L"trace") {
+                if (std::holds_alternative<IR::pProgram>(ctx.ir)) {
+                    trace_program();
+                } else {
+                    std::cerr << "Error: no IR available\n";
+                }
+            } else {
+                //
+            }
+        }
+    } while (!quit);
+    return 0;
+}
+
+}
+
+int main(int argc, char const **argv)
+{
+    Arwen::debugger_main(argc, argv);
+}

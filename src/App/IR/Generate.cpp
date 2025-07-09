@@ -4,7 +4,9 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "App/Operator.h"
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <ranges>
 #include <variant>
@@ -64,21 +66,33 @@ void list(pProgram const &prog)
     }
 }
 
+void list(IRNode const &ir)
+{
+    std::visit(overloads {
+                   [](std::monostate const &) {
+                   },
+                   [](auto const &ir_node) {
+                       list(ir_node);
+                   } },
+        ir);
+}
+
 void add_operation(Generator &generator, Operation op)
 {
     for (auto &ctx : std::views::reverse(generator.ctxs)) {
-        if (std::visit(overloads {
-                           [&op](pFunction const &f) -> bool {
-                               f->operations.emplace_back(std::move(op));
-                               return true;
-                           },
-                           [&op](pModule const &mod) -> bool {
-                               mod->operations.emplace_back(std::move(op));
-                               return true;
-                           },
-                           [](auto const &) -> bool {
-                               return false;
-                           } },
+        if (std::visit(
+                overloads {
+                    [&op](pFunction const &f) -> bool {
+                        f->operations.emplace_back(std::move(op));
+                        return true;
+                    },
+                    [&op](pModule const &mod) -> bool {
+                        mod->operations.emplace_back(std::move(op));
+                        return true;
+                    },
+                    [](auto const &) -> bool {
+                        return false;
+                    } },
                 ctx.ir_node)) {
             return;
         }
@@ -96,6 +110,28 @@ template<typename Op>
 void add_operation(Generator &generator)
 {
     add_operation(generator, std::move(Operation { Op {} }));
+}
+
+Operation &last_op(Generator &generator)
+{
+    for (auto &ctx : std::views::reverse(generator.ctxs)) {
+        auto *operation = std::visit(
+            overloads {
+                [](pFunction const &f) -> Operation * {
+                    return &f->operations.back();
+                },
+                [](pModule const &mod) -> Operation * {
+                    return &mod->operations.back();
+                },
+                [](auto const &) -> Operation * {
+                    return nullptr;
+                } },
+            ctx.ir_node);
+        if (operation != nullptr) {
+            return *operation;
+        }
+    }
+    UNREACHABLE();
 }
 
 template<typename T>
@@ -120,35 +156,60 @@ template<>
 void generate_node(Generator &generator, std::shared_ptr<BinaryExpression> const &node)
 {
     trace("Operator `{}`", Operator_name(node->op));
-    if (node->op == Operator::Assign) {
-        auto path = std::dynamic_pointer_cast<MemberPath>(node->lhs);
-        assert(path != nullptr);
-        intptr_t offset { 0 };
-        pType   &type = path->path[0]->bound_type;
-        for (auto ix = 1; ix < path->path.size(); ++ix) {
-            type = path->path[ix - 1]->bound_type;
-            assert(std::holds_alternative<StructType>(type->description));
-            auto     st = std::get<StructType>(type->description);
-            intptr_t local_offset { 0 };
-            for (auto fld_ix = 0; fld_ix < st.fields.size(); ++fld_ix) {
-                local_offset = alignat(local_offset, st.fields[fld_ix].type->align_of());
-                if (st.fields[fld_ix].name == path->path[ix]->identifier) {
-                    break;
-                } else {
-                    local_offset += st.fields[fld_ix].type->size_of();
-                }
+
+    auto const &lhs { node->lhs };
+    auto const &lhs_type { lhs->bound_type };
+    auto        lhs_value_type { lhs_type };
+    if (lhs_value_type->kind() == TypeKind::ReferenceType) {
+        lhs_value_type = std::get<ReferenceType>(lhs_value_type->description).referencing;
+    }
+    auto const &rhs { node->rhs };
+
+    if (node->op == Operator::MemberAccess) {
+        generator.generate(node->lhs);
+        auto const &ref = std::get<ReferenceType>(lhs->bound_type->description);
+        auto        rhs_id = std::dynamic_pointer_cast<Identifier>(rhs);
+        auto const &s = std::get<StructType>(ref.referencing->description);
+        size_t      offset { 0 };
+        for (auto const &f : s.fields) {
+            offset = alignat(offset, f.type->align_of());
+            if (f.name == rhs_id->identifier) {
+                break;
             }
-            assert(local_offset < type->size_of());
-            offset = alignat(offset + local_offset, type->align_of());
+            offset += f.type->size_of();
         }
+        Operation &operation = last_op(generator);
+        auto      &push_var_address = std::get<Operation::PushVarAddress>(operation.op);
+        push_var_address.payload.type = node->bound_type;
+        push_var_address.payload.offset += offset;
+        return;
+    }
+
+    auto const &rhs_type { rhs->bound_type };
+    auto        rhs_value_type { rhs_type };
+    if (rhs_value_type->kind() == TypeKind::ReferenceType) {
+        rhs_value_type = std::get<ReferenceType>(rhs_value_type->description).referencing;
+    }
+
+    if (node->op == Operator::Assign) {
+        generator.generate(node->lhs);
         generator.generate(node->rhs);
-        add_operation<Operation::PushVarAddress>(generator, VarPath { path->path[0]->identifier, type, offset });
-        add_operation<Operation::Assign>(generator, IR::IRVariableDeclaration { path->path[0]->identifier, node->bound_type });
+        if (rhs_type->kind() == TypeKind::ReferenceType) {
+            add_operation<Operation::AssignFromRef>(generator, lhs_value_type);
+        } else {
+            add_operation<Operation::AssignValue>(generator, lhs_value_type);
+        }
         return;
     }
     generator.generate(node->lhs);
+    if (lhs_type->kind() == TypeKind::ReferenceType) {
+        add_operation<Operation::Dereference>(generator, lhs_value_type);
+    }
     generator.generate(node->rhs);
-    add_operation<Operation::BinaryOperator>(generator, Operation::BinaryOperator { node->lhs->bound_type, node->op, node->rhs->bound_type });
+    if (rhs_type->kind() == TypeKind::ReferenceType) {
+        add_operation<Operation::Dereference>(generator, rhs_value_type);
+    }
+    add_operation<Operation::BinaryOperator>(generator, Operation::BinaryOperator { lhs_value_type, node->op, rhs_value_type });
 }
 
 template<>
@@ -163,7 +224,9 @@ void generate_node(Generator &generator, std::shared_ptr<Block> const &node)
         variables.emplace_back(var.first, var.second->bound_type);
     }
     add_operation<Operation::ScopeBegin>(generator, variables);
-    generator.ctxs.emplace_back(Context { {}, Context::BlockDescriptor {} });
+    auto const scope_end = next_label();
+    auto const end_block = next_label();
+    generator.ctxs.emplace_back(Context { {}, Context::BlockDescriptor { scope_end, end_block } });
     {
         Defer _ { [&generator]() { generator.ctxs.pop_back(); } };
 
@@ -181,52 +244,53 @@ void generate_node(Generator &generator, std::shared_ptr<Block> const &node)
         if (empty) {
             add_operation<Operation::PushConstant>(generator, make_void());
         }
-
-        auto &ctx = generator.ctxs.back();
-        auto &[defer_stmts] = std::get<Context::BlockDescriptor>(ctx.unwind);
-        if (!defer_stmts.empty()) {
-            auto const end_block = next_label();
-            auto const &[_, last_defer_label] = defer_stmts.back();
-            add_operation<Operation::Sub>(generator, last_defer_label);
-            add_operation<Operation::Jump>(generator, end_block);
-            for (auto const &[defer, label] : defer_stmts) {
+        auto const &bd = std::get<Context::BlockDescriptor>(generator.ctxs.back().unwind);
+        if (bd.defer_stmts.empty()) {
+            add_operation<Operation::Sub>(generator, scope_end);
+        } else {
+            add_operation<Operation::Sub>(generator, bd.defer_stmts.back().second);
+            for (auto const &[defer, label] : bd.defer_stmts) {
                 add_operation<Operation::Label>(generator, label);
                 generator.generate(defer);
                 add_operation<Operation::Discard>(generator, defer->bound_type);
             }
-            add_operation<Operation::SubRet>(generator);
-            add_operation<Operation::Label>(generator, end_block);
         }
     }
+    add_operation<Operation::Jump>(generator, end_block);
+    add_operation<Operation::Label>(generator, scope_end);
     add_operation<Operation::ScopeEnd>(generator, node->bound_type);
+    add_operation<Operation::SubRet>(generator);
+    add_operation<Operation::Label>(generator, end_block);
 }
 
 template<>
 void generate_node(Generator &generator, std::shared_ptr<Break> const &node)
 {
-    while (!generator.ctxs.empty()) {
-        auto const &ctx = generator.ctxs.back();
-        auto        brk = std::visit(
-            overloads {
-                [&node, &generator](Context::LoopDescriptor const &ld) -> bool {
-                    if (node->label->empty() || ld.name == node->label.value()) {
-                        add_operation<Operation::Jump>(generator, ld.loop_end);
-                        return true;
-                    }
-                    return false;
-                },
-                [&generator](Context::BlockDescriptor const &bd) -> bool {
-                    if (!bd.defer_stmts.empty()) {
-                        add_operation<Operation::Sub>(generator, bd.defer_stmts.back().second);
-                    }
-                    return false;
-                },
-                [](auto const &) {
-                    return false;
-                } },
-            ctx.unwind);
-        generator.ctxs.pop_back();
-        if (brk) {
+    for (auto const &ctx : generator.ctxs | std::views::reverse) {
+        if (std::visit(
+                overloads {
+                    [&node, &generator](Context::LoopDescriptor const &ld) -> bool {
+                        if (node->label->empty() || ld.name == node->label.value()) {
+                            add_operation<Operation::Jump>(generator, ld.loop_end);
+                            return true;
+                        }
+                        return false;
+                    },
+                    [&generator](Context::BlockDescriptor const &bd) -> bool {
+                        if (!bd.defer_stmts.empty()) {
+                            add_operation<Operation::Sub>(generator, bd.defer_stmts.back().second);
+                        } else {
+                            add_operation<Operation::Sub>(generator, bd.scope_end_label);
+                        }
+                        return false;
+                    },
+                    [](Context::FunctionDescriptor const &) -> bool {
+                        UNREACHABLE();
+                    },
+                    [](auto const &) {
+                        return false;
+                    } },
+                ctx.unwind)) {
             return;
         }
     }
@@ -260,29 +324,31 @@ void generate_node(Generator &generator, std::shared_ptr<Constant> const &node)
 template<>
 void generate_node(Generator &generator, std::shared_ptr<Continue> const &node)
 {
-    while (!generator.ctxs.empty()) {
-        auto const &ctx = generator.ctxs.back();
-        auto        brk = std::visit(
-            overloads {
-                [&node, &generator](Context::LoopDescriptor const &ld) -> bool {
-                    if (node->label->empty() || ld.name == node->label.value()) {
-                        add_operation<Operation::Jump>(generator, ld.loop_begin);
-                        return true;
-                    }
-                    return false;
-                },
-                [&generator](Context::BlockDescriptor const &bd) -> bool {
-                    if (!bd.defer_stmts.empty()) {
-                        add_operation<Operation::Sub>(generator, bd.defer_stmts.back().second);
-                    }
-                    return false;
-                },
-                [](auto const &) -> bool {
-                    return false;
-                } },
-            ctx.unwind);
-        generator.ctxs.pop_back();
-        if (brk) {
+    for (auto const &ctx : generator.ctxs | std::views::reverse) {
+        if (std::visit(
+                overloads {
+                    [&node, &generator](Context::LoopDescriptor const &ld) -> bool {
+                        if (node->label->empty() || ld.name == node->label.value()) {
+                            add_operation<Operation::Jump>(generator, ld.loop_begin);
+                            return true;
+                        }
+                        return false;
+                    },
+                    [&generator](Context::BlockDescriptor const &bd) -> bool {
+                        if (!bd.defer_stmts.empty()) {
+                            add_operation<Operation::Sub>(generator, bd.defer_stmts.back().second);
+                        } else {
+                            add_operation<Operation::Sub>(generator, bd.scope_end_label);
+                        }
+                        return false;
+                    },
+                    [](Context::FunctionDescriptor const &) -> bool {
+                        UNREACHABLE();
+                    },
+                    [](auto const &) -> bool {
+                        return false;
+                    } },
+                ctx.unwind)) {
             return;
         }
     }
@@ -328,17 +394,17 @@ void generate_node(Generator &generator, std::shared_ptr<FunctionDefinition> con
         for (auto const &param : node->declaration->parameters) {
             function->parameters.emplace_back(param->name, param->bound_type);
         }
-        generator.ctxs.push_back(Context { function, {} });
+        generator.ctxs.emplace_back(function, Context::FunctionDescriptor { function->return_type });
         generator.generate(node->implementation);
         generator.ctxs.pop_back();
-        add_operation<Operation::PushConstant>(generator, make_void());
     }
+    add_operation<Operation::PushConstant>(generator, make_void());
 }
 
 template<>
 void generate_node(Generator &generator, std::shared_ptr<Identifier> const &node)
 {
-    add_operation<Operation::PushValue>(generator, VarPath { node->identifier, 0 });
+    add_operation<Operation::PushVarAddress>(generator, VarPath { node->identifier, node->bound_type, 0 });
 }
 
 template<>
@@ -386,7 +452,21 @@ void generate_node(Generator &generator, std::shared_ptr<Arwen::Module> const &n
     }
     program->modules.emplace(node->name, module);
     generator.ctxs.push_back(Context { module, {} });
-    generator.generate(node->statements);
+
+    pType discard { nullptr };
+    auto  empty { true };
+    for (auto const &stmt : node->statements->statements) {
+        if (discard != nullptr) {
+            add_operation<Operation::Discard>(generator, discard);
+        }
+        discard = stmt->bound_type;
+        empty &= (discard == nullptr);
+        generator.generate(stmt);
+    }
+    if (empty) {
+        add_operation<Operation::PushConstant>(generator, make_void());
+    }
+
     generator.ctxs.pop_back();
 }
 
@@ -401,11 +481,43 @@ void generate_node(Generator &generator, std::shared_ptr<Arwen::Program> const &
     }
 }
 
+// template<>
+// void generate_node(Generator &generator, std::shared_ptr<Return> const &node)
+// {
+//     generator.generate(node->expression);
+//     add_operation<Operation::Return>(generator);
+// }
+
 template<>
 void generate_node(Generator &generator, std::shared_ptr<Return> const &node)
 {
     generator.generate(node->expression);
-    add_operation<Operation::Return>(generator);
+    for (auto const &ctx : generator.ctxs | std::views::reverse) {
+        if (std::visit(
+                overloads {
+                    [&node, &generator](Context::LoopDescriptor const &ld) -> bool {
+                        return false;
+                    },
+                    [&generator](Context::BlockDescriptor const &bd) -> bool {
+                        if (!bd.defer_stmts.empty()) {
+                            add_operation<Operation::Sub>(generator, bd.defer_stmts.back().second);
+                        } else {
+                            add_operation<Operation::Sub>(generator, bd.scope_end_label);
+                        }
+                        return false;
+                    },
+                    [&generator](Context::FunctionDescriptor const &fd) -> bool {
+                        add_operation<Operation::Return>(generator);
+                        return true;
+                    },
+                    [](auto const &) {
+                        return false;
+                    } },
+                ctx.unwind)) {
+            return;
+        }
+    }
+    UNREACHABLE();
 }
 
 template<>
@@ -417,15 +529,6 @@ void generate_node(Generator &generator, std::shared_ptr<Struct> const &node)
 template<>
 void generate_node(Generator &generator, std::shared_ptr<UnaryExpression> const &node)
 {
-    if (node->op == Operator::AddressOf) {
-        auto const path = std::dynamic_pointer_cast<MemberPath>(node->operand);
-        assert(path != nullptr);
-        if (path->path.size() > 1) {
-            fatal("Can't do structs yet");
-        }
-        add_operation<Operation::PushVarAddress>(generator, path->path[0]->identifier);
-        return;
-    }
     if (node->op == Operator::Sizeof && node->operand->type == SyntaxNodeType::TypeSpecification) {
         add_operation<Operation::PushConstant>(generator, Value { TypeRegistry::i64, node->operand->bound_type->size_of() });
         return;
@@ -481,13 +584,6 @@ IRNode generate_ir(pSyntaxNode const &node)
     Generator generator {};
     generator.generate(node);
     auto const &ret = generator.ctxs.back().ir_node;
-    std::visit(overloads {
-                   [](std::monostate const &) {
-                   },
-                   [](auto const &ir_node) {
-                       list(ir_node);
-                   } },
-        ret);
     return ret;
 }
 
@@ -506,10 +602,14 @@ std::wostream &operator<<(std::wostream &os, Arwen::IR::IRVariableDeclaration co
 
 std::wostream &operator<<(std::wostream &os, std::vector<Arwen::IR::IRVariableDeclaration> const &var_decls)
 {
-    auto sep = '[';
+    os << '[';
+    bool first { true };
     for (auto const &var_decl : var_decls) {
-        os << sep << var_decl;
-        sep = ',';
+        if (!first) {
+            os << ',';
+        }
+        first = false;
+        os << var_decl;
     }
     os << ']';
     return os;

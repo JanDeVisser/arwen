@@ -16,10 +16,12 @@
 namespace Arwen::IR {
 
 #define IROperationTypes(S)                           \
-    S(Assign, IRVariableDeclaration)                  \
+    S(AssignFromRef, pType)                           \
+    S(AssignValue, pType)                             \
     S(BinaryOperator, BinaryOp)                       \
     S(Call, CallOp)                                   \
     S(DeclVar, IRVariableDeclaration)                 \
+    S(Dereference, pType)                             \
     S(Discard, pType)                                 \
     S(Jump, uint64_t)                                 \
     S(JumpF, uint64_t)                                \
@@ -162,9 +164,14 @@ struct Context {
         uint64_t     loop_end;
     };
     struct BlockDescriptor {
+        uint64_t                                      scope_end_label;
+        uint64_t                                      block_end_label;
         std::vector<std::pair<pSyntaxNode, uint64_t>> defer_stmts {};
     };
-    using UnwindStackEntry = std::variant<std::monostate, LoopDescriptor, BlockDescriptor>;
+    struct FunctionDescriptor {
+        pType return_type;
+    };
+    using UnwindStackEntry = std::variant<std::monostate, FunctionDescriptor, LoopDescriptor, BlockDescriptor>;
 
     IRNode           ir_node;
     UnwindStackEntry unwind;
@@ -182,9 +189,12 @@ struct Generator {
 };
 
 IRNode generate_ir(pSyntaxNode const &node);
+void   list(IRNode const &ir);
+
 }
 
 std::wostream &operator<<(std::wostream &os, Arwen::IR::IRVariableDeclaration const &var_decl);
+std::wostream &operator<<(std::wostream &os, std::vector<Arwen::IR::IRVariableDeclaration> const &var_decls);
 std::wostream &operator<<(std::wostream &os, Arwen::IR::VarPath const &var_path);
 std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation::CallOp const &call);
 std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation::BinaryOp const &op);

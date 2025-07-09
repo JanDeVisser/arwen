@@ -226,7 +226,7 @@ Result<void_t, DLError> Resolver::resolve(std::string const &func_name)
 
     std::string image;
     std::string function;
-    auto        name = split(s, ':');
+    auto        name = split(std::string_view { s }, ':');
     switch (name.size()) {
     case 2:
         image = name.front();

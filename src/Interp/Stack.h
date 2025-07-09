@@ -25,6 +25,11 @@ using namespace Arwen;
 struct Void {
 };
 
+struct Reference {
+    intptr_t address;
+    pType    type;
+};
+
 struct Stack {
     char    *stack;
     intptr_t cap;

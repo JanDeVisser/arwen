@@ -515,6 +515,7 @@ struct TypeRegistry {
     static TypeRegistry &the();
     pType                generic_parameter(std::wstring name);
     pType                referencing(pType type);
+    pType                pointer_to(pType type);
     pType                alias_for(pType type);
     pType                slice_of(pType type);
     pType                zero_terminated_array_of(pType type);
