@@ -73,6 +73,9 @@ static void create_scope(Interpreter &interpreter, IRNode const &ir, std::vector
 
 Scope &Interpreter::new_scope(IRNode const &ir, std::vector<IRVariableDeclaration> const &variables)
 {
+    if (callback != nullptr) {
+        callback(Interpreter::CallbackType::OnScopeStart, *this, std::monostate {});
+    }
     create_scope(*this, ir, variables);
     scopes.back().allocate();
     if (callback != nullptr) {
@@ -95,13 +98,18 @@ void Interpreter::drop_scope(pType const &return_type)
     }
     scopes.back().release(return_type);
     scopes.pop_back();
+    if (callback != nullptr) {
+        callback(Interpreter::CallbackType::AfterScopeDrop, *this, std::monostate {});
+    }
 }
 
 Value Interpreter::pop(pType const &type)
 {
-    auto offset = stack.top - alignat(type->size_of(), 8);
+    trace(L"Interpreter::pop({})", type->to_string());
+    auto aligned { alignat(type->size_of(), 8) };
+    auto offset = stack.top - aligned;
     auto ret = make_from_buffer(type, static_cast<void *>(stack.stack + offset));
-    stack.discard(type->size_of());
+    stack.discard(aligned);
     return ret;
 }
 
@@ -200,7 +208,7 @@ Value execute_node(Interpreter &interpreter, IR::pFunction const &function)
     if (interpreter.callback != nullptr) {
         interpreter.callback(Interpreter::CallbackType::EndFunction, interpreter, function);
     }
-    return interpreter.pop(function->syntax_node->bound_type);
+    return interpreter.pop(function->return_type);
 }
 
 Value execute_ir(IRNode const &ir)

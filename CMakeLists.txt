@@ -127,7 +127,7 @@ include_directories(. src)
 
 add_executable(
         arwen
-        src/App/arwen.cpp
+        src/App/Main.cpp
 )
 
 target_link_libraries(
@@ -140,24 +140,9 @@ target_link_libraries(
         m
 )
 
-add_executable(
-        arwen_debugger
-        src/App/Debugger.cpp
-)
-
-target_link_libraries(
-        arwen_debugger
-        PRIVATE
-        ArwenLang
-        arwenrt
-        Util
-        trampoline
-        m
-)
-
 #add_compile_options("-fno-inline-functions")
 
-install(TARGETS Util arwen arwen_debugger
+install(TARGETS Util ArwenLang arwen
         ARCHIVE DESTINATION lib
         RUNTIME DESTINATION bin
         LIBRARY DESTINATION lib

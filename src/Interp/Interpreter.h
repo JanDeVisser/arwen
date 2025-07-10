@@ -69,8 +69,10 @@ struct Interpreter {
         EndFunction,
         BeforeOperation,
         AfterOperation,
+        OnScopeStart,
         AfterScopeStart,
         OnScopeDrop,
+        AfterScopeDrop,
     };
     using CallbackPayload = std::variant<std::monostate, Operation, pFunction, IR::pModule, pType>;
     using Callback = std::function<bool(CallbackType, Interpreter &, CallbackPayload)>;

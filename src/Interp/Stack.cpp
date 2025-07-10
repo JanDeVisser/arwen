@@ -80,16 +80,18 @@ void Stack::load(void *dest, intptr_t offset, size_t size)
 void Stack::discard(size_t size, size_t return_size)
 {
     assert(return_size <= size);
+    assert(size % 8 == 0);
     if (size != 0) {
         trace("Discarding {} byte frame from stack, sliding down {} bytes", size, return_size);
         if (return_size > 0) {
-            if (return_size == size) {
+            auto aligned_return_size { alignat(return_size, 8) };
+            if (aligned_return_size == size) {
                 return;
             }
-            store(stack + (top - alignat(return_size, 8)), top - alignat(size, 8) - alignat(return_size, 8), return_size);
-            top -= (alignat(size, 8) - alignat(return_size, 8));
+            store(stack + (top - aligned_return_size), top - size - aligned_return_size, return_size);
+            top -= size - aligned_return_size;
         } else {
-            top -= alignat(size, 8);
+            top -= size;
         }
         trace("Top is now {}", top);
     }
