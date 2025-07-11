@@ -506,6 +506,15 @@ struct Type : std::enable_shared_from_this<Type> {
             description);
     }
 
+    pType value_type() const
+    {
+        auto val_type { shared_from_this() };
+        if (val_type->kind() == TypeKind::ReferenceType) {
+            val_type = std::get<ReferenceType>(val_type->description).referencing;
+        }
+        return val_type;
+    }
+
     std::map<std::wstring, pType> infer_generic_arguments(pType const &param_type) const;
 };
 

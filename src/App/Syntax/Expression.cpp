@@ -264,10 +264,7 @@ pType BinaryExpression::bind(Parser &parser)
         }
     }
 
-    auto lhs_value_type { lhs_type };
-    if (lhs_value_type->kind() == TypeKind::ReferenceType) {
-        lhs_value_type = std::get<ReferenceType>(lhs_value_type->description).referencing;
-    }
+    auto lhs_value_type = lhs_type->value_type();
 
     auto rhs_type = bind_node(rhs, parser);
     if (rhs->status == Status::BindErrors || rhs->status == Status::Ambiguous) {
@@ -276,10 +273,7 @@ pType BinaryExpression::bind(Parser &parser)
     if (rhs->status == Status::Ambiguous) {
         return parser.bind_error(lhs->location, L"Type ambiguity");
     }
-    auto rhs_value_type { rhs_type };
-    if (rhs_value_type->kind() == TypeKind::ReferenceType) {
-        rhs_value_type = std::get<ReferenceType>(rhs_value_type->description).referencing;
-    }
+    auto rhs_value_type = rhs_type->value_type();
 
     if (op == Operator::Assign) {
         if (lhs_type->kind() != TypeKind::ReferenceType) {

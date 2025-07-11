@@ -127,7 +127,7 @@ void execute_op<>(Interpreter &interpreter, Operation::Dereference const &impl)
 template<>
 void execute_op<>(Interpreter &interpreter, Operation::Discard const &impl)
 {
-    interpreter.stack.discard(impl.payload->size_of());
+    interpreter.stack.discard(alignat(impl.payload->size_of(), 8));
     interpreter.call_stack.back().ip++;
 }
 

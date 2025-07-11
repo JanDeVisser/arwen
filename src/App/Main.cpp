@@ -54,7 +54,7 @@ std::optional<std::wstring> get_command_string()
 
 void dump_scopes(Interp &interpreter)
 {
-    std::cout << "Scopes: " << interpreter.scopes.size() << " top: " << interpreter.stack.top << std::endl;
+    std::cout << "Scopes: " << interpreter.scopes.size() << " top: 0x" << std::hex << interpreter.stack.top << std::dec << std::endl;
     if (interpreter.stack.top == 0) {
         std::cout << std::endl;
         return;
@@ -85,6 +85,12 @@ void dump_scopes(Interp &interpreter)
                         std::cout << " " << interpreter.stack.stack[stix + bix];
                     } else {
                         std::cout << " .";
+                    }
+                }
+                std::cout << "  ";
+                for (auto &var : scope.variables) {
+                    if (var.second.address == stix) {
+                        std::wcout << var.first;
                     }
                 }
                 std::cout << std::endl;
@@ -218,11 +224,10 @@ int debugger_main(int argc, char const **argv)
             switch (cb_type) {
             case Interp::CallbackType::BeforeOperation:
                 std::wcout << std::get<Operation>(payload) << std::endl;
-                dump_scopes(interpreter);
+                // dump_scopes(interpreter);
                 break;
             case Interp::CallbackType::AfterOperation:
-                //     std::wcout << L"After:" << std::endl;
-                //     dump_scopes(interpreter);
+                dump_scopes(interpreter);
                 break;
             case Interp::CallbackType::StartModule:
                 std::wcout << "Initializing module " << std::get<IR::pModule>(payload)->name << std::endl;
@@ -376,5 +381,5 @@ int debugger_main(int argc, char const **argv)
 
 int main(int argc, char const **argv)
 {
-    Arwen::debugger_main(argc, argv);
+    return Arwen::debugger_main(argc, argv);
 }

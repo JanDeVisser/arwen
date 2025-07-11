@@ -42,9 +42,10 @@ void Stack::ensure(size_t size)
 
 intptr_t Stack::reserve(size_t size)
 {
-    ensure(size);
+    auto aligned { alignat(size, 8) };
+    ensure(aligned);
     auto offset { top };
-    top += alignat(size, 8);
+    top += aligned;
     return offset;
 }
 

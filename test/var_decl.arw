@@ -1,12 +1,6 @@
-v: i64 = 0
-const c: i32 = 32
-
 func main() i32
 {
-    x: i64 = 1
-    y: i64 = 2
-    z: i64
-    z = x + y
-    y += 2
+    x := 1::i32
+    return x
 }
 

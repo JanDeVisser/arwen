@@ -6,7 +6,6 @@
 
 #include "App/Operator.h"
 #include <cstdint>
-#include <limits>
 #include <memory>
 #include <ranges>
 #include <variant>
@@ -159,10 +158,7 @@ void generate_node(Generator &generator, std::shared_ptr<BinaryExpression> const
 
     auto const &lhs { node->lhs };
     auto const &lhs_type { lhs->bound_type };
-    auto        lhs_value_type { lhs_type };
-    if (lhs_value_type->kind() == TypeKind::ReferenceType) {
-        lhs_value_type = std::get<ReferenceType>(lhs_value_type->description).referencing;
-    }
+    auto        lhs_value_type { lhs_type->value_type() };
     auto const &rhs { node->rhs };
 
     if (node->op == Operator::MemberAccess) {
@@ -186,27 +182,26 @@ void generate_node(Generator &generator, std::shared_ptr<BinaryExpression> const
     }
 
     auto const &rhs_type { rhs->bound_type };
-    auto        rhs_value_type { rhs_type };
-    if (rhs_value_type->kind() == TypeKind::ReferenceType) {
-        rhs_value_type = std::get<ReferenceType>(rhs_value_type->description).referencing;
-    }
+    auto        rhs_value_type { rhs_type->value_type() };
 
     if (node->op == Operator::Assign) {
-        generator.generate(node->lhs);
         generator.generate(node->rhs);
+        generator.generate(node->lhs);
         if (rhs_type->kind() == TypeKind::ReferenceType) {
             add_operation<Operation::AssignFromRef>(generator, lhs_value_type);
         } else {
             add_operation<Operation::AssignValue>(generator, lhs_value_type);
         }
+        generator.generate(node->lhs);
+        add_operation<Operation::Dereference>(generator, lhs_value_type);
         return;
     }
     generator.generate(node->lhs);
-    if (lhs_type->kind() == TypeKind::ReferenceType) {
+    if (lhs_type != lhs_value_type) {
         add_operation<Operation::Dereference>(generator, lhs_value_type);
     }
     generator.generate(node->rhs);
-    if (rhs_type->kind() == TypeKind::ReferenceType) {
+    if (rhs_type != rhs_value_type) {
         add_operation<Operation::Dereference>(generator, rhs_value_type);
     }
     add_operation<Operation::BinaryOperator>(generator, Operation::BinaryOperator { lhs_value_type, node->op, rhs_value_type });
@@ -306,6 +301,9 @@ void generate_node(Generator &generator, std::shared_ptr<Call> const &node)
     }
     for (auto const &expression : node->arguments->expressions) {
         generator.generate(expression);
+        if (auto value_type = expression->bound_type->value_type(); expression->bound_type != value_type) {
+            add_operation<Operation::Dereference>(generator, value_type);
+        }
     }
     if (auto const &extern_link = std::dynamic_pointer_cast<ExternLink>(node->function->implementation); extern_link != nullptr) {
         add_operation<Operation::NativeCall>(generator, Operation::CallOp { extern_link->link_name, params, node->bound_type });
@@ -411,6 +409,9 @@ template<>
 void generate_node(Generator &generator, std::shared_ptr<IfStatement> const &node)
 {
     generator.generate(node->condition);
+    if (auto value_type = node->condition->bound_type->value_type(); node->condition->bound_type != value_type) {
+        add_operation<Operation::Dereference>(generator, value_type);
+    }
     auto const else_label = next_label();
     auto const done_label = next_label();
     add_operation<Operation::JumpF>(generator, else_label);
@@ -492,6 +493,9 @@ template<>
 void generate_node(Generator &generator, std::shared_ptr<Return> const &node)
 {
     generator.generate(node->expression);
+    if (auto value_type = node->expression->bound_type->value_type(); node->expression->bound_type != value_type) {
+        add_operation<Operation::Dereference>(generator, value_type);
+    }
     for (auto const &ctx : generator.ctxs | std::views::reverse) {
         if (std::visit(
                 overloads {
@@ -534,6 +538,9 @@ void generate_node(Generator &generator, std::shared_ptr<UnaryExpression> const 
         return;
     }
     generator.generate(node->operand);
+    if (auto value_type = node->operand->bound_type->value_type(); node->operand->bound_type != value_type) {
+        add_operation<Operation::Dereference>(generator, value_type);
+    }
     add_operation<Operation::UnaryOperator>(generator, Operation::UnaryOperator { node->operand->bound_type, node->op });
 }
 
@@ -546,6 +553,19 @@ template<>
 void generate_node(Generator &generator, std::shared_ptr<VariableDeclaration> const &node)
 {
     add_operation<Operation::DeclVar>(generator, IRVariableDeclaration { node->name, node->bound_type });
+    if (node->initializer) {
+        generator.generate(node->initializer);
+        auto &rhs_type { node->initializer->bound_type };
+        auto &lhs_type { node->bound_type };
+        add_operation<Operation::PushVarAddress>(generator, VarPath { node->name, node->bound_type, 0 });
+        if (rhs_type->kind() == TypeKind::ReferenceType) {
+            add_operation<Operation::AssignFromRef>(generator, lhs_type);
+        } else {
+            add_operation<Operation::AssignValue>(generator, lhs_type);
+        }
+    }
+    add_operation<Operation::PushVarAddress>(generator, VarPath { node->name, node->bound_type, 0 });
+    add_operation<Operation::Dereference>(generator, node->bound_type->value_type());
 }
 
 template<>
@@ -556,6 +576,9 @@ void generate_node(Generator &generator, std::shared_ptr<WhileStatement> const &
     generator.ctxs.push_back(Context { {}, ld });
     add_operation<Operation::Label>(generator, ld.loop_begin);
     generator.generate(node->condition);
+    if (auto value_type = node->condition->bound_type->value_type(); node->condition->bound_type != value_type) {
+        add_operation<Operation::Dereference>(generator, value_type);
+    }
     add_operation<Operation::JumpF>(generator, ld.loop_end);
     add_operation<Operation::Discard>(generator, node->statement->bound_type);
     generator.generate(node->statement);
