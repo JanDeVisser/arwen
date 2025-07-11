@@ -1,13 +1,6 @@
-func foo() void {
-    a
-    a + b
-    a + b + c
-    a + b * c
-    a * b + c
-    z := (a + b) * c
-    a + b * c * d + e
-    x := - a
-    y := - - a ;
-    ((( 0 )))
-    q := a[2]
+func main() i32 {
+    a: i32 = 4::i32
+    b: i32 = 6::i32
+    a = a + b*2::i32
+    return a
 }

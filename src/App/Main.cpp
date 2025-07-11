@@ -370,7 +370,7 @@ int debugger_main(int argc, char const **argv)
                     std::cerr << "Error: no IR available\n";
                 }
             } else {
-                //
+                std::cout << "?\n";
             }
         }
     } while (!quit);
