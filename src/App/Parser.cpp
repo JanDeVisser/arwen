@@ -422,24 +422,24 @@ pSyntaxNode Parser::parse_primary()
     }
     case TokenKind::Identifier: {
         lexer.lex();
-        auto bm = lexer.bookmark();
-        if (lexer.accept_symbol('<')) {
-            TypeSpecifications specs;
-            while (true) {
-                auto spec = parse_type();
-                if (spec == nullptr) {
-                    break;
-                }
-                specs.push_back(spec);
-                if (lexer.accept_symbol('>')) {
-                    return make_node<StampedIdentifier>(token.location + lexer.location(), text_of(token), specs);
-                }
-                if (!lexer.accept_symbol(',')) {
-                    break;
-                }
-            }
-        }
-        lexer.push_back(bm);
+        // auto bm = lexer.bookmark();
+        // if (lexer.accept_symbol('<')) {
+        //     TypeSpecifications specs;
+        //     while (true) {
+        //         auto spec = parse_type();
+        //         if (spec == nullptr) {
+        //             break;
+        //         }
+        //         specs.push_back(spec);
+        //         if (lexer.accept_symbol('>')) {
+        //             return make_node<StampedIdentifier>(token.location + lexer.location(), text_of(token), specs);
+        //         }
+        //         if (!lexer.accept_symbol(',')) {
+        //             break;
+        //         }
+        //     }
+        // }
+        // lexer.push_back(bm);
         ret = make_node<Identifier>(token.location, text_of(token));
         break;
     }

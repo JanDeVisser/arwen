@@ -134,14 +134,20 @@ void execute_op<>(Interpreter &interpreter, Operation::Discard const &impl)
 template<>
 void execute_op<>(Interpreter &interpreter, Operation::Jump const &impl)
 {
-    interpreter.call_stack.back().ip = impl.payload;
+    auto &ctx { interpreter.call_stack.back() };
+    assert(interpreter.labels.contains(ctx.ir));
+    auto ip { interpreter.labels[ctx.ir][impl.payload] };
+    interpreter.call_stack.back().ip = ip;
 }
 
 template<>
 void execute_op<>(Interpreter &interpreter, Operation::JumpF const &impl)
 {
     if (!pop<bool>(interpreter.stack)) {
-        interpreter.call_stack.back().ip = impl.payload;
+        auto &ctx { interpreter.call_stack.back() };
+        assert(interpreter.labels.contains(ctx.ir));
+        auto ip { interpreter.labels[ctx.ir][impl.payload] };
+        interpreter.call_stack.back().ip = ip;
         return;
     }
     interpreter.call_stack.back().ip++;
@@ -151,7 +157,10 @@ template<>
 void execute_op<>(Interpreter &interpreter, Operation::JumpT const &impl)
 {
     if (pop<bool>(interpreter.stack)) {
-        interpreter.call_stack.back().ip = impl.payload;
+        auto &ctx { interpreter.call_stack.back() };
+        assert(interpreter.labels.contains(ctx.ir));
+        auto ip { interpreter.labels[ctx.ir][impl.payload] };
+        interpreter.call_stack.back().ip = ip;
         return;
     }
     interpreter.call_stack.back().ip++;

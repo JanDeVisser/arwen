@@ -1,0 +1,17 @@
+func puts(s: string) void -> "libarwenrt:arwen$puts"
+
+func main() i32 {
+    i := 1
+    while i < 17 {
+        if (i % 15) == 0 {
+            puts("FizzBuzz\n")
+        } else if (i % 3) == 0 {
+            puts("Fizz\n")
+        } else if (i % 5) == 0 {
+            puts("Buzz\n")
+        } else {
+            puts("-\n")
+        }
+        i += 1
+    }
+}

@@ -153,7 +153,6 @@ int debugger_main(int argc, char const **argv)
         }
         if (!mod) {
             std::cerr << "Syntax error(s) found" << std::endl;
-            ctx.reset();
             return false;
         }
         ctx.parser.program->modules[mod->name] = mod;
@@ -174,7 +173,6 @@ int debugger_main(int argc, char const **argv)
         }
         for (auto const &err : ctx.parser.errors) {
             std::wcerr << err.location.line << ':' << err.location.column << " " << err.message << std::endl;
-            ctx.reset();
             return false;
         }
 
@@ -207,9 +205,8 @@ int debugger_main(int argc, char const **argv)
                 }
                 for (auto const &err : ctx.parser.errors) {
                     std::wcerr << err.location.line << ':' << err.location.column << " " << err.message << std::endl;
-                    ctx.reset();
-                    return false;
                 }
+                return false;
             }
             ++ctx.parser.pass;
         } while (ctx.parser.unbound > 0 && ctx.parser.unbound < prev_pass);
@@ -220,10 +217,29 @@ int debugger_main(int argc, char const **argv)
     };
 
     auto trace_program = [&ctx]() {
-        auto cb = [](Interp::CallbackType cb_type, Interp &interpreter, Interp::CallbackPayload const &payload) -> bool {
+        enum class DebuggerState {
+            Run,
+            Step,
+        };
+
+        DebuggerState state { DebuggerState::Step };
+        auto          cb = [&state](Interp::CallbackType cb_type, Interp &interpreter, Interp::CallbackPayload const &payload) -> bool {
             switch (cb_type) {
             case Interp::CallbackType::BeforeOperation:
                 std::wcout << std::get<Operation>(payload) << std::endl;
+                if (state == DebuggerState::Step) {
+                    while (true) {
+                        std::cout << "==> " << std::flush;
+                        std::wstring ret;
+                        std::getline(std::wcin, ret);
+                        if (ret == L"s") {
+                            break;
+                        } else if (ret == L"c") {
+                            state = DebuggerState::Run;
+                            break;
+                        }
+                    }
+                }
                 // dump_scopes(interpreter);
                 break;
             case Interp::CallbackType::AfterOperation:

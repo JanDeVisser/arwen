@@ -153,6 +153,9 @@ pType bind_node(pSyntaxNode const &node, Parser &parser)
         return node->bound_type;
     }
     auto ret = node->bind(parser);
+    if (ret == nullptr) {
+        node->dump();
+    }
     assert(ret != nullptr);
     if (ret == TypeRegistry::undetermined) {
         parser.unbound_nodes.push_back(node);

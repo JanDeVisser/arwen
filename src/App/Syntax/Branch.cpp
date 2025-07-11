@@ -39,6 +39,15 @@ pSyntaxNode IfStatement::stamp(Parser &parser)
 
 pType IfStatement::bind(Parser &parser)
 {
+    if (auto cond_type = bind_node(condition, parser);
+        cond_type->is<Undetermined>() || cond_type->is<BindErrors>()) {
+        return cond_type;
+    } else if (!cond_type->is<BoolType>()) {
+        return parser.bind_error(
+            location,
+            L"`while` loop condition is a `{}`, not a boolean",
+            cond_type->name);
+    }
     auto if_type = bind_node(if_branch, parser);
     auto else_type = (else_branch != nullptr) ? bind_node(else_branch, parser) : nullptr;
     return (else_type == nullptr || else_type == if_type) ? if_type : TypeRegistry::the().ambiguous;

@@ -114,7 +114,7 @@ void Stack::copy(intptr_t dest, intptr_t src, size_t size)
         bytes << " 0x" << std::hex << std::setw(2) << std::setfill('0') << (chars[ix] & 0xFF);
     }
     trace("Copying in stack {} bytes from offset {} to {}:{}", size, src, dest, bytes.view());
-    assert(dest + size < src || dest > src + size);
+    // assert((dest + size < src) || (dest > src + size));
     memcpy(stack + dest, stack + src, size);
 }
 

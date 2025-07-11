@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "App/Type.h"
 #include <memory>
 
 #include <Util/Defer.h>
@@ -57,8 +58,7 @@ pType ForStatement::bind(Parser &parser)
     parser.push_namespace(ns);
     Defer pop_namespace { [&parser]() { parser.pop_namespace(); } };
     parser.register_variable(range_variable, range_expr);
-    auto block_type = bind_node(statement, parser);
-    return block_type;
+    return bind_node(statement, parser);
 }
 
 void ForStatement::dump_node(int indent)
@@ -98,7 +98,7 @@ pSyntaxNode LoopStatement::stamp(Parser &parser)
 
 pType LoopStatement::bind(Parser &parser)
 {
-    return nullptr;
+    return bind_node(statement, parser);
 }
 
 void LoopStatement::dump_node(int indent)
@@ -143,7 +143,16 @@ pSyntaxNode WhileStatement::stamp(Parser &parser)
 
 pType WhileStatement::bind(Parser &parser)
 {
-    return nullptr;
+    if (auto cond_type = bind_node(condition, parser);
+        cond_type->is<Undetermined>() || cond_type->is<BindErrors>()) {
+        return cond_type;
+    } else if (!cond_type->is<BoolType>()) {
+        return parser.bind_error(
+            location,
+            L"`while` loop condition is a `{}`, not a boolean",
+            cond_type->name);
+    }
+    return bind_node(statement, parser);
 }
 
 void WhileStatement::dump_node(int indent)

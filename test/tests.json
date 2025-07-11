@@ -1,5 +1,6 @@
 [
   "helloworld",
   "var_decl",
-  "expr"
+  "expr",
+  "fizzbuzz"
 ]

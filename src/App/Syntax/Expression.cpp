@@ -49,18 +49,20 @@ struct Operand final {
 
     [[nodiscard]] bool matches(pType const &concrete, pType const &hint = nullptr) const
     {
-        return std::visit(overloads {
-                              [&concrete](pType const &t) -> bool {
-                                  return concrete == t;
-                              },
-                              [&concrete](TypeKind k) -> bool {
-                                  return concrete->is(k);
-                              },
-                              [&hint, &concrete](PseudoType pseudo_type) -> bool {
-                                  assert(hint != nullptr);
-                                  return hint == concrete;
-                              },
-                          },
+        auto concrete_value_type = concrete->value_type();
+        return std::visit(
+            overloads {
+                [&concrete_value_type](pType const &t) -> bool {
+                    return concrete_value_type == t;
+                },
+                [&concrete_value_type](TypeKind k) -> bool {
+                    return concrete_value_type->is(k);
+                },
+                [&hint, &concrete_value_type](PseudoType pseudo_type) -> bool {
+                    assert(hint != nullptr);
+                    return hint == concrete_value_type;
+                },
+            },
             type);
     }
 };
@@ -354,40 +356,41 @@ pType BinaryExpression::bind(Parser &parser)
             lhs_value_type->description, rhs_value_type->description);
     }
 
-    auto check_operators = [](pType const &op_lhs_type, pType const &op_rhs_type) -> pType {
+    auto check_operators = [](Operator op, pType const &op_lhs_type, pType const &op_rhs_type) -> pType {
         for (auto const &o : binary_ops) {
-            if (o.matches(op_lhs_type, op_rhs_type)) {
-                return std::visit(overloads {
-                                      [](pType const &result_type) -> pType {
-                                          return result_type;
-                                      },
-                                      [&op_lhs_type, &op_rhs_type](PseudoType const &pseudo_type) -> pType {
-                                          switch (pseudo_type) {
-                                          case PseudoType::Lhs:
-                                              return op_lhs_type;
-                                          case PseudoType::Rhs:
-                                              return op_rhs_type;
-                                          default:
-                                              UNREACHABLE();
-                                          }
-                                      } },
+            if (op == o.op && o.matches(op_lhs_type, op_rhs_type)) {
+                return std::visit(
+                    overloads {
+                        [](pType const &result_type) -> pType {
+                            return result_type;
+                        },
+                        [&op_lhs_type, &op_rhs_type](PseudoType const &pseudo_type) -> pType {
+                            switch (pseudo_type) {
+                            case PseudoType::Lhs:
+                                return op_lhs_type;
+                            case PseudoType::Rhs:
+                                return op_rhs_type;
+                            default:
+                                UNREACHABLE();
+                            }
+                        } },
                     o.result);
             }
         }
         return nullptr;
     };
 
-    if (auto result = check_operators(lhs_value_type, rhs_value_type); result != nullptr) {
+    if (auto result = check_operators(op, lhs_value_type, rhs_value_type); result != nullptr) {
         return result;
     }
     if (auto const rhs_coerced_to_lhs = rhs->coerce(lhs_value_type, parser); rhs_coerced_to_lhs != nullptr) {
-        if (auto result = check_operators(lhs_value_type, rhs_coerced_to_lhs->bound_type); result != nullptr) {
+        if (auto result = check_operators(op, lhs_value_type, rhs_coerced_to_lhs->bound_type); result != nullptr) {
             rhs = rhs_coerced_to_lhs;
             return result;
         }
     }
     if (auto const lhs_coerced_to_rhs = lhs->coerce(rhs_value_type, parser); lhs_coerced_to_rhs != nullptr) {
-        if (auto result = check_operators(lhs_coerced_to_rhs->bound_type, rhs_value_type); result != nullptr) {
+        if (auto result = check_operators(op, lhs_coerced_to_rhs->bound_type, rhs_value_type); result != nullptr) {
             lhs = lhs_coerced_to_rhs;
             return result;
         }

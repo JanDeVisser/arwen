@@ -571,7 +571,7 @@ void generate_node(Generator &generator, std::shared_ptr<VariableDeclaration> co
 template<>
 void generate_node(Generator &generator, std::shared_ptr<WhileStatement> const &node)
 {
-    add_operation<Operation::PushConstant>(generator, make_value(node->statement->bound_type));
+    add_operation<Operation::PushConstant>(generator, make_value(node->statement->bound_type->value_type()));
     Context::LoopDescriptor const ld { node->label.value_or(std::wstring {}), next_label(), next_label() };
     generator.ctxs.push_back(Context { {}, ld });
     add_operation<Operation::Label>(generator, ld.loop_begin);
