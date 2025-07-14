@@ -39,12 +39,12 @@ T as(void *ptr, intptr_t offset)
 }
 
 template<typename T>
-void set(void *ptr, intptr_t offset, T val)
+void set(void *ptr, T val)
 {
-    memcpy(static_cast<char *>(ptr) + offset, &val, sizeof(T));
+    memcpy(static_cast<char *>(ptr), &val, sizeof(T));
 }
 
-extern bool native_call(std::string_view name, void *params, std::vector<pType> const &types, pType const &return_type)
+extern bool native_call(std::string_view name, void *params, std::vector<pType> const &types, void *return_value, pType const &return_type)
 {
     if (types.size() > 8) {
         fatal("Can't do native calls with more than 8 parameters");
@@ -332,14 +332,14 @@ extern bool native_call(std::string_view name, void *params, std::vector<pType> 
     switch (return_type->kind()) {
     case TypeKind::IntType: {
 #undef S
-#define S(W)                                                               \
-    if (return_type == TypeRegistry::i##W) {                               \
-        set(params, offset, static_cast<int##W##_t>(t.int_return_value));  \
-        return true;                                                       \
-    }                                                                      \
-    if (return_type == TypeRegistry::u##W) {                               \
-        set(params, offset, static_cast<uint##W##_t>(t.int_return_value)); \
-        return true;                                                       \
+#define S(W)                                                             \
+    if (return_type == TypeRegistry::i##W) {                             \
+        set(return_value, static_cast<int##W##_t>(t.int_return_value));  \
+        return true;                                                     \
+    }                                                                    \
+    if (return_type == TypeRegistry::u##W) {                             \
+        set(return_value, static_cast<uint##W##_t>(t.int_return_value)); \
+        return true;                                                     \
     }
         BitWidths(S)
 #undef S
@@ -347,21 +347,21 @@ extern bool native_call(std::string_view name, void *params, std::vector<pType> 
     } break;
     case TypeKind::FloatType: {
         if (return_type == TypeRegistry::f32) {
-            set(params, offset, static_cast<float>(t.double_return_value));
+            set(return_value, static_cast<float>(t.double_return_value));
             return true;
         }
         if (return_type == TypeRegistry::f64) {
-            set(params, offset, t.double_return_value);
+            set(return_value, t.double_return_value);
             return true;
         }
         UNREACHABLE();
     } break;
     case TypeKind::BoolType:
-        set(params, offset, static_cast<bool>(t.int_return_value));
+        set(return_value, static_cast<bool>(t.int_return_value));
         return true;
     case TypeKind::PointerType:
     case TypeKind::ReferenceType:
-        set(params, offset, reinterpret_cast<void *>(static_cast<intptr_t>(t.int_return_value)));
+        set(return_value, reinterpret_cast<void *>(static_cast<intptr_t>(t.int_return_value)));
         return true;
     case TypeKind::VoidType:
         return true;

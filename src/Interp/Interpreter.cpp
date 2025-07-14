@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <memory>
 #include <ranges>
-#include <string>
 #include <variant>
 
 #include <Util/Logging.h>
@@ -91,12 +90,12 @@ Scope &Interpreter::emplace_scope(IRNode const &ir, std::vector<IRVariableDeclar
     return scopes.back();
 }
 
-void Interpreter::drop_scope(pType const &return_type)
+void Interpreter::drop_scope()
 {
     if (callback != nullptr) {
-        callback(Interpreter::CallbackType::OnScopeDrop, *this, return_type);
+        callback(Interpreter::CallbackType::OnScopeDrop, *this, std::monostate {});
     }
-    scopes.back().release(return_type);
+    scopes.back().release();
     scopes.pop_back();
     if (callback != nullptr) {
         callback(Interpreter::CallbackType::AfterScopeDrop, *this, std::monostate {});
@@ -110,6 +109,30 @@ Value Interpreter::pop(pType const &type)
     auto offset = stack.top - aligned;
     auto ret = make_from_buffer(type, static_cast<void *>(stack.stack + offset));
     stack.discard(aligned);
+    return ret;
+}
+
+void Interpreter::move_in(void *ptr, size_t size, uint8_t reg)
+{
+    assert(reg < 16);
+    auto num_regs { alignat(size, 8) / 8 };
+    assert(reg + num_regs - 1 < 16);
+    memcpy(registers.data() + reg, ptr, size);
+}
+
+uint64_t Interpreter::move_out(uint8_t reg)
+{
+    assert(reg < 16);
+    return registers[reg];
+}
+
+Value Interpreter::move_out(pType const &type, uint8_t reg)
+{
+    trace(L"Interpreter::move_out({}, {})", reg, type->to_string());
+    assert(reg < 16);
+    auto num_regs { alignat(type->size_of(), 8) / 8 };
+    assert(reg + num_regs - 1 < 16);
+    auto ret = make_from_buffer(type, registers.data() + reg);
     return ret;
 }
 
@@ -204,11 +227,11 @@ Value execute_node(Interpreter &interpreter, IR::pFunction const &function)
     interpreter.call_stack.emplace_back(function, 0);
     interpreter.execute_operations(function);
     interpreter.call_stack.pop_back();
-    interpreter.drop_scope(function->return_type);
+    interpreter.drop_scope();
     if (interpreter.callback != nullptr) {
         interpreter.callback(Interpreter::CallbackType::EndFunction, interpreter, function);
     }
-    return interpreter.pop(function->return_type);
+    return interpreter.move_out(function->return_type);
 }
 
 Value execute_ir(IRNode const &ir)

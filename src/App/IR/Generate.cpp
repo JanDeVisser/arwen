@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "App/Operator.h"
 #include <cstdint>
 #include <memory>
 #include <ranges>
@@ -221,11 +220,12 @@ void generate_node(Generator &generator, std::shared_ptr<Block> const &node)
     add_operation<Operation::ScopeBegin>(generator, variables);
     auto const scope_end = next_label();
     auto const end_block = next_label();
+    add_operation<Operation::PushConstant>(generator, make_void());
     generator.ctxs.emplace_back(Context { {}, Context::BlockDescriptor { scope_end, end_block } });
     {
         Defer _ { [&generator]() { generator.ctxs.pop_back(); } };
 
-        pType discard { nullptr };
+        pType discard { TypeRegistry::void_ };
         auto  empty { true };
         for (auto const &stmt : node->statements) {
             if (discard != nullptr) {
@@ -239,6 +239,7 @@ void generate_node(Generator &generator, std::shared_ptr<Block> const &node)
         if (empty) {
             add_operation<Operation::PushConstant>(generator, make_void());
         }
+        add_operation<Operation::Pop>(generator, node->bound_type->value_type());
         auto const &bd = std::get<Context::BlockDescriptor>(generator.ctxs.back().unwind);
         if (bd.defer_stmts.empty()) {
             add_operation<Operation::Sub>(generator, scope_end);
@@ -496,6 +497,7 @@ void generate_node(Generator &generator, std::shared_ptr<Return> const &node)
     if (auto value_type = node->expression->bound_type->value_type(); node->expression->bound_type != value_type) {
         add_operation<Operation::Dereference>(generator, value_type);
     }
+    add_operation<Operation::Pop>(generator, node->expression->bound_type->value_type());
     for (auto const &ctx : generator.ctxs | std::views::reverse) {
         if (std::visit(
                 overloads {
@@ -510,8 +512,8 @@ void generate_node(Generator &generator, std::shared_ptr<Return> const &node)
                         }
                         return false;
                     },
-                    [&generator](Context::FunctionDescriptor const &fd) -> bool {
-                        add_operation<Operation::Return>(generator);
+                    [&generator, &node](Context::FunctionDescriptor const &fd) -> bool {
+                        add_operation<Operation::Return>(generator, node->expression->bound_type->value_type());
                         return true;
                     },
                     [](auto const &) {

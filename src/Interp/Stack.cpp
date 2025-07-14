@@ -78,22 +78,12 @@ void Stack::load(void *dest, intptr_t offset, size_t size)
     trace("Loading from stack {} bytes at {}:{}", size, offset, bytes.view());
 }
 
-void Stack::discard(size_t size, size_t return_size)
+void Stack::discard(size_t bp)
 {
-    assert(return_size <= size);
-    assert(size % 8 == 0);
-    if (size != 0) {
-        trace("Discarding {} byte frame from stack, sliding down {} bytes", size, return_size);
-        if (return_size > 0) {
-            auto aligned_return_size { alignat(return_size, 8) };
-            if (aligned_return_size == size) {
-                return;
-            }
-            store(stack + (top - aligned_return_size), top - size - aligned_return_size, return_size);
-            top -= size - aligned_return_size;
-        } else {
-            top -= size;
-        }
+    assert(bp <= top);
+    if (bp < top) {
+        trace("Discarding stack frame up from {}", bp);
+        top -= bp;
         trace("Top is now {}", top);
     }
 }

@@ -2,5 +2,6 @@
   "helloworld",
   "var_decl",
   "expr",
-  "fizzbuzz"
+  "fizzbuzz",
+  "func"
 ]

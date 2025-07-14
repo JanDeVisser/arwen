@@ -263,10 +263,8 @@ int debugger_main(int argc, char const **argv)
                 std::wcout << "Scope created" << std::endl;
                 dump_scopes(interpreter);
                 break;
-            case Interp::CallbackType::OnScopeDrop: {
-                auto const &type { std::get<pType>(payload) };
-                std::wcout << "Dropping scope. Sliding down " << type->to_string() << " (" << type->size_of() << " bytes)" << std::endl;
-            } break;
+            case Interp::CallbackType::OnScopeDrop:
+                break;
             case Interp::CallbackType::AfterScopeDrop: {
                 dump_scopes(interpreter);
             } break;

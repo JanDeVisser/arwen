@@ -45,7 +45,7 @@ struct Stack {
     intptr_t push(void *ptr, size_t size);
     void     store(void *src, intptr_t offset, size_t size);
     void     load(void *dest, intptr_t offset, size_t size);
-    void     discard(size_t size, size_t return_size = 0);
+    void     discard(size_t bp);
     void     pop(void *dest, size_t size);
     void     copy(intptr_t dest, intptr_t src, size_t size);
     void     copy_and_pop(intptr_t dest, size_t size);

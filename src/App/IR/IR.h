@@ -28,10 +28,11 @@ namespace Arwen::IR {
     S(JumpT, uint64_t)                                \
     S(Label, uint64_t)                                \
     S(NativeCall, CallOp)                             \
+    S(Pop, pType)                                     \
     S(PushConstant, Value)                            \
     S(PushValue, VarPath)                             \
     S(PushVarAddress, VarPath)                        \
-    S(Return, std::monostate)                         \
+    S(Return, pType)                                  \
     S(ScopeBegin, std::vector<IRVariableDeclaration>) \
     S(ScopeEnd, pType)                                \
     S(Sub, uint64_t)                                  \

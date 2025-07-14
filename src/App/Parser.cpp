@@ -563,15 +563,16 @@ pSyntaxNode Parser::parse_expression(Precedence min_prec)
                     return nullptr;
                 }
                 // trace("parse_expression() param_list = {}", SyntaxNodeType_name(param_list->type));
-                return make_node<BinaryExpression>(lhs->location + param_list->location, lhs, Operator::Call, param_list);
+                lhs = make_node<BinaryExpression>(lhs->location + param_list->location, lhs, Operator::Call, param_list);
+            } else {
+                auto token = lexer.lex();
+                auto rhs = (op.op == Operator::Cast) ? parse_type() : parse_expression(bp.right);
+                if (rhs == nullptr) {
+                    return nullptr;
+                }
+                // trace("parse_expression({}) rhs = {}", min_prec, SyntaxNodeType_name(rhs->type));
+                lhs = make_node<BinaryExpression>(lhs->location + rhs->location, lhs, op.op, rhs);
             }
-            auto token = lexer.lex();
-            auto rhs = (op.op == Operator::Cast) ? parse_type() : parse_expression(bp.right);
-            if (rhs == nullptr) {
-                return nullptr;
-            }
-            // trace("parse_expression({}) rhs = {}", min_prec, SyntaxNodeType_name(rhs->type));
-            lhs = make_node<BinaryExpression>(lhs->location + rhs->location, lhs, op.op, rhs);
             continue;
         }
         break;

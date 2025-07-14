@@ -98,7 +98,9 @@ void execute_op<>(Interpreter &interpreter, Operation::Call const &impl)
             interpreter.call_stack.emplace_back(f, 0);
             interpreter.execute_operations(f);
             interpreter.call_stack.pop_back();
-            interpreter.drop_scope(ret);
+            interpreter.drop_scope();
+            auto return_value { make_from_buffer(impl.payload.return_type, interpreter.registers.data()) };
+            push(interpreter.stack, return_value);
             interpreter.call_stack.back().ip++;
             return;
         }
@@ -182,12 +184,22 @@ void execute_op<>(Interpreter &interpreter, Operation::NativeCall const &impl)
         types.push_back(param.type);
     }
     void *ptr = interpreter.stack.stack + (interpreter.stack.top - depth);
-    if (native_call(as_utf8(impl.payload.name), ptr, types, impl.payload.return_type)) {
-        interpreter.stack.discard(depth, impl.payload.return_type->size_of());
+    if (native_call(as_utf8(impl.payload.name), ptr, types, interpreter.registers.data(), impl.payload.return_type)) {
+        auto return_value = make_from_buffer(impl.payload.return_type, interpreter.registers.data());
+        interpreter.stack.discard(depth);
+        push(interpreter.stack, return_value);
         interpreter.call_stack.back().ip++;
         return;
     }
     fatal(L"Error executing native function `{}`", impl.payload.name);
+}
+
+template<>
+void execute_op<>(Interpreter &interpreter, Operation::Pop const &impl)
+{
+    Value return_value { interpreter.pop(impl.payload) };
+    interpreter.move_in(return_value);
+    interpreter.call_stack.back().ip++;
 }
 
 template<>
@@ -212,7 +224,7 @@ void execute_op<>(Interpreter &interpreter, Operation::PushVarAddress const &imp
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::Return const &)
+void execute_op<>(Interpreter &interpreter, Operation::Return const &impl)
 {
     interpreter.call_stack.back().ip = std::numeric_limits<uint64_t>::max();
 }
@@ -227,7 +239,7 @@ void execute_op<>(Interpreter &interpreter, Operation::ScopeBegin const &impl)
 template<>
 void execute_op<>(Interpreter &interpreter, Operation::ScopeEnd const &impl)
 {
-    interpreter.drop_scope(impl.payload);
+    interpreter.drop_scope();
     interpreter.call_stack.back().ip++;
 }
 

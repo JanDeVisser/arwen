@@ -53,7 +53,7 @@ struct Scope {
 
     void allocate();
     void setup();
-    void release(pType const &return_type);
+    void release();
 };
 
 struct Interpreter {
@@ -81,19 +81,95 @@ struct Interpreter {
     std::vector<Scope>                             scopes;
     Stack                                          stack;
     std::vector<Context>                           call_stack;
+    std::array<uint64_t, 16>                       registers;
     Callback                                       callback { nullptr };
 
     Interpreter() = default;
     Interpreter(Interpreter &) = delete;
     Interpreter(Interpreter &&) = delete;
 
-    void   execute_operations(IR::IRNode const &ir);
-    Value  execute(IR::IRNode const &ir);
-    Scope &current_scope();
-    Scope &new_scope(IRNode const &ir, std::vector<IRVariableDeclaration> const &variables = {});
-    Scope &emplace_scope(IRNode const &ir, std::vector<IRVariableDeclaration> const &variables = {});
-    void   drop_scope(pType const &return_type);
-    Value  pop(pType const &type);
+    void     execute_operations(IR::IRNode const &ir);
+    Value    execute(IR::IRNode const &ir);
+    Scope   &current_scope();
+    Scope   &new_scope(IRNode const &ir, std::vector<IRVariableDeclaration> const &variables = {});
+    Scope   &emplace_scope(IRNode const &ir, std::vector<IRVariableDeclaration> const &variables = {});
+    void     drop_scope();
+    void     move_in(void *ptr, size_t size, uint8_t reg = 0);
+    uint64_t move_out(uint8_t reg = 0);
+    Value    move_out(pType const &type, uint8_t reg = 0);
+    Value    pop(pType const &type);
+
+    template<typename T>
+    void move_in(T value, uint8_t reg = 0)
+    {
+        move_in(&value, sizeof(T), reg);
+    }
+
+    template<>
+    inline void move_in(Value val, uint8_t reg)
+    {
+        std::visit(
+            overloads {
+                [reg, &val, this](IntType const &descr) -> void {
+                    switch (descr.width_bits) {
+                    case 8:
+                        if (descr.is_signed) {
+                            move_in<int8_t>(as<int8_t>(val), reg);
+                        } else {
+                            move_in<uint8_t>(as<uint8_t>(val), reg);
+                        }
+                        break;
+                    case 16:
+                        if (descr.is_signed) {
+                            move_in<int16_t>(as<int16_t>(val), reg);
+                        } else {
+                            move_in<uint16_t>(as<uint32_t>(val), reg);
+                        }
+                        break;
+                    case 32:
+                        if (descr.is_signed) {
+                            move_in<int32_t>(as<int32_t>(val), reg);
+                        } else {
+                            move_in<uint32_t>(as<uint32_t>(val), reg);
+                        }
+                        break;
+                    case 64:
+                        if (descr.is_signed) {
+                            move_in<int64_t>(as<int64_t>(val), reg);
+                        } else {
+                            move_in<uint64_t>(as<uint64_t>(val), reg);
+                        }
+                        break;
+                    default:
+                        UNREACHABLE();
+                    }
+                },
+                [&val, reg, this](FloatType const &descr) -> void {
+                    switch (descr.width_bits) {
+                    case 32:
+                        move_in<float>(as<float>(val), reg);
+                        break;
+                    case 64:
+                        move_in<double>(as<double>(val), reg);
+                        break;
+                    default:
+                        UNREACHABLE();
+                    }
+                },
+                [&val, reg, this](BoolType const &) -> void {
+                    move_in<bool>(as<bool>(val), reg);
+                },
+                [&val, reg, this](SliceType const &) -> void {
+                    move_in<Slice>(as<Slice>(val), reg);
+                },
+                [&val, reg, this](VoidType const &) -> void {
+                    move_in<Void>(Void {}, reg);
+                },
+                [](auto const &) -> void {
+                    NYI("push<Value>");
+                } },
+            val.type->description);
+    }
 };
 
 }

@@ -51,18 +51,17 @@ void Scope::setup()
         var.address = offset;
         offset += alignat(var.type->size_of(), 8);
     }
-    trace("Scope::allocate: bp {} stack sz {}", bp, interpreter.stack.top);
+    trace("Scope::allocate: bp {} stack sz {}", bp, interpreter.stack.top - bp);
 }
 
-void Scope::release(pType const &return_type)
+void Scope::release()
 {
-    trace(L"Scope::release: bubbling up {} ({} bytes)", return_type->to_string(), return_type->size_of());
+    trace(L"Scope::release()");
     if (std::holds_alternative<IR::pProgram>(ir) || std::holds_alternative<IR::pModule>(ir)) {
         trace("Scope::release: static Scope bp: {}", bp);
         return;
     }
-    interpreter.stack.discard(interpreter.stack.top - bp, return_type->size_of());
-    trace("Scope::release: stack sz {}", interpreter.stack.top);
+    interpreter.stack.discard(bp);
 }
 
 }
