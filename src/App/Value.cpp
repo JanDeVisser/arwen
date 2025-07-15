@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "Util/StringUtil.h"
 #include <cmath>
 #include <concepts>
 #include <cstddef>
@@ -12,7 +11,10 @@
 #include <string>
 #include <variant>
 
+#include <rt/arwen.h>
+
 #include <Util/Logging.h>
+#include <Util/StringUtil.h>
 
 #include <App/Type.h>
 #include <App/Value.h>
@@ -49,16 +51,17 @@ std::optional<Atom> Atom::coerce(pType const &to_type) const
     if (cur_type == to_type) {
         return Atom { *this };
     }
-    return std::visit(overloads {
-                          [&cur_type, &to_type](std::integral auto const &v) -> std::optional<Atom> {
-                              if (to_type->is<IntType>()) {
-                                  auto const &[is_signed, width_bits, max_value, min_value] = std::get<IntType>(to_type->description);
-                                  if (static_cast<uint64_t>(v) > max_value) {
-                                      return {};
-                                  }
-                                  if (static_cast<int64_t>(v) < min_value) {
-                                      return {};
-                                  }
+    return std::visit(
+        overloads {
+            [&cur_type, &to_type](std::integral auto const &v) -> std::optional<Atom> {
+                if (to_type->is<IntType>()) {
+                    auto const &[is_signed, width_bits, max_value, min_value] = std::get<IntType>(to_type->description);
+                    if (static_cast<uint64_t>(v) > max_value) {
+                        return {};
+                    }
+                    if (static_cast<int64_t>(v) < min_value) {
+                        return {};
+                    }
 #undef S
 #define S(W)                                             \
     if (width_bits == W) {                               \
@@ -68,33 +71,33 @@ std::optional<Atom> Atom::coerce(pType const &to_type) const
             return Atom { static_cast<uint##W##_t>(v) }; \
         }                                                \
     }
-                                  BitWidths(S)
+                    BitWidths(S)
 #undef S
-                              }
-                              if (to_type->is<FloatType>()) {
-                                  auto const &[width_bits] = std::get<FloatType>(to_type->description);
+                }
+                if (to_type->is<FloatType>()) {
+                    auto const &[width_bits] = std::get<FloatType>(to_type->description);
 #undef S
 #define S(W, T)                            \
     if (width_bits == W) {                 \
         return Atom { static_cast<T>(v) }; \
     }
-                                  FloatBitWidths(S)
+                    FloatBitWidths(S)
 #undef S
-                              }
-                              if (to_type->is<PointerType>() && cur_type == TypeRegistry::u64) {
-                                  return Atom { reinterpret_cast<void *>(v) };
-                              }
-                              return {};
-                          },
-                          [&cur_type, &to_type](std::floating_point auto const &v) -> std::optional<Atom> {
-                              if (to_type->is<IntType>()) {
-                                  auto const &[is_signed, width_bits, max_value, min_value] = std::get<IntType>(to_type->description);
-                                  if (static_cast<uint64_t>(v) > max_value) {
-                                      return {};
-                                  }
-                                  if (static_cast<int64_t>(v) < min_value) {
-                                      return {};
-                                  }
+                }
+                if (to_type->is<PointerType>() && cur_type == TypeRegistry::u64) {
+                    return Atom { reinterpret_cast<void *>(v) };
+                }
+                return {};
+            },
+            [&cur_type, &to_type](std::floating_point auto const &v) -> std::optional<Atom> {
+                if (to_type->is<IntType>()) {
+                    auto const &[is_signed, width_bits, max_value, min_value] = std::get<IntType>(to_type->description);
+                    if (static_cast<uint64_t>(v) > max_value) {
+                        return {};
+                    }
+                    if (static_cast<int64_t>(v) < min_value) {
+                        return {};
+                    }
 #undef S
 #define S(W)                                             \
     if (width_bits == W) {                               \
@@ -104,51 +107,52 @@ std::optional<Atom> Atom::coerce(pType const &to_type) const
             return Atom { static_cast<uint##W##_t>(v) }; \
         }                                                \
     }
-                                  BitWidths(S)
+                    BitWidths(S)
 #undef S
-                              }
-                              if (to_type->is<FloatType>()) {
-                                  auto const &[width_bits] = std::get<FloatType>(to_type->description);
+                }
+                if (to_type->is<FloatType>()) {
+                    auto const &[width_bits] = std::get<FloatType>(to_type->description);
 #undef S
 #define S(W, T)                            \
     if (width_bits == W) {                 \
         return Atom { static_cast<T>(v) }; \
     }
-                                  FloatBitWidths(S)
+                    FloatBitWidths(S)
 #undef S
-                              }
-                              return {};
-                          },
-                          [](auto const &) -> std::optional<Atom> {
-                              return {};
-                          } },
+                }
+                return {};
+            },
+            [](auto const &) -> std::optional<Atom> {
+                return {};
+            } },
         payload);
 }
 
 std::wstring Atom::to_string() const
 {
-    return std::visit(overloads {
-                          [](std::integral auto const &value) -> std::wstring {
-                              return std::format(L"{}", value);
-                          },
-                          [](std::floating_point auto const &value) -> std::wstring {
-                              return std::format(L"{}", value);
-                          },
-                          [](bool const &value) -> std::wstring {
-                              return value ? L"true" : L"false";
-                          },
-                          [](Slice const &value) -> std::wstring {
-                              return std::format(L"Slice[{}]", value.size);
-                          },
-                          [](DynamicArray const &value) -> std::wstring {
-                              return std::format(L"DynamicArray[{},{}]", value.size, value.capacity);
-                          },
-                          [](StaticArray const &value) -> std::wstring {
-                              return std::format(L"StaticArray[{}]", value.size);
-                          },
-                          [](void *const &value) -> std::wstring {
-                              return std::format(L"void*[{}]", value);
-                          } },
+    return std::visit(
+        overloads {
+            [](std::integral auto const &value) -> std::wstring {
+                return std::format(L"{}", value);
+            },
+            [](std::floating_point auto const &value) -> std::wstring {
+                return std::format(L"{}", value);
+            },
+            [](bool const &value) -> std::wstring {
+                return value ? L"true" : L"false";
+            },
+            [](Slice const &value) -> std::wstring {
+                return std::format(L"Slice[{}]", value.size);
+            },
+            [](DynamicArray const &value) -> std::wstring {
+                return std::format(L"DynamicArray[{},{}]", value.size, value.capacity);
+            },
+            [](StaticArray const &value) -> std::wstring {
+                return std::format(L"StaticArray[{}]", value.size);
+            },
+            [](void *const &value) -> std::wstring {
+                return std::format(L"void*[{}]", value);
+            } },
         payload);
 }
 
@@ -161,76 +165,80 @@ BinOps(S)
 
     static bool is_zero(Atom const &atom)
 {
-    return std::visit(overloads {
-                          [](std::integral auto const &value) -> bool {
-                              return value == 0;
-                          },
-                          [](std::floating_point auto const &value) -> bool {
-                              return value == 0.0;
-                          },
-                          [](bool const &value) -> bool {
-                              return !value;
-                          },
-                          [](Slice const &value) -> bool {
-                              return value.ptr == nullptr || value.size == 0;
-                          },
-                          [](DynamicArray const &value) -> bool {
-                              return value.ptr == nullptr || value.size == 0;
-                          },
-                          [](StaticArray const &value) -> bool {
-                              return value.ptr == nullptr;
-                          },
-                          [](void *const &value) -> bool {
-                              return value == nullptr;
-                          } },
+    return std::visit(
+        overloads {
+            [](std::integral auto const &value) -> bool {
+                return value == 0;
+            },
+            [](std::floating_point auto const &value) -> bool {
+                return value == 0.0;
+            },
+            [](bool const &value) -> bool {
+                return !value;
+            },
+            [](Slice const &value) -> bool {
+                return value.ptr == nullptr || value.size == 0;
+            },
+            [](DynamicArray const &value) -> bool {
+                return value.ptr == nullptr || value.size == 0;
+            },
+            [](StaticArray const &value) -> bool {
+                return value.ptr == nullptr;
+            },
+            [](void *const &value) -> bool {
+                return value == nullptr;
+            } },
         atom.payload);
 }
 
 template<typename Func>
 static Atom evaluate_op(Atom const &lhs, Atom const &rhs, Func const &func)
 {
-    return std::visit(overloads {
-                          [&func](std::integral auto lhs_value, std::integral auto rhs_value) -> Atom {
-                              return Atom { func(lhs_value, rhs_value) };
-                          },
-                          [&func](std::integral auto lhs_value, std::floating_point auto rhs_value) -> Atom {
-                              return Atom { func(lhs_value, rhs_value) };
-                          },
-                          [&func](std::floating_point auto lhs_value, std::integral auto rhs_value) -> Atom {
-                              return Atom { func(lhs_value, rhs_value) };
-                          },
-                          [&func](std::floating_point auto lhs_value, std::floating_point auto rhs_value) -> Atom {
-                              return Atom { func(lhs_value, rhs_value) };
-                          },
-                          [](auto lhs_value, auto rhs_value) -> Atom {
-                              fatal("Operator only applicable to numbers");
-                          } },
+    return std::visit(
+        overloads {
+            [&func](std::integral auto lhs_value, std::integral auto rhs_value) -> Atom {
+                return Atom { func(lhs_value, rhs_value) };
+            },
+            [&func](std::integral auto lhs_value, std::floating_point auto rhs_value) -> Atom {
+                return Atom { func(lhs_value, rhs_value) };
+            },
+            [&func](std::floating_point auto lhs_value, std::integral auto rhs_value) -> Atom {
+                return Atom { func(lhs_value, rhs_value) };
+            },
+            [&func](std::floating_point auto lhs_value, std::floating_point auto rhs_value) -> Atom {
+                return Atom { func(lhs_value, rhs_value) };
+            },
+            [](auto lhs_value, auto rhs_value) -> Atom {
+                fatal("Operator only applicable to numbers");
+            } },
         lhs.payload, rhs.payload);
 }
 
 template<typename Func>
 static Atom evaluate_bitwise_op(Atom const &lhs, Atom const &rhs, Func const &func)
 {
-    return std::visit(overloads {
-                          [&func](std::integral auto lhs_value, std::integral auto rhs_value) -> Atom {
-                              return Atom { func(lhs_value, rhs_value) };
-                          },
-                          [](auto lhs_value, auto rhs_value) -> Atom {
-                              fatal("Operator only applicable to integers");
-                          } },
+    return std::visit(
+        overloads {
+            [&func](std::integral auto lhs_value, std::integral auto rhs_value) -> Atom {
+                return Atom { func(lhs_value, rhs_value) };
+            },
+            [](auto lhs_value, auto rhs_value) -> Atom {
+                fatal("Operator only applicable to integers");
+            } },
         lhs.payload, rhs.payload);
 }
 
 template<typename Func>
 static Atom evaluate_logical_op(Atom const &lhs, Atom const &rhs, Func const &func)
 {
-    return std::visit(overloads {
-                          [&func](bool lhs_value, bool rhs_value) -> Atom {
-                              return Atom { func(lhs_value, rhs_value) };
-                          },
-                          [](auto lhs_value, auto rhs_value) -> Atom {
-                              fatal("Operator only applicable to booleans");
-                          } },
+    return std::visit(
+        overloads {
+            [&func](bool lhs_value, bool rhs_value) -> Atom {
+                return Atom { func(lhs_value, rhs_value) };
+            },
+            [](auto lhs_value, auto rhs_value) -> Atom {
+                fatal("Operator only applicable to booleans");
+            } },
         lhs.payload, rhs.payload);
 }
 
@@ -306,22 +314,23 @@ Atom evaluate_Modulo(Atom const &lhs, Atom const &rhs)
     if (is_zero(rhs)) {
         fatal("Division by zero");
     }
-    return std::visit(overloads {
-                          [](std::integral auto lhs_value, std::integral auto rhs_value) -> Atom {
-                              return Atom { lhs_value % rhs_value };
-                          },
-                          [](std::integral auto lhs_value, std::floating_point auto rhs_value) -> Atom {
-                              return Atom { fmod(lhs_value, rhs_value) };
-                          },
-                          [](std::floating_point auto lhs_value, std::integral auto rhs_value) -> Atom {
-                              return Atom { fmod(lhs_value, rhs_value) };
-                          },
-                          [](std::floating_point auto lhs_value, std::floating_point auto rhs_value) -> Atom {
-                              return Atom { fmod(lhs_value, rhs_value) };
-                          },
-                          [](auto lhs_value, auto rhs_value) -> Atom {
-                              fatal("Modulo operation only applicable to numbers");
-                          } },
+    return std::visit(
+        overloads {
+            [](std::integral auto lhs_value, std::integral auto rhs_value) -> Atom {
+                return Atom { lhs_value % rhs_value };
+            },
+            [](std::integral auto lhs_value, std::floating_point auto rhs_value) -> Atom {
+                return Atom { fmod(lhs_value, rhs_value) };
+            },
+            [](std::floating_point auto lhs_value, std::integral auto rhs_value) -> Atom {
+                return Atom { fmod(lhs_value, rhs_value) };
+            },
+            [](std::floating_point auto lhs_value, std::floating_point auto rhs_value) -> Atom {
+                return Atom { fmod(lhs_value, rhs_value) };
+            },
+            [](auto lhs_value, auto rhs_value) -> Atom {
+                fatal("Modulo operation only applicable to numbers");
+            } },
         lhs.payload, rhs.payload);
 }
 
@@ -604,8 +613,10 @@ std::optional<Value> Value::coerce(pType const &to_type) const
         return Value { *this };
     }
     if (type == TypeRegistry::string && to_type == TypeRegistry::cstring) {
-        auto const [ptr, _] = as<Slice>(*this);
-        return Value { TypeRegistry::cstring, Atom { ptr } };
+        return Value { TypeRegistry::cstring, Atom { string_to_cstring(as<Slice>(*this)) } };
+    }
+    if (type == TypeRegistry::cstring && to_type == TypeRegistry::string) {
+        return Value { TypeRegistry::string, Atom { cstring_to_string(static_cast<char const *>(as<void *>(*this))) } };
     }
     if (type->is<DynArray>() && to_type->is<SliceType>() && std::get<DynArray>(type->description).array_of == std::get<SliceType>(type->description).slice_of) {
         auto const dyn_arr = as<DynamicArray>(*this);

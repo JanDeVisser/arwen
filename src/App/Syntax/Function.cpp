@@ -330,6 +330,7 @@ pType Call::bind(Parser &parser)
     // if (function != nullptr) {
     //     return std::get<FunctionType>(function->bound_type->description).result;
     // }
+    //
 
     auto match_non_generic_function = [this, &type_descr, &parser, &name, &arg_types](pFunctionDefinition const &func_def) -> pType {
         if (func_def->declaration->generics.empty()) {
@@ -339,15 +340,25 @@ pType Call::bind(Parser &parser)
                 }
             }
             auto const &func_type_descr = std::get<FunctionType>(func_def->declaration->bound_type->description);
-            if (func_type_descr.parameters == type_descr.types) {
-                if (function == nullptr) {
-                    function = func_def;
-                    return TypeRegistry::void_;
+            for (auto [arg, param] : std::views::zip(type_descr.types, func_type_descr.parameters)) {
+                if (arg == param) {
+                    continue;
                 }
-                return parser.bind_error(
-                    location,
-                    std::format(L"Ambiguous function `{}{}`", name, arg_types->to_string()));
+                if (arg->kind() == TypeKind::ReferenceType) {
+                    auto arg_descr { std::get<ReferenceType>(arg->description) };
+                    if (arg_descr.referencing == param) {
+                        continue;
+                    }
+                }
+                return TypeRegistry::void_;
             }
+            if (function == nullptr) {
+                function = func_def;
+                return TypeRegistry::void_;
+            }
+            return parser.bind_error(
+                location,
+                std::format(L"Ambiguous function `{}{}`", name, arg_types->to_string()));
         }
         return TypeRegistry::void_;
     };

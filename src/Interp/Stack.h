@@ -8,7 +8,6 @@
 
 #include <cstdint>
 #include <cstdlib>
-#include <type_traits>
 
 #include <Util/Align.h>
 #include <Util/Arena.h>

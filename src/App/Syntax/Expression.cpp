@@ -331,28 +331,29 @@ pType BinaryExpression::bind(Parser &parser)
                 }
             }
         }
-        return std::visit(overloads {
-                              [&rhs_value_type, this, &parser](IntType const &lhs_int_type, IntType const &rhs_int_type) {
-                                  if (lhs_int_type.width_bits > rhs_int_type.width_bits) {
-                                      return parser.bind_error(
-                                          location,
-                                          L"Invalid argument type. Cannot narrow integers");
-                                  }
-                                  return rhs_value_type;
-                              },
-                              [&rhs_value_type, this, &parser](SliceType const &lhs_slice_type, ZeroTerminatedArray const &rhs_zero_terminated_type) {
-                                  if (lhs_slice_type.slice_of != TypeRegistry::u32 || rhs_zero_terminated_type.array_of != TypeRegistry::u8) {
-                                      return parser.bind_error(
-                                          location,
-                                          L"Invalid argument type. Cannot cast slices to zero-terminated arrays except for strings");
-                                  }
-                                  return rhs_value_type;
-                              },
-                              [this, &parser](auto const &, auto const &) {
-                                  return parser.bind_error(
-                                      location,
-                                      L"Invalid argument type. Can only cast integers");
-                              } },
+        return std::visit(
+            overloads {
+                [&rhs_value_type, this, &parser](IntType const &lhs_int_type, IntType const &rhs_int_type) {
+                    if (lhs_int_type.width_bits > rhs_int_type.width_bits) {
+                        return parser.bind_error(
+                            location,
+                            L"Invalid argument type. Cannot narrow integers");
+                    }
+                    return rhs_value_type;
+                },
+                [&rhs_value_type, this, &parser](SliceType const &lhs_slice_type, ZeroTerminatedArray const &rhs_zero_terminated_type) {
+                    if (lhs_slice_type.slice_of != TypeRegistry::u32 || rhs_zero_terminated_type.array_of != TypeRegistry::u8) {
+                        return parser.bind_error(
+                            location,
+                            L"Invalid argument type. Cannot cast slices to zero-terminated arrays except for strings");
+                    }
+                    return rhs_value_type;
+                },
+                [this, &parser](auto const &, auto const &) {
+                    return parser.bind_error(
+                        location,
+                        L"Invalid argument type. Can only cast integers");
+                } },
             lhs_value_type->description, rhs_value_type->description);
     }
 

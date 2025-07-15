@@ -1,16 +1,19 @@
 func puts(s: string) void -> "libarwenrt:arwen$puts"
+func putln(s: string) void -> "libarwenrt:arwen$putln"
+func puti(i: i64) void -> "libarwenrt:arwen$puti"
 
 func main() i32 {
     i := 1
     while i < 17 {
         if (i % 15) == 0 {
-            puts("FizzBuzz\n")
+            putln("FizzBuzz")
         } else if (i % 3) == 0 {
-            puts("Fizz\n")
+            putln("Fizz")
         } else if (i % 5) == 0 {
-            puts("Buzz\n")
+            putln("Buzz")
         } else {
-            puts("-\n")
+            puti(i)
+            putln("")
         }
         i += 1
     }

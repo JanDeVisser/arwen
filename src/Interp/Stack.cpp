@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "App/Type.h"
 #include <cstddef>
 #include <cstdint>
 #include <iomanip>
@@ -13,6 +12,8 @@
 
 #include <Util/Align.h>
 #include <Util/Arena.h>
+
+#include <App/Type.h>
 
 #include <Interp/Stack.h>
 
