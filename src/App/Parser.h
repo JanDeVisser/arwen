@@ -11,6 +11,7 @@
 #include <string>
 #include <string_view>
 
+#include <Util/Defer.h>
 #include <Util/IO.h>
 #include <Util/Lexer.h>
 #include <Util/Logging.h>
@@ -61,7 +62,6 @@ struct Parser {
     ParseLevel                      level { ParseLevel::Module };
     std::vector<ArwenError>         errors;
     std::vector<pSyntaxNode>        unbound_nodes;
-    pNamespace                      root;
     std::vector<pNamespace>         namespaces;
     std::shared_ptr<Program>        program;
     int                             pass { 0 };
@@ -70,7 +70,6 @@ struct Parser {
     Parser();
 
     pSyntaxNode                parse_file(std::wstring const &text, pNamespace ns);
-    pModule                    parse_module(std::string_view name, std::wstring text);
     pSyntaxNode                parse_script(std::wstring text);
     Token                      parse_statements(SyntaxNodes &statements);
     pSyntaxNode                parse_statement();
@@ -117,7 +116,7 @@ struct Parser {
     [[nodiscard]] pType                            find_type(std::wstring const &name) const;
     void                                           register_type(std::wstring name, pType type);
     void                                           push_namespace(pNamespace const &ns);
-    pNamespace const                              &push_new_namespace();
+    pNamespace const                              &push_new_namespace(pNamespace const &parent = nullptr);
     void                                           pop_namespace();
 
     void append(LexerErrorMessage const &lexer_error);
@@ -180,5 +179,29 @@ struct Parser {
         return bind_error(std::move(location), std::vformat(message.get(), std::make_wformat_args(args...)));
     }
 };
+
+template<typename Node>
+std::shared_ptr<Node> parse(Parser &parser, std::string_view name, std::wstring text)
+{
+    parser.text = text;
+    parser.lexer.push_source(text);
+
+    parser.push_new_namespace();
+    Defer       pop_ns { [&parser]() { parser.pop_namespace(); } };
+    SyntaxNodes statements;
+    if (auto t = parser.parse_statements(statements); !t.matches(TokenKind::EndOfFile)) {
+        parser.append(t, "Expected end of file");
+        return nullptr;
+    }
+    if (!statements.empty()) {
+        return make_node<Node>(
+            statements[0]->location + statements.back()->location,
+            as_wstring(name),
+            std::move(text),
+            statements,
+            parser.namespaces.back());
+    }
+    return nullptr;
+}
 
 }

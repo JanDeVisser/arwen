@@ -6,6 +6,7 @@
 
 #include <cctype>
 #include <cstdint>
+#include <filesystem>
 #include <ios>
 #include <iostream>
 #include <locale.h>
@@ -34,6 +35,8 @@
 #include <Interp/Interpreter.h>
 
 namespace Arwen {
+
+namespace fs = std::filesystem;
 
 using namespace Util;
 using namespace Interpreter;
@@ -103,6 +106,24 @@ void dump_scopes(Interp &interpreter)
     std::cout << std::endl;
 }
 
+std::optional<std::wstring> load_std_lib()
+{
+    fs::path arw_dir { getenv("ARW_DIR") ? getenv("ARW_DIR") : ARWEN_DIR };
+    if (arw_dir.empty()) {
+        arw_dir = "/usr/share/arwen";
+    }
+    auto std_arw { arw_dir / "share" / "std.arw" };
+    if (!fs::exists(std_arw)) {
+        fatal("{} not found", std_arw.string());
+    }
+    if (auto contents_maybe = read_file_by_name<wchar_t>(std_arw.string()); !contents_maybe.has_value()) {
+        std::wcerr << L"Could not read standard library `" << std_arw << L"`" << std::endl;
+        return {};
+    } else {
+        return contents_maybe.value();
+    }
+}
+
 int debugger_main(int argc, char const **argv)
 {
     struct Context {
@@ -139,15 +160,13 @@ int debugger_main(int argc, char const **argv)
         }
     };
 
-    auto parse = [&ctx](bool verbose = true) -> bool {
+    auto parse_file = [&ctx](bool verbose = true) -> bool {
         if (verbose) {
             std::wcout << "STAGE 1 - Parsing" << std::endl;
         }
-        ctx.parser.program = make_node<Arwen::Program>(TokenLocation {}, ctx.file_name, std::make_shared<Namespace>(ctx.parser.root));
-        ctx.parser.namespaces.clear();
-        ctx.parser.push_namespace(ctx.parser.root);
+        ctx.parser.program = parse<Arwen::Program>(ctx.parser, "std.arw", load_std_lib().value_or(L""));
         ctx.parser.push_namespace(ctx.parser.program->ns);
-        auto mod = ctx.parser.parse_module(as_utf8(ctx.file_name), std::move(ctx.contents));
+        auto mod = parse<Arwen::Module>(ctx.parser, as_utf8(ctx.file_name), std::move(ctx.contents));
         for (auto const &err : ctx.parser.errors) {
             std::wcerr << err.location.line + 1 << ':' << err.location.column + 1 << " " << err.message << std::endl;
         }
@@ -163,7 +182,6 @@ int debugger_main(int argc, char const **argv)
             std::wcout << "STAGE 2 - Folding" << std::endl;
         }
         ctx.parser.namespaces.clear();
-        ctx.parser.push_namespace(ctx.parser.root);
         ctx.parser.push_namespace(ctx.parser.program->ns);
         ctx.normalized = normalize_node(ctx.syntax, ctx.parser);
         if (!ctx.normalized) {
@@ -309,14 +327,14 @@ int debugger_main(int argc, char const **argv)
                 if (ctx.contents.empty()) {
                     std::cerr << "Error: no file loaded\n";
                 } else {
-                    parse();
+                    parse_file();
                 }
             } else if (parts[0] == L"build") {
                 if (parts.size() != 2) {
                     std::cerr << "Error: filename missing\n";
                 } else {
                     load_file(parts[1]);
-                    parse();
+                    parse_file();
                     if (ctx.normalized == nullptr || ctx.normalized->status != SyntaxNode::Status::Bound) {
                         std::cerr << "Error: parse failed\n";
                     } else {
@@ -359,7 +377,7 @@ int debugger_main(int argc, char const **argv)
                         std::cerr << "Error: filename missing\n";
                     } else {
                         load_file(parts[1]);
-                        parse(false);
+                        parse_file(false);
                         if (ctx.normalized == nullptr || ctx.normalized->status != SyntaxNode::Status::Bound) {
                             std::cerr << "Error: parse failed\n";
                         } else {

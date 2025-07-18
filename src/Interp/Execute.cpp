@@ -76,6 +76,15 @@ void execute_op<>(Interpreter &interpreter, Operation::Call const &impl)
                     if (mod->functions.contains(impl.payload.name)) {
                         return mod->functions[impl.payload.name];
                     }
+                    if (mod->program->functions.contains(impl.payload.name)) {
+                        return mod->program->functions[impl.payload.name];
+                    }
+                    return {};
+                },
+                [&impl](IR::pProgram &prog) -> IRNode {
+                    if (prog->functions.contains(impl.payload.name)) {
+                        return prog->functions[impl.payload.name];
+                    }
                     return {};
                 },
                 [](auto &) -> IRNode {

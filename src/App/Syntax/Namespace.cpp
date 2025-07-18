@@ -46,7 +46,7 @@ void Namespace::register_type(std::wstring name, pType type)
     types[name] = std::move(type);
 }
 
-bool Namespace::has_type(std::wstring const& name) const
+bool Namespace::has_type(std::wstring const &name) const
 {
     return types.contains(name);
 }
@@ -62,7 +62,7 @@ pSyntaxNode Namespace::find_variable(std::wstring const &name) const
     return nullptr;
 }
 
-bool Namespace::has_variable(std::wstring const& name) const
+bool Namespace::has_variable(std::wstring const &name) const
 {
     return variables.contains(name);
 }
@@ -85,7 +85,7 @@ void Namespace::register_variable(std::wstring name, pSyntaxNode node)
     variables.emplace(name, std::move(node));
 }
 
-bool Namespace::has_function(std::wstring const& name) const
+bool Namespace::has_function(std::wstring const &name) const
 {
     return functions.contains(name);
 }
@@ -135,7 +135,7 @@ pFunctionDefinition Namespace::find_function_by_arg_list(std::wstring const &nam
 
 std::vector<pFunctionDefinition> Namespace::find_overloads(std::wstring const &name, TypeSpecifications const &type_args) const
 {
-    std::function<void(std::shared_ptr<const Namespace> const &, std::vector<pFunctionDefinition>&)> find_them;
+    std::function<void(std::shared_ptr<Namespace const> const &, std::vector<pFunctionDefinition> &)> find_them;
     find_them = [&name, &find_them, &type_args](std::shared_ptr<Namespace const> const &ns, std::vector<pFunctionDefinition> &overloads) -> void {
         for (auto it = ns->functions.find(name); it != ns->functions.end() && it->first == name; ++it) {
             if (auto const &func_def = it->second; func_def->declaration->generics.size() >= type_args.size()) {

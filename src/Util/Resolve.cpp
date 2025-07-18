@@ -6,7 +6,6 @@
 
 #include <dlfcn.h>
 #include <filesystem>
-#include <functional>
 #include <mutex>
 
 #include <Util/Logging.h>

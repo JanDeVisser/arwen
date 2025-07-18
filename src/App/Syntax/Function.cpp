@@ -143,18 +143,20 @@ pSyntaxNode FunctionDefinition::normalize(Parser &parser)
         normalize_node(declaration, parser),
         normalize_node(implementation, parser),
         ns);
-    parser.register_function(name, ret);
+    ns->parent->register_function(name, ret);
     return ret;
 }
 
 pSyntaxNode FunctionDefinition::stamp(Parser &parser)
 {
+    parser.pop_namespace();
+    parser.push_new_namespace(parser.namespaces.back());
     return make_node<FunctionDefinition>(
         location,
         name,
         stamp_node(declaration, parser),
         stamp_node(implementation, parser),
-        ns);
+        parser.namespaces.back());
 }
 
 pType FunctionDefinition::bind(Parser &parser)
@@ -171,7 +173,7 @@ pType FunctionDefinition::bind(Parser &parser)
         return TypeRegistry::void_;
     }
     parser.push_namespace(ns);
-    Defer pop_namespace { [&parser] { parser.pop_namespace(); } };
+    Defer _ { [&parser] { parser.pop_namespace(); } };
     for (auto const &param : declaration->parameters) {
         if (!parser.has_variable(param->name)) {
             parser.register_variable(param->name, param);
@@ -207,7 +209,7 @@ pFunctionDefinition FunctionDefinition::instantiate(Parser &parser, std::map<std
     assert(!declaration->generics.empty() && declaration->generics.size() == generic_args.size());
     pFunctionDefinition new_func;
     {
-        pNamespace new_ns = parser.push_new_namespace();
+        pNamespace new_ns = parser.push_new_namespace(ns);
         Defer      pop_ns { [&parser]() { parser.pop_namespace(); } };
         for (auto const &[name, type] : generic_args) {
             new_ns->register_type(name, TypeRegistry::the().alias_for(type));

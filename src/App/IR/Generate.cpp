@@ -59,6 +59,10 @@ void list(pModule const &mod)
 void list(pProgram const &prog)
 {
     std::wcout << "== [P] " << prog->name << " ====================\n\n";
+    for (auto const &op : prog->operations) {
+        list(op);
+    }
+    std::wcout << '\n';
     for (auto const &mod : prog->modules | std::views::values) {
         list(mod);
     }
@@ -88,7 +92,11 @@ void add_operation(Generator &generator, Operation op)
                         mod->operations.emplace_back(std::move(op));
                         return true;
                     },
-                    [](auto const &) -> bool {
+                    [&op](pProgram const &prog) -> bool {
+                        prog->operations.emplace_back(std::move(op));
+                        return true;
+                    },
+                    [&op](auto const &) -> bool {
                         return false;
                     } },
                 ctx.ir_node)) {
@@ -120,6 +128,9 @@ Operation &last_op(Generator &generator)
                 },
                 [](pModule const &mod) -> Operation * {
                     return &mod->operations.back();
+                },
+                [](pProgram const &prog) -> Operation * {
+                    return &prog->operations.back();
                 },
                 [](auto const &) -> Operation * {
                     return nullptr;
@@ -449,7 +460,7 @@ void generate_node(Generator &generator, std::shared_ptr<Arwen::Module> const &n
         program = std::get<pProgram>(generator.ctxs.front().ir_node);
     }
     auto module = std::make_shared<Module>(node->name, node, program);
-    for (auto const &[name, var_node] : node->statements->ns->variables) {
+    for (auto const &[name, var_node] : node->ns->variables) {
         module->variables.emplace_back(name, var_node->bound_type);
     }
     program->modules.emplace(node->name, module);
@@ -457,7 +468,7 @@ void generate_node(Generator &generator, std::shared_ptr<Arwen::Module> const &n
 
     pType discard { nullptr };
     auto  empty { true };
-    for (auto const &stmt : node->statements->statements) {
+    for (auto const &stmt : node->statements) {
         if (discard != nullptr) {
             add_operation<Operation::Discard>(generator, discard);
         }
@@ -478,6 +489,22 @@ void generate_node(Generator &generator, std::shared_ptr<Arwen::Program> const &
     assert(generator.ctxs.empty());
     auto program = std::make_shared<Program>(node->name, node);
     generator.ctxs.push_back(Context { program, {} });
+    for (auto const &[name, var_node] : node->ns->variables) {
+        program->variables.emplace_back(name, var_node->bound_type);
+    }
+    pType discard { nullptr };
+    auto  empty { true };
+    for (auto const &stmt : node->statements) {
+        if (discard != nullptr) {
+            add_operation<Operation::Discard>(generator, discard);
+        }
+        discard = stmt->bound_type;
+        empty &= (discard == nullptr);
+        generator.generate(stmt);
+    }
+    if (empty) {
+        add_operation<Operation::PushConstant>(generator, make_void());
+    }
     for (auto &mod : node->modules | std::views::values) {
         generator.generate(mod);
     }

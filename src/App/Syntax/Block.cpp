@@ -44,8 +44,8 @@ pSyntaxNode Block::normalize(Parser &parser)
 pSyntaxNode Block::stamp(Parser &parser)
 {
     assert(ns != nullptr);
-    auto        new_ns = parser.push_new_namespace();
-    Defer       pop_ns { [&parser]() { parser.pop_namespace(); } };
+    parser.pop_namespace();
+    parser.push_new_namespace(parser.namespaces.back());
     SyntaxNodes normalized;
     for (auto const &stmt : statements) {
         auto new_stmt = stmt->stamp(parser);
@@ -55,14 +55,12 @@ pSyntaxNode Block::stamp(Parser &parser)
         }
         normalized.emplace_back(new_stmt);
     }
-    return make_node<Block>(location, normalized, new_ns);
+    return make_node<Block>(location, normalized, parser.namespaces.back());
 }
 
 pType Block::bind(Parser &parser)
 {
     assert(ns != nullptr);
-    parser.push_namespace(ns);
-    Defer pop_scope { [&parser]() { parser.pop_namespace(); } };
     pType type = TypeRegistry::void_;
     pType undetermined { nullptr };
     for (auto &statement : statements) {

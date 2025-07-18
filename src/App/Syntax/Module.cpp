@@ -15,20 +15,20 @@
 namespace Arwen {
 
 Module::Module(std::wstring name, std::wstring source, SyntaxNodes const &statements, pNamespace const &ns)
-    : SyntaxNode(SyntaxNodeType::Module)
+    : SyntaxNode(SyntaxNodeType::Module, ns)
     , name(std::move(name))
     , source(std::move(source))
-    , statements(make_node<Block>(location, statements, ns))
+    , statements(statements)
 {
 }
 
-Module::Module(std::wstring name, std::wstring source, pBlock statements)
-    : SyntaxNode(SyntaxNodeType::Module)
-    , name(std::move(name))
-    , source(std::move(source))
-    , statements(std::move(statements))
-{
-}
+// Module::Module(std::wstring name, std::wstring source, pBlock statements)
+//     : SyntaxNode(SyntaxNodeType::Module)
+//     , name(std::move(name))
+//     , source(std::move(source))
+//     , statements(std::move(statements))
+// {
+// }
 
 pSyntaxNode Module::normalize(Parser &parser)
 {
@@ -36,23 +36,25 @@ pSyntaxNode Module::normalize(Parser &parser)
         location,
         name,
         source,
-        normalize_node(statements, parser));
-}
-
-pSyntaxNode Module::stamp(Parser &parser)
-{
-    auto  new_ns = parser.push_new_namespace();
-    Defer pop_ns { [&parser] { parser.pop_namespace(); } };
-    return make_node<Module>(
-        location,
-        name,
-        source,
-        stamp_node(statements, parser));
+        normalize_nodes(statements, parser),
+        ns);
 }
 
 pType Module::bind(Parser &parser)
 {
-    return bind_node(statements, parser);
+    assert(ns != nullptr);
+    pType type = TypeRegistry::void_;
+    pType undetermined { nullptr };
+    for (auto &statement : statements) {
+        type = bind_node(statement, parser);
+        if (type == TypeRegistry::undetermined) {
+            undetermined = TypeRegistry::undetermined;
+        }
+    }
+    if (undetermined != nullptr) {
+        return undetermined;
+    }
+    return type;
 }
 
 std::wostream &Module::header(std::wostream &os)
@@ -62,7 +64,9 @@ std::wostream &Module::header(std::wostream &os)
 
 void Module::dump_node(int const indent)
 {
-    statements->dump(indent + 4);
+    for (auto const &stmt : statements) {
+        stmt->dump(indent + 4);
+    }
 }
 
 }

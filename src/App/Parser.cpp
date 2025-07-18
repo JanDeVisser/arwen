@@ -95,12 +95,7 @@ static BindingPower binding_power(Parser::OperatorDef op)
 }
 
 Parser::Parser()
-    : root(std::make_shared<Namespace>(nullptr))
 {
-    push_namespace(root);
-    for (auto const &t : TypeRegistry::the().types) {
-        root->register_type(t->name, t);
-    }
 }
 
 pSyntaxNode Parser::parse_file(std::wstring const &text, pNamespace ns)
@@ -124,29 +119,6 @@ pSyntaxNode Parser::parse_file(std::wstring const &text, pNamespace ns)
             statements,
             std::make_shared<Namespace>(ns));
     }
-}
-
-pModule Parser::parse_module(std::string_view name, std::wstring text)
-{
-    this->text = text;
-    lexer.push_source(text);
-
-    push_new_namespace();
-    Defer       pop_ns { [this]() { pop_namespace(); } };
-    SyntaxNodes statements;
-    if (auto t = parse_statements(statements); !t.matches(TokenKind::EndOfFile)) {
-        append(t, "Expected end of file");
-        return nullptr;
-    }
-    if (!statements.empty()) {
-        return make_node<Module>(
-            statements[0]->location + statements.back()->location,
-            as_wstring(name),
-            std::move(text),
-            statements,
-            namespaces.back());
-    }
-    return nullptr;
 }
 
 pSyntaxNode Parser::parse_script(std::wstring text)
@@ -1391,12 +1363,16 @@ void Parser::push_namespace(pNamespace const &ns)
     namespaces.emplace_back(ns);
 }
 
-pNamespace const &Parser::push_new_namespace()
+pNamespace const &Parser::push_new_namespace(pNamespace const &parent)
 {
     if (namespaces.empty()) {
-        namespaces.emplace_back(std::make_shared<Namespace>(nullptr));
+        namespaces.emplace_back(std::make_shared<Namespace>(parent));
+        for (auto const &t : TypeRegistry::the().types) {
+            namespaces.back()->register_type(t->name, t);
+        }
     } else {
-        namespaces.emplace_back(std::make_shared<Namespace>(namespaces.back()));
+        auto p { (parent == nullptr) ? namespaces.back() : parent };
+        namespaces.emplace_back(std::make_shared<Namespace>(p));
     }
     return namespaces.back();
 }

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <cstddef>
 #include <iostream>
 #include <memory>
 #include <ostream>
@@ -62,10 +63,31 @@ void SyntaxNode::dump(int indent)
     header_line(std::wcout);
     std::cout << std::endl;
     if (ns != nullptr) {
+        print_indent(indent);
+        std::cout << "{" << std::endl;
+        if (ns->parent != nullptr) {
+            print_indent(indent + 4);
+            std::wcout << "parent: ";
+            if (ns->parent->node != nullptr) {
+                ns->parent->node->header_line(std::wcout) << std::endl;
+            } else {
+                std::cout << "[null]\n";
+            }
+        }
         for (auto const &[n, t] : ns->types) {
             print_indent(indent + 4);
             std::wcout << n << ": " << t->to_string() << "\n";
         }
+        for (auto const &[n, f] : ns->functions) {
+            print_indent(indent + 4);
+            std::wcout << n << ": " << f->bound_type->to_string() << "\n";
+        }
+        for (auto const &[n, v] : ns->variables) {
+            print_indent(indent + 4);
+            std::wcout << n << ": " << v->bound_type->to_string() << "\n";
+        }
+        print_indent(indent);
+        std::cout << "}" << std::endl;
     }
     dump_node(indent);
 }
@@ -120,7 +142,7 @@ pSyntaxNode DeferStatement::stamp(Parser &parser)
 {
     return make_node<DeferStatement>(
         location,
-        stmt->stamp(parser));
+        stamp_node(stmt, parser));
 }
 
 pType DeferStatement::bind(Parser &parser)
@@ -146,13 +168,71 @@ pType Dummy::bind(Parser &parser)
     return TypeRegistry::void_;
 }
 
+pSyntaxNode normalize_node_(pSyntaxNode const &node, Parser &parser)
+{
+    assert(node != nullptr);
+    if (node->status != SyntaxNode::Status::Initialized) {
+        return node;
+    }
+    if (node->ns != nullptr) {
+        parser.push_namespace(node->ns);
+    }
+    auto ret = node->normalize(parser);
+    if (node->ns != nullptr) {
+        parser.pop_namespace();
+    }
+    if (ret != nullptr && ret->status == SyntaxNode::Status::Initialized) {
+        ret->status = SyntaxNode::Status::Normalized;
+    }
+    return ret;
+}
+
+std::vector<pSyntaxNode> normalize_nodes_(std::vector<pSyntaxNode> const &nodes, Parser &parser)
+{
+    std::vector<pSyntaxNode> normalized;
+    for (auto const &n : nodes) {
+        normalized.emplace_back(normalize_node(n, parser));
+    }
+    return normalized;
+}
+
+pSyntaxNode stamp_node_(pSyntaxNode const &node, Parser &parser)
+{
+    pSyntaxNode ret { nullptr };
+    if (node != nullptr) {
+        if (node->ns != nullptr) {
+            parser.push_namespace(node->ns);
+        }
+        ret = node->stamp(parser);
+        if (node->ns != nullptr) {
+            parser.pop_namespace();
+        }
+    }
+    return ret;
+}
+
+std::vector<pSyntaxNode> stamp_nodes_(std::vector<pSyntaxNode> const &nodes, Parser &parser)
+{
+    std::vector<pSyntaxNode> normalized;
+    for (auto const &n : nodes) {
+        normalized.emplace_back(stamp_node(n, parser));
+    }
+    return normalized;
+}
+
 pType bind_node(pSyntaxNode const &node, Parser &parser)
 {
     assert(node != nullptr && node->status >= SyntaxNode::Status::Normalized);
     if (node->status == SyntaxNode::Status::Bound) {
         return node->bound_type;
     }
+    if (node->ns != nullptr) {
+        parser.push_namespace(node->ns);
+    }
     auto ret = node->bind(parser);
+    if (node->ns != nullptr) {
+        parser.pop_namespace();
+    }
     if (ret == nullptr) {
         node->dump();
     }

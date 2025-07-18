@@ -7,8 +7,10 @@
 #pragma once
 
 #include <concepts>
+#include <cstddef>
 #include <map>
 #include <memory>
+#include <ranges>
 #include <string>
 #include <vector>
 
@@ -99,6 +101,7 @@ struct Namespace : std::enable_shared_from_this<Namespace> {
     TypeMap     types {};
     FunctionMap functions {};
     VariableMap variables {};
+    pSyntaxNode node { nullptr };
     pNamespace  parent { nullptr };
 
     explicit Namespace(pNamespace parent = nullptr);
@@ -157,6 +160,9 @@ static std::shared_ptr<Node> make_node(TokenLocation location, Args &&...args)
     auto ret = std::make_shared<Node>(args...);
     ret->location = std::move(location);
     // trace("[{}] ({},{})", SyntaxNodeType_name(ret->type), ret->location.line + 1, ret->location.column + 1);
+    if (ret->ns != nullptr) {
+        ret->ns->node = ret;
+    }
     return ret;
 }
 
@@ -166,6 +172,9 @@ static std::shared_ptr<Node> make_node(pSyntaxNode const &child, Args &&...args)
 {
     auto ret = std::make_shared<Node>(args...);
     ret->location = child->location;
+    if (ret->ns != nullptr) {
+        ret->ns->node = ret;
+    }
     return ret;
 }
 
@@ -175,6 +184,9 @@ static std::shared_ptr<Node> make_node(std::array<pSyntaxNode, 2> const &childre
 {
     auto ret = std::make_shared<Node>(args...);
     ret->location = children[0]->location + children[1]->location;
+    if (ret->ns != nullptr) {
+        ret->ns->node = ret;
+    }
     return ret;
 }
 
@@ -184,21 +196,24 @@ static std::shared_ptr<Node> make_node(std::vector<pSyntaxNode> const &children,
 {
     auto ret = std::make_shared<Node>(args...);
     ret->location = children[0]->location + children.back()->location;
+    if (ret->ns != nullptr) {
+        ret->ns->node = ret;
+    }
     return ret;
 }
+
+pSyntaxNode              normalize_node_(pSyntaxNode const &node, Parser &parser);
+std::vector<pSyntaxNode> normalize_nodes_(std::vector<pSyntaxNode> const &nodes, Parser &parser);
+pSyntaxNode              stamp_node_(pSyntaxNode const &node, Parser &parser);
+std::vector<pSyntaxNode> stamp_nodes_(std::vector<pSyntaxNode> const &nodes, Parser &parser);
+pType                    bind_node(pSyntaxNode const &node, Parser &parser);
 
 template<class Node, class Normalized = Node>
     requires std::derived_from<Node, SyntaxNode> && std::derived_from<Normalized, SyntaxNode>
 static std::shared_ptr<Normalized> normalize_node(std::shared_ptr<Node> node, Parser &parser)
 {
-    assert(node != nullptr);
-    if (node->status != SyntaxNode::Status::Initialized) {
-        return node;
-    }
-    auto ret = std::dynamic_pointer_cast<Normalized>(node->normalize(parser));
-    if (ret != nullptr && ret->status == SyntaxNode::Status::Initialized) {
-        ret->status = SyntaxNode::Status::Normalized;
-    }
+    auto ret = std::dynamic_pointer_cast<Normalized>(normalize_node_(node, parser));
+    assert(ret != nullptr);
     return ret;
 }
 
@@ -206,29 +221,41 @@ template<class Node>
     requires std::derived_from<Node, SyntaxNode>
 static std::vector<std::shared_ptr<Node>> normalize_nodes(std::vector<std::shared_ptr<Node>> nodes, Parser &parser)
 {
-    std::vector<std::shared_ptr<Node>> normalized;
-    for (auto const &n : nodes) {
-        normalized.emplace_back(std::dynamic_pointer_cast<Node>(normalize_node(n, parser)));
-    }
-    return normalized;
+    auto normalized = normalize_nodes_(
+        { std::from_range, nodes | std::views::transform([](auto const &n) {
+             return std::dynamic_pointer_cast<SyntaxNode>(n);
+         }) },
+        parser);
+    std::vector<std::shared_ptr<Node>> ret {
+        std::from_range, normalized | std::views::transform([](auto const &n) {
+            return std::dynamic_pointer_cast<Node>(n);
+        })
+    };
+    return ret;
 }
 
 template<class Node, class Normalized = Node>
     requires std::derived_from<Node, SyntaxNode>
 static std::shared_ptr<Node> stamp_node(std::shared_ptr<Node> node, Parser &parser)
 {
-    return node ? std::dynamic_pointer_cast<Normalized>(node->stamp(parser)) : nullptr;
+    return node ? std::dynamic_pointer_cast<Normalized>(stamp_node_(node, parser)) : nullptr;
 }
 
 template<class Node>
     requires std::derived_from<Node, SyntaxNode>
 static std::vector<std::shared_ptr<Node>> stamp_nodes(std::vector<std::shared_ptr<Node>> nodes, Parser &parser)
 {
-    std::vector<std::shared_ptr<Node>> normalized;
-    for (auto const &n : nodes) {
-        normalized.emplace_back(std::dynamic_pointer_cast<Node>(n->stamp(parser)));
-    }
-    return normalized;
+    auto stamped = stamp_nodes_(
+        { std::from_range, nodes | std::views::transform([](auto const &n) {
+             return std::dynamic_pointer_cast<SyntaxNode>(n);
+         }) },
+        parser);
+    std::vector<std::shared_ptr<Node>> ret {
+        std::from_range, stamped | std::views::transform([](auto const &n) {
+            return std::dynamic_pointer_cast<Node>(n);
+        })
+    };
+    return ret;
 }
 
 struct BinaryExpression final : SyntaxNode {
@@ -501,12 +528,11 @@ struct LoopStatement final : SyntaxNode {
 struct Module final : SyntaxNode {
     std::wstring name;
     std::wstring source;
-    pBlock       statements;
+    SyntaxNodes  statements;
 
     Module(std::wstring name, std::wstring source, SyntaxNodes const &statements, pNamespace const &ns);
-    Module(std::wstring name, std::wstring source, pBlock statements);
+    // Module(std::wstring name, std::wstring source, pBlock statements);
     pSyntaxNode    normalize(Parser &parser) override;
-    pSyntaxNode    stamp(Parser &parser) override;
     pType          bind(Parser &parser) override;
     std::wostream &header(std::wostream &os) override;
     void           dump_node(int indent) override;
@@ -545,11 +571,13 @@ struct Parameter final : SyntaxNode {
 struct Program final : SyntaxNode {
     std::wstring                    name;
     std::map<std::wstring, pModule> modules {};
+    std::wstring                    source;
+    SyntaxNodes                     statements;
 
     Program(std::wstring name, pNamespace ns);
-    Program(std::wstring name, std::map<std::wstring, pModule> modules, pNamespace ns);
+    Program(std::wstring name, std::map<std::wstring, pModule> modules, SyntaxNodes statements, pNamespace ns);
+    Program(std::wstring name, std::wstring source, SyntaxNodes statements, pNamespace ns);
     pSyntaxNode    normalize(Parser &parser) override;
-    pSyntaxNode    stamp(Parser &parser) override;
     pType          bind(Parser &parser) override;
     std::wostream &header(std::wostream &os) override;
     void           dump_node(int indent) override;
@@ -743,8 +771,6 @@ struct Yield final : SyntaxNode {
     std::wostream &header(std::wostream &os) override;
     void           dump_node(int indent) override;
 };
-
-pType bind_node(pSyntaxNode const &node, Parser &parser);
 
 }
 

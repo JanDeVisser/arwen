@@ -6,9 +6,10 @@
 
 #pragma once
 
-#include "Util/Logging.h"
 #include <cstdint>
 #include <string>
+
+#include <Util/Logging.h>
 
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
@@ -142,9 +143,12 @@ struct Function {
 };
 
 struct Program {
-    std::wstring                    name;
-    pSyntaxNode                     syntax_node;
-    std::map<std::wstring, pModule> modules {};
+    std::wstring                       name;
+    pSyntaxNode                        syntax_node;
+    std::vector<IRVariableDeclaration> variables;
+    std::map<std::wstring, pFunction>  functions {};
+    std::map<std::wstring, pModule>    modules {};
+    std::vector<Operation>             operations;
 };
 
 struct Module {
