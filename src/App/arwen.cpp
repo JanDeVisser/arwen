@@ -15,7 +15,6 @@
 #include <Util/Lexer.h>
 #include <Util/Logging.h>
 #include <Util/Options.h>
-#include <Util/Result.h>
 #include <Util/TokenLocation.h>
 #include <Util/Utf8.h>
 

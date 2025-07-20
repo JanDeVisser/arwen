@@ -6,9 +6,10 @@
 
 #pragma once
 
+#include <expected>
 #include <string>
 
-#include <Util/Result.h>
+#include <Util/Error.h>
 
 namespace Util {
 
@@ -32,7 +33,7 @@ inline std::string as_utf8(std::string_view const &s)
 template<>
 inline std::string as_utf8(std::wstring_view const &s)
 {
-    if (auto result_maybe = to_utf8(s); result_maybe.is_error()) {
+    if (auto result_maybe = to_utf8(s); !result_maybe.has_value()) {
         abort();
     } else {
         return result_maybe.value();
@@ -54,19 +55,19 @@ inline std::string as_utf8(std::string const &s)
 template<>
 inline std::string as_utf8(std::wstring const &s)
 {
-    if (auto result_maybe = to_utf8(s); result_maybe.is_error()) {
+    if (auto result_maybe = to_utf8(s); !result_maybe.has_value()) {
         abort();
     } else {
         return result_maybe.value();
     }
 }
 
-inline std::string as_utf8(const char *s)
+inline std::string as_utf8(char const *s)
 {
     return as_utf8(std::string_view { s });
 }
 
-inline std::string as_utf8(const wchar_t *s)
+inline std::string as_utf8(wchar_t const *s)
 {
     return as_utf8(std::wstring_view { s });
 }
@@ -80,7 +81,7 @@ std::wstring as_wstring(std::basic_string_view<T> const &)
 template<>
 inline std::wstring as_wstring(std::string_view const &s)
 {
-    if (auto result_maybe = to_wstring(s); result_maybe.is_error()) {
+    if (auto result_maybe = to_wstring(s); !result_maybe.has_value()) {
         abort();
     } else {
         return result_maybe.value();
@@ -102,7 +103,7 @@ std::wstring as_wstring(std::basic_string<T> const &)
 template<>
 inline std::wstring as_wstring(std::string const &s)
 {
-    if (auto result_maybe = to_wstring(s); result_maybe.is_error()) {
+    if (auto result_maybe = to_wstring(s); !result_maybe.has_value()) {
         abort();
     } else {
         return result_maybe.value();
@@ -115,12 +116,12 @@ inline std::wstring as_wstring(std::wstring const &s)
     return s;
 }
 
-inline std::wstring as_wstring(const char *s)
+inline std::wstring as_wstring(char const *s)
 {
     return as_wstring(std::string_view { s });
 }
 
-inline std::wstring as_wstring(const wchar_t *s)
+inline std::wstring as_wstring(wchar_t const *s)
 {
     return as_wstring(std::wstring_view { s });
 }

@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <__expected/unexpected.h>
 #include <condition_variable>
 #include <functional>
 #include <string>
@@ -17,7 +18,6 @@
 
 #include <Util/Defer.h>
 #include <Util/Logging.h>
-#include <Util/Result.h>
 
 namespace Util {
 
@@ -41,26 +41,26 @@ public:
         close();
     }
 
-    Error<> initialize()
+    CError initialize()
     {
         if (pipe(m_pipe) == -1) {
-            return LibCError();
+            return make_error();
         }
         return {};
     }
 
-    Error<> initialize(T ctx, std::optional<OnRead> on_read)
+    CError initialize(T ctx, std::optional<OnRead> on_read)
     {
         m_context = std::move(ctx);
         m_on_read = std::move(on_read);
         return initialize();
     }
 
-    Error<> connect(int fd)
+    CError connect(int fd)
     {
         m_fd = fd;
         if (fcntl(m_fd, F_SETFL, O_NONBLOCK) < 0) {
-            return LibCError();
+            return make_error();
         }
 
         std::thread thr = std::thread(&ReadPipe::read, this);
@@ -107,7 +107,7 @@ public:
         std::string ret;
         {
             std::unique_lock lk(m_mutex);
-            Defer       sg { [&lk]() {
+            Defer            sg { [&lk]() {
                 lk.unlock();
             } };
             if (m_fd >= 0 && m_current.empty()) {
@@ -155,11 +155,11 @@ private:
 
     constexpr static int DRAIN_SIZE = (64 * 1024);
 
-    Error<> drain()
+    CError drain()
     {
         {
             std::unique_lock lk(m_mutex);
-            Defer       guard { [&lk]() {
+            Defer            guard { [&lk]() {
                 lk.unlock();
             } };
             char buffer[DRAIN_SIZE];
@@ -178,7 +178,7 @@ private:
                 if (errno == EINTR) {
                     continue;
                 }
-                return LibCError();
+                return make_error();
             }
             m_condition.notify_all();
         }
@@ -209,10 +209,10 @@ public:
         close();
     }
 
-    Error<LibCError> initialize()
+    CError initialize()
     {
         if (pipe(m_pipe) == -1) {
-            return LibCError();
+            return make_error();
         }
         return {};
     }
@@ -250,7 +250,7 @@ public:
             ssize_t count = ::write(m_fd, buf + total, num - total);
             if (count < 0) {
                 if (errno != EINTR) {
-                    return LibCError();
+                    return make_error();
                 }
                 continue;
             }

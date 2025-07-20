@@ -6,12 +6,13 @@
 
 #pragma once
 
+#include <expected>
 #include <filesystem>
 #include <map>
 #include <memory>
 #include <string>
 
-#include <Util/Result.h>
+#include <Util/Error.h>
 
 namespace Util {
 
@@ -43,27 +44,30 @@ struct DLError {
     DLError(std::string m);
 };
 
+template<typename R>
+using DLResult = std::expected<R, DLError>;
+
 class Resolver {
 public:
     ~Resolver() = default;
-    static Resolver           &get_resolver() noexcept;
-    Result<LibHandle, DLError> open(std::string const &);
-    Result<void_t, DLError>    resolve(std::string const &);
+    static Resolver    &get_resolver() noexcept;
+    DLResult<LibHandle> open(std::string const &);
+    DLResult<void_t>    resolve(std::string const &);
 
 private:
     class Library {
     public:
         explicit Library(std::string img);
         ~Library();
-        std::string                              to_string();
-        static fs::path                          platform_image(std::string const &);
-        [[nodiscard]] bool                       is_valid() const { return m_my_result.message.empty(); }
-        [[nodiscard]] Result<LibHandle, DLError> result() const;
-        Result<void_t, DLError>                  get_function(std::string const &);
+        std::string                       to_string();
+        static fs::path                   platform_image(std::string const &);
+        [[nodiscard]] bool                is_valid() const { return m_my_result.message.empty(); }
+        [[nodiscard]] DLResult<LibHandle> result() const;
+        DLResult<void_t>                  get_function(std::string const &);
 
     private:
-        Result<LibHandle, DLError>               open();
-        [[nodiscard]] Result<LibHandle, DLError> try_open(fs::path const &) const;
+        DLResult<LibHandle>               open();
+        [[nodiscard]] DLResult<LibHandle> try_open(fs::path const &) const;
 
         LibHandle                     m_handle { nullptr };
         std::string                   m_image {};

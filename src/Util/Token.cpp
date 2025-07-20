@@ -25,7 +25,7 @@ std::string QuoteType_name(QuoteType type)
 EnumResult<QuoteType> QuoteType_from_string(std::string_view const &type)
 {
     if (type.length() != 1) {
-        return NoSuchEnumValue { "QuoteType", std::string(type) };
+        return std::unexpected(NoSuchEnumValue { "QuoteType", std::string(type) });
     }
 #undef S
 #define S(T, Q)       \
@@ -33,7 +33,7 @@ EnumResult<QuoteType> QuoteType_from_string(std::string_view const &type)
         return QuoteType::T;
     QUOTETYPES(S)
 #undef S
-    return NoSuchEnumValue { "QuoteType", std::string(type) };
+    return std::unexpected(NoSuchEnumValue { "QuoteType", std::string(type) });
 }
 
 std::string CommentType_name(CommentType type)
@@ -58,7 +58,7 @@ EnumResult<CommentType> CommentType_from_string(std::string_view const &type)
         return CommentType::T;
     COMMENTTYPES(S)
 #undef S
-    return NoSuchEnumValue { "CommentType", std::string(type) };
+    return std::unexpected(NoSuchEnumValue { "CommentType", std::string(type) });
 }
 
 std::string NumberType_name(NumberType type)
@@ -83,7 +83,7 @@ EnumResult<NumberType> NumberType_from_string(std::string_view const &type)
         return NumberType::T;
     NUMBERTYPES(S)
 #undef S
-    return NoSuchEnumValue { "NumberType", std::string(type) };
+    return std::unexpected(NoSuchEnumValue { "NumberType", std::string(type) });
 }
 
 }

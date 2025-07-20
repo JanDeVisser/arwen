@@ -12,8 +12,8 @@
 #include <netinet/in.h>
 #include <string>
 
+#include <Util/Error.h>
 #include <Util/Logging.h>
-#include <Util/Result.h>
 #include <Util/Utf8.h>
 
 namespace Util {
@@ -54,7 +54,7 @@ struct SimpleFileLocator {
         if (fs::exists(p)) {
             return p;
         }
-        return LibCError(ENOENT);
+        return make_error(ENOENT);
     }
 };
 
@@ -63,7 +63,7 @@ Result<std::basic_string<T>> read_file(fs::path const &file)
 {
     std::ifstream is(file.string(), std::ios::in);
     if (!is) {
-        return LibCError();
+        return make_error();
     }
     std::string ret;
     for (char ch; is.get(ch);) {
@@ -77,7 +77,7 @@ inline Result<std::wstring> read_file(fs::path const &file)
 {
     std::ifstream is(file.string(), std::ios::binary | std::ios::in);
     if (!is) {
-        return LibCError();
+        return make_error();
     }
     return read_utf8(is);
 }
@@ -94,11 +94,11 @@ Result<ssize_t> write_file_by_name(std::string_view const &file_name, std::basic
 {
     std::basic_fstream<T> os(std::string { file_name });
     if (!os) {
-        return LibCError();
+        return make_error();
     }
     os.write(contents.data(), contents.length());
     if (os.fail() || os.bad()) {
-        return LibCError();
+        return make_error();
     }
     return contents.length();
 }
@@ -108,7 +108,7 @@ inline Result<ssize_t> write_file_by_name(std::string_view const &file_name, std
 {
     std::ofstream os(std::string { file_name });
     if (!os) {
-        return LibCError();
+        return make_error();
     }
     return write_utf8(os, contents);
 }

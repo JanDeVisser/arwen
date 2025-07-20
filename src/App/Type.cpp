@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "App/SyntaxNode.h"
 #include <algorithm>
 #include <cstdint>
 #include <format>

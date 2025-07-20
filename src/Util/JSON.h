@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <__expected/unexpected.h>
+#include <expected>
 #include <map>
 #include <optional>
 #include <string>
@@ -13,7 +15,6 @@
 #include <vector>
 
 #include <Util/Logging.h>
-#include <Util/Result.h>
 
 namespace Util {
 
@@ -223,7 +224,7 @@ public:
 };
 
 template<typename T>
-using Decoded = Result<T, JSONError>;
+using Decoded = std::expected<T, JSONError>;
 
 #define CHECK_JSON_TYPE(expr, T)                                 \
     do {                                                         \
@@ -244,7 +245,7 @@ public:
     using Array = std::vector<JSONValue>;
     using Object = std::map<std::string, JSONValue>;
     using JSONValueValue = std::variant<std::string, int64_t, bool, double, Array, Object>;
-    using EJSON = Error<JSONError>;
+    using EJSON = std::expected<void, JSONError>;
 
     JSONValue() = default;
     JSONValue(JSONValue const &) = default;
@@ -359,10 +360,10 @@ public:
         case JSONType::Integer: {
             auto v = std::get<int64_t>(m_value);
             if ((v < min_value<Int>()) || (static_cast<uint64_t>(v) > max_value<Int>())) {
-                return JSONError {
+                return std::unexpected(JSONError {
                     JSONError::Code::TypeMismatch,
                     std::format("Cannot convert JSON value of type {} to {}", JSONType_name(type()), typeid(Int).name()),
-                };
+                });
             }
             i = static_cast<Int>(v);
             return {};
@@ -370,10 +371,10 @@ public:
         case JSONType::Double: {
             auto v = std::get<double>(m_value);
             if ((v < min_value<Int>()) || (static_cast<uint64_t>(v) > max_value<Int>())) {
-                return JSONError {
+                return std::unexpected(JSONError {
                     JSONError::Code::TypeMismatch,
                     std::format("Cannot convert JSON value of type {} to {}", JSONType_name(type()), typeid(Int).name()),
-                };
+                });
             }
             i = static_cast<Int>(v);
             return {};
@@ -382,10 +383,10 @@ public:
             i = std::get<bool>(m_value) ? 1 : 0;
             return {};
         default:
-            return JSONError {
+            return std::unexpected(JSONError {
                 JSONError::Code::TypeMismatch,
                 std::format("Cannot convert JSON value of type {} to {}", JSONType_name(type()), typeid(Int).name()),
-            };
+            });
         }
     }
 
@@ -396,10 +397,10 @@ public:
         case JSONType::Integer: {
             auto v = std::get<int64_t>(m_value);
             if ((v < 0) || (static_cast<uint64_t>(v) > max_value<UInt>())) {
-                return JSONError {
+                return std::unexpected(JSONError {
                     JSONError::Code::TypeMismatch,
                     std::format("Cannot convert JSON value of type {} to {}", JSONType_name(type()), typeid(UInt).name()),
-                };
+                });
             }
             i = static_cast<UInt>(v);
             return {};
@@ -407,10 +408,10 @@ public:
         case JSONType::Double: {
             auto v = std::get<double>(m_value);
             if ((v < 0) || (static_cast<uint64_t>(v) > max_value<UInt>())) {
-                return JSONError {
+                return std::unexpected(JSONError {
                     JSONError::Code::TypeMismatch,
                     std::format("Cannot convert JSON value of type {} to {}", JSONType_name(type()), typeid(UInt).name()),
-                };
+                });
             }
             i = static_cast<UInt>(v);
             return {};
@@ -419,10 +420,10 @@ public:
             i = std::get<bool>(m_value) ? 1 : 0;
             return {};
         default:
-            return JSONError {
+            return std::unexpected(JSONError {
                 JSONError::Code::TypeMismatch,
                 std::format("Cannot convert JSON value of type {} to {}", JSONType_name(type()), typeid(UInt).name()),
-            };
+            });
         }
     }
 
@@ -434,10 +435,10 @@ public:
             s = std::get<std::string>(m_value);
             return {};
         default:
-            return JSONError {
+            return std::unexpected(JSONError {
                 JSONError::Code::TypeMismatch,
                 std::format("Cannot convert JSON value of type {} to std::string", JSONType_name(type())),
-            };
+            });
         }
     }
 
@@ -452,10 +453,10 @@ public:
             flt = static_cast<Float>(std::get<double>(m_value));
             return {};
         default:
-            return JSONError {
+            return std::unexpected(JSONError {
                 JSONError::Code::TypeMismatch,
                 std::format("Cannot convert JSON value of type {} to {}", JSONType_name(type()), typeid(Float).name()),
-            };
+            });
         }
     }
 
@@ -473,10 +474,10 @@ public:
             b = std::get<bool>(m_value);
             return {};
         default:
-            return JSONError {
+            return std::unexpected(JSONError {
                 JSONError::Code::TypeMismatch,
                 std::format("Cannot convert JSON value of type {} to {}", JSONType_name(type()), typeid(B).name()),
-            };
+            });
         }
     }
 
@@ -493,10 +494,10 @@ public:
             return {};
         }
         default:
-            return JSONError {
+            return std::unexpected(JSONError {
                 JSONError::Code::TypeMismatch,
                 std::format("Cannot convert JSON value of type {} to std::vector<{}>", JSONType_name(type()), typeid(T).name()),
-            };
+            });
         }
     }
 
@@ -516,7 +517,7 @@ public:
         if constexpr (N > 0) {
             return convert<N - 1, Ts...>(var);
         }
-        return JSONError { JSONError::Code::TypeMismatch, "" };
+        return std::unexpected(JSONError { JSONError::Code::TypeMismatch, "" });
     }
 
     template<typename... Ts>
@@ -625,11 +626,11 @@ public:
     [[nodiscard]] Decoded<T> try_get(std::string_view const &key) const
     {
         if (!is_object()) {
-            return JSONError { JSONError::Code::TypeMismatch, "" };
+            return std::unexpected(JSONError { JSONError::Code::TypeMismatch, "" });
         }
         auto maybe = get(key);
         if (!maybe.has_value()) {
-            return JSONError { JSONError::Code::MissingValue, std::string(key) };
+            return std::unexpected(JSONError { JSONError::Code::MissingValue, std::string(key) });
         }
         T result;
         TRY(maybe.value().convert<T>(result));
@@ -830,8 +831,8 @@ public:
     [[nodiscard]] JSONValueValue const &raw_value() const { return m_value; }
 
     using ReadError = std::variant<LibCError, JSONError>;
-    static Result<JSONValue, ReadError> read_file(std::string_view const &);
-    static Result<JSONValue, JSONError> deserialize(std::string_view const &);
+    static std::expected<JSONValue, ReadError> read_file(std::string_view const &);
+    static std::expected<JSONValue, JSONError> deserialize(std::string_view const &);
 
 private:
     JSONType       m_type { JSONType::Null };

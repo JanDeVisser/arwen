@@ -11,6 +11,7 @@
 #include <Util/Logging.h>
 #include <Util/Resolve.h>
 #include <Util/StringUtil.h>
+#include <utility>
 
 namespace Util {
 
@@ -48,12 +49,12 @@ Resolver::Library::~Library()
     }
 }
 
-Result<LibHandle, DLError> Resolver::Library::result() const
+DLResult<LibHandle> Resolver::Library::result() const
 {
     if (is_valid()) {
         return m_handle;
     }
-    return m_my_result;
+    return std::unexpected<DLError>(m_my_result);
 }
 
 std::string Resolver::Library::to_string()
@@ -75,7 +76,7 @@ fs::path Resolver::Library::platform_image(std::string const &image)
     return platform_image;
 }
 
-Result<LibHandle, DLError> Resolver::Library::try_open(fs::path const &dir) const
+DLResult<LibHandle> Resolver::Library::try_open(fs::path const &dir) const
 {
     char const *p { nullptr };
     std::string path_string;
@@ -93,10 +94,10 @@ Result<LibHandle, DLError> Resolver::Library::try_open(fs::path const &dir) cons
         trace("Successfully opened '{}'", (p) ? p : "main program module");
         return LibHandle { lib_handle };
     }
-    return DLError {};
+    return std::unexpected<DLError>(std::in_place_t {});
 }
 
-Result<LibHandle, DLError> Resolver::Library::open()
+DLResult<LibHandle> Resolver::Library::open()
 {
     auto image = platform_image(m_image);
     if (!image.empty()) {
@@ -104,7 +105,7 @@ Result<LibHandle, DLError> Resolver::Library::open()
     } else {
         trace("resolve_open('Main Program Image')");
     }
-    Result<LibHandle, DLError> ret = DLError {};
+    DLResult<LibHandle> ret { std::unexpected<DLError>(std::in_place_t {}) };
     m_handle = nullptr;
     if (!m_image.empty()) {
         fs::path arw_dir { getenv("ARW_DIR") ? getenv("ARW_DIR") : ARWEN_DIR };
@@ -112,25 +113,25 @@ Result<LibHandle, DLError> Resolver::Library::open()
             arw_dir = "/usr/share/arwen";
         }
         ret = try_open(arw_dir / "lib");
-        if (ret.is_error()) {
+        if (!ret.has_value()) {
             ret = try_open(arw_dir / "bin");
         }
-        if (ret.is_error()) {
+        if (!ret.has_value()) {
             ret = try_open(arw_dir);
         }
-        if (ret.is_error()) {
+        if (!ret.has_value()) {
             ret = try_open(arw_dir / "share/lib");
         }
-        if (ret.is_error()) {
+        if (!ret.has_value()) {
             ret = try_open(fs::path { "lib" });
         }
-        if (ret.is_error()) {
+        if (!ret.has_value()) {
             ret = try_open(fs::path { "bin" });
         }
-        if (ret.is_error()) {
+        if (!ret.has_value()) {
             ret = try_open(fs::path { "share/lib" });
         }
-        if (ret.is_error()) {
+        if (!ret.has_value()) {
             ret = try_open(fs::current_path());
         }
     } else {
@@ -151,7 +152,7 @@ Result<LibHandle, DLError> Resolver::Library::open()
                 log_error("resolve_open('{}') Error finding initializer: {}",
                     to_string(), result.error().message);
                 m_my_result = result.error();
-                return result.error();
+                return std::unexpected<DLError>(result.error());
             }
         }
         trace("Library '{}' opened successfully", to_string());
@@ -162,10 +163,10 @@ Result<LibHandle, DLError> Resolver::Library::open()
     return ret;
 }
 
-Result<void_t, DLError> Resolver::Library::get_function(std::string const &function_name)
+DLResult<void_t> Resolver::Library::get_function(std::string const &function_name)
 {
     if (!m_my_result.message.empty()) {
-        return m_my_result;
+        return std::unexpected<DLError>(m_my_result);
     }
     if (m_functions.contains(function_name)) {
         return m_functions[function_name];
@@ -183,7 +184,7 @@ Result<void_t, DLError> Resolver::Library::get_function(std::string const &funct
 #else
     if (std::string_view err { dlerror() }; err.find("undefined symbol") == std::string::npos) {
 #endif
-        return DLError { std::string { err } };
+        return std::unexpected<DLError>(std::string { err });
     }
     m_functions[function_name] = nullptr;
     return nullptr;
@@ -191,7 +192,7 @@ Result<void_t, DLError> Resolver::Library::get_function(std::string const &funct
 
 /* ------------------------------------------------------------------------ */
 
-Result<LibHandle, DLError> Resolver::open(std::string const &image)
+DLResult<LibHandle> Resolver::open(std::string const &image)
 {
     auto const platform_image = Library::platform_image(image);
     if (!m_images.contains(platform_image)) {
@@ -204,7 +205,7 @@ Result<LibHandle, DLError> Resolver::open(std::string const &image)
     return m_images[platform_image]->result();
 }
 
-Result<void_t, DLError> Resolver::resolve(std::string const &func_name)
+DLResult<void_t> Resolver::resolve(std::string const &func_name)
 {
     std::lock_guard<std::mutex> const lock(g_resolve_mutex);
     auto                              s = func_name;
@@ -234,17 +235,17 @@ Result<void_t, DLError> Resolver::resolve(std::string const &func_name)
         function = name.back();
         break;
     default:
-        return DLError { std::format("Invalid function reference '{}'", func_name).c_str() };
+        return std::unexpected<DLError>(std::format("Invalid function reference '{}'", func_name).c_str());
     }
 
-    if (auto result = open(image); result.is_error()) {
-        return result.error();
+    if (auto result = open(image); !result.has_value()) {
+        return std::unexpected<DLError>(result.error());
     }
     auto lib = m_images[Library::platform_image(image)];
     if (auto res = lib->get_function(function); res.has_value()) {
         return res.value();
     } else {
-        return res.error();
+        return std::unexpected<DLError>(res.error());
     }
 }
 

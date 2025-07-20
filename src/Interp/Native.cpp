@@ -4,15 +4,16 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "App/Type.h"
+#include <cstdint>
+
 #include <Util/Align.h>
 #include <Util/Logging.h>
 #include <Util/Resolve.h>
 
+#include <App/Type.h>
 #include <App/Value.h>
 
 #include <Interp/Native.h>
-#include <cstdint>
 
 extern "C" {
 struct Trampoline {
@@ -50,7 +51,7 @@ extern bool native_call(std::string_view name, void *params, std::vector<pType> 
         fatal("Can't do native calls with more than 8 parameters");
     }
     Trampoline t;
-    if (auto const res = Resolver::get_resolver().resolve(std::string { name }); res.is_error() || res.value() == nullptr) {
+    if (auto const res = Resolver::get_resolver().resolve(std::string { name }); !res.has_value() || res.value() == nullptr) {
         fatal("Function `{}` not found", name);
     } else {
         t.fnc = res.value();

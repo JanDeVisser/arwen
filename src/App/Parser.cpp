@@ -13,7 +13,6 @@
 #include <Util/Defer.h>
 #include <Util/Lexer.h>
 #include <Util/Logging.h>
-#include <Util/Result.h>
 #include <Util/StringUtil.h>
 #include <Util/Utf8.h>
 
@@ -176,7 +175,7 @@ pSyntaxNode Parser::parse_module_level_statement()
         return nullptr;
     case TokenKind::Identifier:
         lexer.lex();
-        if (auto err = lexer.expect_symbol(':'); err.is_error()) {
+        if (auto err = lexer.expect_symbol(':'); !err.has_value()) {
             append(err.error(), "Expected variable declaration");
             break;
         }
@@ -358,7 +357,7 @@ std::wstring_view Parser::text_of(LexerError const &error) const
 
 std::wstring_view Parser::text_of(LexerResult const &res) const
 {
-    if (res.is_error()) {
+    if (!res.has_value()) {
         return text_of(res.error().location);
     }
     return text_of(res.value().location);
@@ -455,7 +454,7 @@ pSyntaxNode Parser::parse_primary()
                 return make_node<Void>(token.location);
             }
             ret = parse_expression();
-            if (auto err = lexer.expect_symbol(')'); err.is_error()) {
+            if (auto err = lexer.expect_symbol(')'); !err.has_value()) {
                 append(err.error(), "Expected ')'");
                 return nullptr;
             }
@@ -508,7 +507,7 @@ pSyntaxNode Parser::parse_expression(Precedence min_prec)
                     append(lexer.peek().location, "Expected subscript expression");
                     return nullptr;
                 }
-                if (auto err = lexer.expect_symbol(']'); err.is_error()) {
+                if (auto err = lexer.expect_symbol(']'); !err.has_value()) {
                     append(err.error(), "Expected ']'");
                     return nullptr;
                 }
@@ -649,7 +648,7 @@ pTypeSpecification Parser::parse_type()
             return nullptr;
         }
         if (lexer.accept_symbol('0')) {
-            if (auto err = lexer.expect_symbol(']'); err.is_error()) {
+            if (auto err = lexer.expect_symbol(']'); !err.has_value()) {
                 append(err.error(), "Expected `]` to close `[0`");
                 return nullptr;
             }
@@ -659,7 +658,7 @@ pTypeSpecification Parser::parse_type()
             return nullptr;
         }
         if (lexer.accept_symbol('*')) {
-            if (auto err = lexer.expect_symbol(']'); err.is_error()) {
+            if (auto err = lexer.expect_symbol(']'); !err.has_value()) {
                 append(err.error(), "Expected `]` to close `[*`");
                 return nullptr;
             }
@@ -668,14 +667,14 @@ pTypeSpecification Parser::parse_type()
             }
             return nullptr;
         }
-        if (auto res = lexer.expect(TokenKind::Number); res.is_error()) {
+        if (auto res = lexer.expect(TokenKind::Number); !res.has_value()) {
             append(res.error(), "Expected array size, `0`, or `]`");
             return nullptr;
         } else if (res.value().number_type() == NumberType::Decimal) {
             append(res.error(), "Array size must be integer");
             return nullptr;
         } else {
-            if (auto err = lexer.expect_symbol(']'); err.is_error()) {
+            if (auto err = lexer.expect_symbol(']'); !err.has_value()) {
                 append(err.error(), "Expected `]` to close array descriptor");
                 return nullptr;
             }
@@ -709,7 +708,7 @@ pTypeSpecification Parser::parse_type()
             if (lexer.accept_symbol('>')) {
                 break;
             }
-            if (auto err = lexer.expect_symbol(','); err.is_error()) {
+            if (auto err = lexer.expect_symbol(','); !err.has_value()) {
                 append(err.error(), "Expected `,` or `>`");
                 return nullptr;
             }
@@ -757,18 +756,18 @@ pSyntaxNode Parser::parse_embed()
 {
     auto kw = lexer.lex();
     auto token = lexer.peek();
-    if (auto res = lexer.expect_symbol('('); res.is_error()) {
+    if (auto res = lexer.expect_symbol('('); !res.has_value()) {
         append(res.error());
         return nullptr;
     }
     auto file_name = lexer.expect(TokenKind::QuotedString);
-    if (file_name.is_error()) {
+    if (!file_name.has_value()) {
         append(file_name.error());
         return nullptr;
     }
     auto fname = text_of(file_name.value());
     fname = fname.substr(0, fname.length() - 1).substr(1);
-    if (auto res = lexer.expect_symbol(')'); res.is_error()) {
+    if (auto res = lexer.expect_symbol(')'); !res.has_value()) {
         append(lexer.location(), "Expected `)`");
         return nullptr;
     }
@@ -792,7 +791,7 @@ pSyntaxNode Parser::parse_enum()
     assert(enum_token.matches_keyword(ArwenKeyword::Enum));
 
     auto name = lexer.expect_identifier();
-    if (name.is_error()) {
+    if (!name.has_value()) {
         append(lexer.last_location, "Expected enum name");
         return nullptr;
     }
@@ -803,14 +802,14 @@ pSyntaxNode Parser::parse_enum()
             return nullptr;
         }
     }
-    if (auto res = lexer.expect_symbol('{'); res.is_error()) {
+    if (auto res = lexer.expect_symbol('{'); !res.has_value()) {
         append(res.error().location, res.error().message);
         return nullptr;
     }
     EnumValues values;
     while (!lexer.accept_symbol('}')) {
         auto label = lexer.expect_identifier();
-        if (label.is_error()) {
+        if (!label.has_value()) {
             append(label.error().location, label.error().message);
             return nullptr;
         }
@@ -821,7 +820,7 @@ pSyntaxNode Parser::parse_enum()
                 append(lexer.last_location, "Expected enum value payload type");
                 return nullptr;
             }
-            if (auto err = lexer.expect_symbol(')'); err.is_error()) {
+            if (auto err = lexer.expect_symbol(')'); !err.has_value()) {
                 append(lexer.last_location, "Expected `)` to close enum value payload type");
                 return nullptr;
             }
@@ -870,7 +869,7 @@ pSyntaxNode Parser::parse_for()
     }
 
     auto var_name = lexer.peek();
-    if (auto res = lexer.expect_identifier(); res.is_error()) {
+    if (auto res = lexer.expect_identifier(); !res.has_value()) {
         append(res.error(), "Expected `for` range variable name");
         return nullptr;
     }
@@ -902,7 +901,7 @@ pSyntaxNode Parser::parse_func()
     {
         Defer        _ { [this] { level = ParseLevel::Block; } };
         std::wstring name;
-        if (auto res = lexer.expect_identifier(); res.is_error()) {
+        if (auto res = lexer.expect_identifier(); !res.has_value()) {
             append(res.error(), "Expected function name");
             return nullptr;
         } else {
@@ -917,7 +916,7 @@ pSyntaxNode Parser::parse_func()
                 }
                 std::wstring  generic_name;
                 TokenLocation start;
-                if (auto res = lexer.expect_identifier(); res.is_error()) {
+                if (auto res = lexer.expect_identifier(); !res.has_value()) {
                     append(res.error(), "Expected generic name");
                     return nullptr;
                 } else {
@@ -926,13 +925,13 @@ pSyntaxNode Parser::parse_func()
                 if (lexer.accept_symbol('>')) {
                     break;
                 }
-                if (auto res = lexer.expect_symbol(','); res.is_error()) {
+                if (auto res = lexer.expect_symbol(','); !res.has_value()) {
                     append(res.error(), "Expected ',' in function signature generic list");
                 }
             }
         }
 
-        if (auto res = lexer.expect_symbol('('); res.is_error()) {
+        if (auto res = lexer.expect_symbol('('); !res.has_value()) {
             append(res.error(), "Expected '(' in function definition");
         }
         push_new_namespace();
@@ -945,14 +944,14 @@ pSyntaxNode Parser::parse_func()
                 }
                 std::wstring  param_name;
                 TokenLocation start;
-                if (auto res = lexer.expect_identifier(); res.is_error()) {
+                if (auto res = lexer.expect_identifier(); !res.has_value()) {
                     append(res.error(), "Expected parameter name");
                     return nullptr;
                 } else {
                     param_name = text_of(res.value());
                     start = res.value().location;
                 }
-                if (auto res = lexer.expect_symbol(':'); res.is_error()) {
+                if (auto res = lexer.expect_symbol(':'); !res.has_value()) {
                     append(res.error(), "Expected ':' in function parameter declaration");
                 }
                 auto          param_type = parse_type();
@@ -965,7 +964,7 @@ pSyntaxNode Parser::parse_func()
                 if (lexer.accept_symbol(')')) {
                     break;
                 }
-                if (auto res = lexer.expect_symbol(','); res.is_error()) {
+                if (auto res = lexer.expect_symbol(','); !res.has_value()) {
                     append(res.error(), "Expected ',' in function signature");
                 }
             }
@@ -982,7 +981,7 @@ pSyntaxNode Parser::parse_func()
                 params,
                 return_type);
             if (lexer.accept_keyword(ArwenKeyword::ExternLink)) {
-                if (auto res = lexer.expect(TokenKind::QuotedString); res.is_error() || res.value().quoted_string().quote_type != QuoteType::DoubleQuote) {
+                if (auto res = lexer.expect(TokenKind::QuotedString); !res.has_value() || res.value().quoted_string().quote_type != QuoteType::DoubleQuote) {
                     append(res.error(), "Expected extern function name");
                     return nullptr;
                 } else {
@@ -1048,7 +1047,7 @@ pSyntaxNode Parser::parse_import()
     TokenLocation end_location = import_token.location;
     do {
         auto ident_maybe = lexer.expect_identifier();
-        if (ident_maybe.is_error()) {
+        if (!ident_maybe.has_value()) {
             append(ident_maybe.error(), "Expected import path component");
         }
         path += text_of(ident_maybe);
@@ -1064,19 +1063,19 @@ pSyntaxNode Parser::parse_import()
 pSyntaxNode Parser::parse_include()
 {
     auto kw = lexer.lex();
-    if (auto res = lexer.expect_symbol('('); res.is_error()) {
+    if (auto res = lexer.expect_symbol('('); !res.has_value()) {
         append(res.error(), "Malformed '@include' statement: expected '('");
         return nullptr;
     }
     auto file_name = lexer.expect(TokenKind::QuotedString);
-    if (file_name.is_error()) {
+    if (!file_name.has_value()) {
         append(file_name.error(), "Malformed '@include' statement: no file name");
         return nullptr;
     }
     auto fname = text_of(file_name.value());
     fname = fname.substr(0, fname.length() - 1).substr(1);
     auto close_paren = lexer.peek();
-    if (auto res = lexer.expect_symbol(')'); res.is_error()) {
+    if (auto res = lexer.expect_symbol(')'); !res.has_value()) {
         append(res.error(), L"Malformed '@include' statement: expected ')', got '{}'", text_of(res.error().location));
         return nullptr;
     }
@@ -1161,22 +1160,22 @@ pSyntaxNode Parser::parse_struct()
     assert(struct_token.matches_keyword(ArwenKeyword::Struct));
 
     auto name = lexer.expect_identifier();
-    if (name.is_error()) {
+    if (!name.has_value()) {
         append(lexer.last_location, "Expected struct name");
         return nullptr;
     }
-    if (auto res = lexer.expect_symbol('{'); res.is_error()) {
+    if (auto res = lexer.expect_symbol('{'); !res.has_value()) {
         append(res.error().location, res.error().message);
         return nullptr;
     }
     StructMembers members;
     while (!lexer.accept_symbol('}')) {
         auto label = lexer.expect_identifier();
-        if (label.is_error()) {
+        if (!label.has_value()) {
             append(label.error().location, label.error().message);
             return nullptr;
         }
-        if (auto err = lexer.expect_symbol(':'); err.is_error()) {
+        if (auto err = lexer.expect_symbol(':'); !err.has_value()) {
             append(err.error().location, "Expected `:`");
             return nullptr;
         }
@@ -1279,7 +1278,7 @@ pSyntaxNode Parser::parse_yield()
     assert(kw.matches_keyword(ArwenKeyword::Yield));
     Label label {};
     if (lexer.accept_symbol(':')) {
-        if (auto res = lexer.expect_identifier(); res.is_error()) {
+        if (auto res = lexer.expect_identifier(); !res.has_value()) {
             append(res.value(), "Expected label name after `:`");
             return nullptr;
         } else {

@@ -7,74 +7,13 @@
 #include <cassert>
 #include <fstream>
 #include <iconv.h>
-#include <locale>
 #include <print>
 
+#include <Util/Error.h>
 #include <Util/Utf8.h>
+#include <utility>
 
 namespace Util {
-
-struct UTF8_std {
-    UTF8_std()
-        : converter { std::use_facet<std::codecvt<wchar_t, char, std::mbstate_t>>(locale) }
-    {
-    }
-
-    static UTF8_std utf8;
-
-    std::locale                                   locale;
-    std::codecvt<wchar_t, char, mbstate_t> const &converter;
-
-    Result<std::string> to_utf8(std::wstring_view const &s)
-    {
-        std::mbstate_t mb {}; // initial shift state
-        std::string    ret(s.size() * converter.max_length(), '\0');
-        wchar_t const *from_next;
-        char          *to_next;
-        if (auto res = converter.out(mb, &s[0], &s[s.size()], from_next,
-                &ret[0], &ret[ret.size()], to_next);
-            res != std::codecvt_base::ok) {
-            return LibCError(EINVAL);
-        }
-        ret.resize(to_next - &ret[0]);
-        return ret;
-    }
-
-    Result<std::wstring> to_wstring(std::string_view const &s)
-    {
-        std::mbstate_t mb {}; // initial shift state
-        std::wstring   ret(s.size(), '\0');
-        char const    *from_next;
-        wchar_t       *to_next;
-        if (auto res = converter.in(mb, &s[0], &s[s.size()], from_next,
-                &ret[0], &ret[ret.size()], to_next);
-            res != std::codecvt_base::ok) {
-            return LibCError(EINVAL);
-        }
-        ret.resize(to_next - &ret[0]);
-        return ret;
-    }
-
-    Result<ssize_t> write(std::basic_ofstream<wchar_t> &os, std::wstring_view const &contents)
-    {
-        os.imbue(locale);
-        os.write(contents.data(), contents.length());
-        if (os.fail() || os.bad()) {
-            return LibCError();
-        }
-        return contents.length();
-    }
-
-    Result<std::wstring> read(std::basic_ifstream<wchar_t> &is)
-    {
-        is.imbue(locale);
-        std::wstring ret;
-        for (wchar_t ch; is.get(ch);) {
-            ret += ch;
-        }
-        return ret;
-    }
-};
 
 struct UTF8 {
     UTF8()
@@ -102,7 +41,7 @@ struct UTF8 {
                 reinterpret_cast<char **>(&data), &in_count,
                 &out_buffer, &out_count);
             static_cast<int>(done) < 0) {
-            return LibCError();
+            return std::unexpected<LibCError>(std::in_place_t {});
         }
         ret.resize(s.length() * 16 - out_count);
         while (!ret.empty() && ret[ret.size() - 1] == 0) {
@@ -125,7 +64,7 @@ struct UTF8 {
                 &data, &in_count,
                 reinterpret_cast<char **>(&out_buffer), &out_count);
             static_cast<int>(done) < 0) {
-            return LibCError();
+            return std::unexpected<LibCError>(std::in_place_t {});
         }
         ret.resize(2 * s.length() * sizeof(wchar_t) - out_count);
         while (!ret.empty() && ret[ret.size() - 1] == 0) {
@@ -138,12 +77,15 @@ struct UTF8 {
     {
         // TODO stream instead of allocating whole new string but RAM is cheap
         // so whatever
-        auto converted = TRY_EVAL(to_utf8(contents));
-        os << converted;
-        if (os.fail() || os.bad()) {
-            return LibCError();
+        if (auto converted_maybe = to_utf8(contents); converted_maybe.has_value()) {
+            os << converted_maybe.value();
+            if (os.fail() || os.bad()) {
+                return make_error();
+            }
+            return contents.length();
+        } else {
+            return std::unexpected<LibCError>(converted_maybe.error());
         }
-        return contents.length();
     }
 
     Result<std::wstring> read(std::ifstream &is)
@@ -152,8 +94,11 @@ struct UTF8 {
         for (char ch; is.get(ch);) {
             contents += ch;
         }
-        auto ret = TRY_EVAL(to_wstring(contents));
-        return ret;
+        if (auto converted_maybe = to_wstring(contents); converted_maybe.has_value()) {
+            return converted_maybe.value();
+        } else {
+            return std::unexpected<LibCError>(converted_maybe.error());
+        }
     }
 };
 

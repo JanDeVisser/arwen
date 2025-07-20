@@ -145,17 +145,17 @@ enum class JSONKeyword {
 #undef S
 };
 
-Result<JSONValue, JSONValue::ReadError> JSONValue::read_file(std::string_view const &file_name)
+std::expected<JSONValue, JSONValue::ReadError> JSONValue::read_file(std::string_view const &file_name)
 {
     auto json_text_maybe = read_file_by_name(file_name);
-    if (json_text_maybe.is_error()) {
+    if (!json_text_maybe.has_value()) {
         log_error("Error reading JSON file '{}': {}", file_name, json_text_maybe.error().to_string());
-        return ReadError { json_text_maybe.error() };
+        return std::unexpected(ReadError { json_text_maybe.error() });
     }
     auto json_maybe = JSONValue::deserialize(json_text_maybe.value());
-    if (json_maybe.is_error()) {
+    if (!json_maybe.has_value()) {
         log_error("Error parsing JSON file '{}': {}", file_name, json_maybe.error().to_string());
-        return ReadError { json_maybe.error() };
+        return std::unexpected(ReadError { json_maybe.error() });
     }
     return json_maybe.value();
 }
@@ -164,24 +164,24 @@ using JSONLexerTypes = LexerTypes<std::string_view, char, JSONKeyword>;
 using JSONLexer = Lexer<JSONLexerTypes, JSONLexerTypes::CScannerPack>;
 using JSONToken = JSONLexerTypes::Token;
 
-Result<JSONValue, JSONError> decode_value(JSONLexer &lexer, std::string_view const &str)
+std::expected<JSONValue, JSONError> decode_value(JSONLexer &lexer, std::string_view const &str)
 {
-    auto decode_string = [str](JSONToken const &token) -> Result<std::string, JSONError> {
+    auto decode_string = [str](JSONToken const &token) -> std::expected<std::string, JSONError> {
         if (token != TokenKind::QuotedString) {
-            return JSONError {
+            return std::unexpected(JSONError {
                 JSONError::Code::SyntaxError,
                 "Expected quoted string",
                 static_cast<int>(token.location.line),
                 static_cast<int>(token.location.column),
-            };
+            });
         }
         if (!token.quoted_string().terminated) {
-            return JSONError {
+            return std::unexpected(JSONError {
                 JSONError::Code::SyntaxError,
                 "Unterminated string",
                 static_cast<int>(token.location.line),
                 static_cast<int>(token.location.column),
-            };
+            });
         }
         if (token.location.length > 2) {
             std::string qstr { str.substr(token.location.index + 1, token.location.length - 2) };
@@ -195,16 +195,16 @@ Result<JSONValue, JSONError> decode_value(JSONLexer &lexer, std::string_view con
         return std::string {};
     };
 
-    auto expect_symbol = [&lexer](int sym) -> Error<JSONError> {
+    auto expect_symbol = [&lexer](int sym) -> std::expected<void, JSONError> {
         auto err = lexer.expect_symbol(sym);
-        if (err.is_error()) {
+        if (!err.has_value()) {
             auto const &error_token = lexer.peek();
-            return JSONError {
+            return std::unexpected(JSONError {
                 JSONError::Code::SyntaxError,
                 std::format("Expected '{:c}'", sym),
                 static_cast<int>(error_token.location.line),
                 static_cast<int>(error_token.location.column),
-            };
+            });
         }
         return {};
     };
@@ -217,7 +217,7 @@ Result<JSONValue, JSONError> decode_value(JSONLexer &lexer, std::string_view con
             auto result = JSONValue::object();
             while (!lexer.accept_symbol('}')) {
                 auto const name_token = lexer.lex();
-                auto name = TRY_EVAL(decode_string(name_token));
+                auto       name = TRY_EVAL(decode_string(name_token));
                 TRY(expect_symbol(':'));
                 auto value = TRY_EVAL(decode_value(lexer, str));
                 result.set(name, value);
@@ -241,12 +241,12 @@ Result<JSONValue, JSONError> decode_value(JSONLexer &lexer, std::string_view con
             return result;
         }
         default:
-            return JSONError {
+            return std::unexpected(JSONError {
                 JSONError::Code::SyntaxError,
                 std::format("Unexpected symbol '{:c}'", token.symbol_code()),
                 static_cast<int>(token.location.line),
                 static_cast<int>(token.location.column),
-            };
+            });
         }
     }
     case TokenKind::QuotedString: {
@@ -279,12 +279,12 @@ Result<JSONValue, JSONError> decode_value(JSONLexer &lexer, std::string_view con
         }
     }
     default:
-        return JSONError {
+        return std::unexpected(JSONError {
             JSONError::Code::SyntaxError,
             std::format("Invalid token '{:}' ({:})", str.substr(token.location.index, token.location.length), TokenKind_name(token.kind)),
             static_cast<int>(token.location.line),
             static_cast<int>(token.location.column),
-        };
+        });
     }
 }
 
@@ -296,7 +296,7 @@ template<>
 #undef S
 #define S(KW, STR)                                                                                           \
     if (std::string_view(STR).starts_with(str)) {                                                            \
-        return JSONKeywordMatch {                                                                                             \
+        return JSONKeywordMatch {                                                                            \
             JSONKeyword::KW,                                                                                 \
             (str == STR) ? JSONKeywordMatch::MatchType::FullMatch : JSONKeywordMatch::MatchType::PrefixMatch \
         };                                                                                                   \
@@ -306,7 +306,7 @@ template<>
     return {};
 }
 
-Result<JSONValue, JSONError> JSONValue::deserialize(std::string_view const &str)
+std::expected<JSONValue, JSONError> JSONValue::deserialize(std::string_view const &str)
 {
     JSONLexer lexer;
     lexer.push_source(str);

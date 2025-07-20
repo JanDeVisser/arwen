@@ -7,15 +7,14 @@
 #pragma once
 
 #include <cctype>
+#include <cwchar>
 #include <deque>
 #include <format>
 #include <string>
 #include <string_view>
 #include <variant>
-#include <cwchar>
 
 #include <Util/Logging.h>
-#include <Util/Result.h>
 #include <Util/StringUtil.h>
 #include <Util/TokenLocation.h>
 #include <Util/Utf8.h>
@@ -28,7 +27,7 @@ struct NoSuchEnumValue {
 };
 
 template<typename ResultType>
-using EnumResult = Result<ResultType, NoSuchEnumValue>;
+using EnumResult = std::expected<ResultType, NoSuchEnumValue>;
 
 #define VALUE_TOKENKINDS(S) \
     S(Symbol)               \
@@ -78,7 +77,7 @@ inline EnumResult<TokenKind> TokenKind_from_string(std::string_view const &kind)
         return TokenKind::K;
     TOKENKINDS(S)
 #undef S
-    return NoSuchEnumValue { "TokenKind", std::string(kind) };
+    return std::unexpected<NoSuchEnumValue>({ "TokenKind", std::string(kind) });
 }
 
 #define QUOTETYPES(S)    \
@@ -340,7 +339,7 @@ struct LexerTypes {
         [[nodiscard]] bool is_identifier() const { return matches(TokenKind::Identifier); }
     };
 
-    using LexerResult = Result<Token, LexerErrorMessage>;
+    using LexerResult = std::expected<Token, LexerErrorMessage>;
 
     struct SkipToken {
         size_t index;
@@ -548,7 +547,7 @@ struct LexerTypes {
                         break;
                     }
                     if (iix - ix + 1 == end_length) {
-                        return ScanResult { Token::raw(begin, start, ix), iix - index + 1};
+                        return ScanResult { Token::raw(begin, start, ix), iix - index + 1 };
                     }
                 }
             }
@@ -725,7 +724,7 @@ public:
     using ScanResult = Types::ScanResult;
     using LexerResult = Types::LexerResult;
     using SkipToken = Types::SkipToken;
-    using LexerError = Error<LexerErrorMessage>;
+    using LexerError = std::expected<void, LexerErrorMessage>;
     using Bookmark = size_t;
 
     Lexer() = default;
@@ -839,8 +838,8 @@ public:
     LexerResult expect(TokenKind kind)
     {
         if (auto ret = peek(); !ret.matches(kind)) {
-            return LexerErrorMessage { location(),
-                std::format("Expected '{}'", TokenKind_name(kind)) };
+            return std::unexpected(LexerErrorMessage { location(),
+                std::format("Expected '{}'", TokenKind_name(kind)) });
         }
         return lex();
     }
@@ -857,10 +856,10 @@ public:
     LexerError expect_keyword(Keyword code)
     {
         if (auto ret = peek(); !ret.matches_keyword(code)) {
-            return LexerErrorMessage {
+            return std::unexpected<LexerErrorMessage>({
                 location(),
                 std::format("Expected keyword"), // FIXME need KW code -> text mechanism
-            };
+            });
         }
         lex();
         return {};
@@ -878,7 +877,10 @@ public:
     LexerError expect_symbol(int symbol)
     {
         if (auto ret = peek(); !ret.matches_symbol(symbol)) {
-            return LexerErrorMessage { location(), std::format("Expected '{}' but got '{}'", static_cast<char>(symbol), text_utf8(ret)) };
+            return std::unexpected<LexerErrorMessage>({
+                location(),
+                std::format("Expected '{}' but got '{}'", static_cast<char>(symbol), text_utf8(ret)),
+            });
         }
         lex();
         return {};
@@ -896,7 +898,7 @@ public:
     LexerResult expect_identifier()
     {
         if (auto ret = peek(); !ret.is_identifier()) {
-            return LexerErrorMessage { location(), "Expected identifier" };
+            return std::unexpected(LexerErrorMessage { location(), "Expected identifier" });
         }
         return lex();
     }

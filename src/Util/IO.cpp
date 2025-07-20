@@ -17,6 +17,7 @@
 
 #include <Util/Error.h>
 #include <Util/IO.h>
+#include <utility>
 
 namespace Util {
 
@@ -27,11 +28,11 @@ Socket::Socket(int fd)
 {
 }
 
-CError make_sockaddr_un(std::string_view const &unix_socket_name, struct sockaddr_un& sock_addr)
+CError make_sockaddr_un(std::string_view const &unix_socket_name, struct sockaddr_un &sock_addr)
 {
     sock_addr.sun_family = AF_LOCAL;
     if (unix_socket_name.length() >= sizeof(sock_addr.sun_path)) {
-        return LibCError("Local socket name '{:}' too long: {:} >= {:}",
+        return make_error("Local socket name '{:}' too long: {:} >= {:}",
             unix_socket_name, unix_socket_name.length(), sizeof(sock_addr.sun_path));
     }
     memcpy(sock_addr.sun_path, unix_socket_name.data(), unix_socket_name.length());
@@ -43,22 +44,22 @@ Result<socket_t> Socket::listen(std::string_view const &unix_socket_name)
 {
     int const listen_fd = socket(PF_LOCAL, SOCK_STREAM, 0);
     if (listen_fd < 0) {
-        return LibCError();
+        return make_error();
     }
 
     struct sockaddr_un sock_addr = { 0 };
     TRY(make_sockaddr_un(unix_socket_name, sock_addr));
     size_t serv_size = offsetof(struct sockaddr_un, sun_path) + unix_socket_name.length() + 1;
     if (bind(listen_fd, (struct sockaddr *) &sock_addr, serv_size) < 0) {
-        return LibCError();
+        return make_error();
     }
     if (::listen(listen_fd, 1) < 0) {
-        return LibCError();
+        return make_error();
     }
     return std::make_shared<Socket>(listen_fd);
 }
 
-Result<socket_t> Socket::listen(std::string_view const& ip_address, int port)
+Result<socket_t> Socket::listen(std::string_view const &ip_address, int port)
 {
     fatal("listen(ip_addr, port) not yet implemented");
 }
@@ -67,14 +68,14 @@ Result<socket_t> connect(std::string_view const &unix_socket_name)
 {
     int conn_fd = socket(PF_LOCAL, SOCK_STREAM, 0);
     if (conn_fd < 0) {
-        return LibCError();
+        return make_error();
     }
 
     struct sockaddr_un sock_addr = { 0 };
     TRY(make_sockaddr_un(unix_socket_name, sock_addr));
     size_t sock_addr_size = offsetof(struct sockaddr_un, sun_path) + unix_socket_name.length() + 1;
     if (connect(conn_fd, (struct sockaddr *) &sock_addr, sock_addr_size) < 0) {
-        return LibCError();
+        return make_error();
     }
     TRY(fd_make_nonblocking(conn_fd));
     return std::make_shared<Socket>(conn_fd);
@@ -84,7 +85,7 @@ Result<socket_t> connect(std::string_view const &ip_address, int port)
 {
     int conn_fd;
     if ((conn_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        return LibCError();
+        return make_error();
     }
 
     struct sockaddr_in server_address = TRY_EVAL(tcpip_address_resolve(ip_address));
@@ -92,7 +93,7 @@ Result<socket_t> connect(std::string_view const &ip_address, int port)
     server_address.sin_port = htons(port);
 
     if (connect(conn_fd, (struct sockaddr *) &server_address, sizeof(server_address)) < 0) {
-        return LibCError();
+        return make_error();
     }
     TRY(fd_make_nonblocking(conn_fd));
     return std::make_shared<Socket>(conn_fd);
@@ -102,7 +103,7 @@ Result<socket_t> Socket::accept()
 {
     int conn_fd = ::accept(fd, nullptr, nullptr);
     if (conn_fd < 0) {
-        return LibCError();
+        return make_error();
     }
     TRY(fd_make_nonblocking(conn_fd));
     return std::make_shared<Socket>(conn_fd);
@@ -119,7 +120,7 @@ Result<size_t> Socket::read_available_bytes()
                 break;
             }
             if (errno != EINTR) {
-                return LibCError();
+                return make_error();
             }
             continue;
         }
@@ -151,13 +152,13 @@ Result<size_t> Socket::fill_buffer()
             if (errno == EINTR) {
                 continue;
             }
-            return LibCError();
+            return make_error();
         }
         if (poll_fd.revents & POLLIN) {
             break;
         }
         if (poll_fd.revents & POLLHUP) {
-            return LibCError("Socket connection closed");
+            return make_error("Socket connection closed");
         }
     }
     TRY(read_available_bytes());
@@ -234,7 +235,7 @@ Result<std::string> Socket::readln()
     }
 }
 
-Result<size_t> Socket::write(std::string_view const& buf, size_t num)
+Result<size_t> Socket::write(std::string_view const &buf, size_t num)
 {
     ssize_t total = 0;
     assert(buf.length() <= num);
@@ -248,11 +249,11 @@ Result<size_t> Socket::write(std::string_view const& buf, size_t num)
             }
             auto err = LibCError();
             trace("Socket::write({}) - error {}", err.to_string());
-            return err;
+            return std::unexpected(err);
         }
         if (written == 0) {
             trace("Socket::write({}) - incomplete write", num);
-            return LibCError("Incomplete write to socket: {} < {}", written, num);
+            return make_error("Incomplete write to socket: {} < {}", written, num);
         }
         trace("socket_write: chunk {}", written);
         total += written;
@@ -261,7 +262,7 @@ Result<size_t> Socket::write(std::string_view const& buf, size_t num)
     return total;
 }
 
-Result<size_t> Socket::writeln(std::string_view const& buf)
+Result<size_t> Socket::writeln(std::string_view const &buf)
 {
     TRY(write(buffer, buffer.length()));
     char eol = '\n';
@@ -272,7 +273,7 @@ Result<size_t> Socket::writeln(std::string_view const& buf)
 CError Socket::close()
 {
     if (auto res = ::close(fd); res < 0) {
-        return LibCError();
+        return make_error();
     }
     return {};
 }
@@ -281,11 +282,11 @@ CError fd_make_nonblocking(int fd)
 {
     int flags = fcntl(fd, F_GETFL, 0);
     if (flags < 0) {
-        return LibCError();
+        return make_error();
     }
     flags = flags | O_NONBLOCK;
     if (fcntl(fd, F_SETFL, flags) < 0) {
-        return LibCError();
+        return make_error();
     }
     return {};
 }
@@ -300,12 +301,13 @@ Result<struct sockaddr_in> tcpip_address_resolve(std::string_view const &ip_addr
     hints.ai_socktype = SOCK_STREAM;
     std::string address { ip_address };
     if ((error = getaddrinfo(address.c_str(), NULL, &hints, &res0)) != 0) {
-        return LibCError(std::format("Error resolving IP address '{:}': {:}",
-            address, gai_strerror(error)));
+        return make_error("Error resolving IP address '{:}': {:}",
+            address, gai_strerror(error));
     }
     if (!res0) {
-        return LibCError(std::format("Error resolving IP address '{:}': {:}",
-            address, gai_strerror(error)));
+        return make_error(
+            "Error resolving IP address '{:}': {:}",
+            address, gai_strerror(error));
     }
     struct sockaddr_in addr;
     for (res = res0; res; res = res->ai_next) {
@@ -317,7 +319,7 @@ Result<struct sockaddr_in> tcpip_address_resolve(std::string_view const &ip_addr
         }
     }
     freeaddrinfo(res0);
-    return LibCError("Could not resolve address '{:}' to an IP address", address);
+    return make_error("Could not resolve address '{:}' to an IP address", address);
 }
 
 }

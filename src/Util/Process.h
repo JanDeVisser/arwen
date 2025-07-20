@@ -6,12 +6,14 @@
 
 #pragma once
 
+#include <__expected/expected.h>
+#include <__expected/unexpected.h>
+#include <expected>
 #include <print>
 #include <sys/wait.h>
 
 #include <Util/Error.h>
 #include <Util/Pipe.h>
-#include <Util/Result.h>
 #include <Util/StringUtil.h>
 
 extern "C" {
@@ -19,6 +21,8 @@ void sigchld(int);
 }
 
 namespace Util {
+
+using ProcessResult = std::expected<int, LibCError>;
 
 template<class T = void *>
 class Process {
@@ -56,7 +60,7 @@ public:
         return *this;
     }
 
-    CError start(T const &ctx)
+    std::expected<void, LibCError> start(T const &ctx)
     {
         std::println("[CMD] {} {}", m_command, join(m_arguments, " "));
         signal(SIGCHLD, sigchld);
@@ -89,7 +93,7 @@ public:
 
         m_pid = fork();
         if (m_pid == -1) {
-            return LibCError(errno);
+            return std::unexpected<LibCError>(errno);
         }
         if (m_pid == 0) {
             m_in.connect_child(STDIN_FILENO);
@@ -114,19 +118,19 @@ public:
         return {};
     }
 
-    CError background(T const &ctx)
+    std::expected<void, LibCError> background(T const &ctx)
     {
         return start(ctx);
     }
 
-    Result<int> wait()
+    ProcessResult wait()
     {
         if (m_pid == 0) {
             return { 0 };
         }
         int exit_code;
         if (waitpid(m_pid, &exit_code, 0) == -1 && errno != ECHILD && errno != EINTR) {
-            return LibCError();
+            return std::unexpected<LibCError>(errno);
         }
         m_pid = 0;
         m_in.close();
@@ -136,19 +140,19 @@ public:
         return { WEXITSTATUS(exit_code) };
     }
 
-    CError start()
+    std::expected<void, LibCError> start()
     {
         T ctx {};
         return start(ctx);
     }
 
-    Result<int> execute()
+    ProcessResult execute()
     {
         TRY(start());
         return wait();
     }
 
-    CError write_to(std::string_view const &msg)
+    std::expected<void, LibCError> write_to(std::string_view const &msg)
     {
         TRY(m_in.write(msg));
         return {};
@@ -156,6 +160,13 @@ public:
 
     std::string stdout_file;
     std::string stderr_file;
+
+    template<typename... Args>
+    static ProcessResult execute(std::string_view cmd, Args &&...args)
+    {
+        Process p { cmd, std::forward<Args>(args)... };
+        return p.execute();
+    }
 
 private:
     void set_arguments(StringList const &cmd_args)
