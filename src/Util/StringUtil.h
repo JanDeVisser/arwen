@@ -147,12 +147,14 @@ inline bool string_compare_ic(std::string_view const &s1, std::string_view const
     return std::ranges::equal(s1, s2, [](unsigned char ch1, unsigned char ch2) { return std::tolower(ch1) == std::tolower(ch2); });
 }
 
-template<typename T, typename ElementType, typename ToString>
-    requires(std::is_same_v<T, char> || std::is_same_v<T, wchar_t>)
-inline std::basic_string<T> join(std::vector<ElementType> const &collection, std::basic_string_view<T> const &sep, ToString const &tostring)
+template<class Char>
+concept character = std::is_same_v<Char, char> || std::is_same_v<Char, wchar_t>;
+
+template<typename ElementType, typename ToString, character Char = char>
+inline std::basic_string<Char> join_elements(std::vector<ElementType> const &collection, std::basic_string_view<Char> const sep, ToString const &tostring)
 {
-    std::basic_string<T> ret;
-    auto                 first = true;
+    std::basic_string<Char> ret;
+    auto                    first = true;
     for (auto &elem : collection) {
         if (!first) {
             ret += sep;
@@ -163,24 +165,34 @@ inline std::basic_string<T> join(std::vector<ElementType> const &collection, std
     return ret;
 }
 
-template<typename T>
-    requires(std::is_same_v<T, char> || std::is_same_v<T, wchar_t>)
-inline std::basic_string<T> join(std::vector<std::basic_string<T>> const &collection, std::basic_string_view<T> const &sep)
+template<character Char = char>
+inline std::basic_string<Char> join(std::vector<std::basic_string<Char>> const &collection, std::basic_string_view<Char> const sep)
 {
-    return join(collection, sep, [](std::basic_string<T> const &s) { return s; });
+    return join_elements(collection, sep, [](std::basic_string<Char> const &s) { return s; });
 }
 
-template<typename ElementType, typename ToString, typename Char = char>
-    requires(std::is_same_v<Char, char> || std::is_same_v<Char, wchar_t>)
-inline std::string join(std::vector<ElementType> const &collection, Char sep, ToString const &tostring)
+template<character Char = char>
+inline std::basic_string<Char> join(std::vector<std::basic_string_view<Char>> const &collection, std::basic_string_view<Char> const sep)
+{
+    return join_elements(collection, sep, [](std::basic_string_view<Char> const &s) { return std::basic_string<Char> { s }; });
+}
+
+template<typename ElementType, typename ToString, character Char = char>
+inline std::string join_elements(std::vector<ElementType> const &collection, Char sep, ToString const &tostring)
 {
     std::basic_string_view<Char> s { &sep, 1 };
-    return join(collection, s, tostring);
+    return join_elements(collection, s, tostring);
 }
 
-template<typename Char>
-    requires(std::is_same_v<Char, char> || std::is_same_v<Char, wchar_t>)
+template<character Char>
 inline std::basic_string<Char> join(std::vector<std::basic_string<Char>> const &collection, Char sep)
+{
+    std::basic_string_view<Char> s { &sep, 1 };
+    return join(collection, s);
+}
+
+template<character Char>
+inline std::basic_string<Char> join(std::vector<std::basic_string_view<Char>> const &collection, Char sep)
 {
     std::basic_string_view<Char> s { &sep, 1 };
     return join(collection, s);

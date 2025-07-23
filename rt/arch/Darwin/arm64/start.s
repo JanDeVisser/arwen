@@ -31,14 +31,13 @@ _start:
  loop:
     ldr     ptr,[str,#-8]!
     mov     x0,ptr
-    bl      scribble$strlen
+    bl      _strlen
     stp     ptr,len,[sp,#-16]!
     cmp     str,argv
     b.ne    loop
 
  done:
-    # bl      static_initializer
-
+    bl      __program_init
     mov     x0,sp
     mov     w1,argc
     bl      main

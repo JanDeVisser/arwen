@@ -21,6 +21,7 @@ add_library(
         dynarr.c
         puts.c
         utf8.c
+        arch/${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}/strlen.s
         # arch/${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}/puti.s
         # arch/${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}/to_string.s
         #        arch/${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}/alloc.s
@@ -32,7 +33,6 @@ add_library(
         #        arch/${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}/string_cmp.s
         #        arch/${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}/string_concat.s
         #        arch/${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}/string_eq.s
-        #        arch/${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}/strlen.s
 )
 
 set_target_properties(arwenrt PROPERTIES LINKER_LANGUAGE C)

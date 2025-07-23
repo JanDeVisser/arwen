@@ -4,13 +4,11 @@
  * SPDX-License-Identifier: MIT
  */
 
-.include "arch/Darwin/arm64/syscalls.inc"
-
 .align 4
-.global scribble$strlen
+.global arwen$strlen
 
 //
-// scribble$strlen - Return the length of a null-terminated string
+// arwen$strlen - Return the length of a null-terminated string
 //
 // In:
 s       .req x0     // String pointer
@@ -22,7 +20,7 @@ s       .req x0     // String pointer
 ptr     .req x9
 ch      .req w10
 
-scribble$strlen:
+arwen$strlen:
     stp         fp,lr,[sp,#-16]!
     mov         fp,sp
 

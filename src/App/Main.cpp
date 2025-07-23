@@ -25,6 +25,7 @@
 #include <Util/TokenLocation.h>
 #include <Util/Utf8.h>
 
+#include <App/Config.h>
 #include <App/Parser.h>
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
@@ -33,9 +34,9 @@
 
 #include <Interp/Interpreter.h>
 
-namespace Arwen {
+#include <Arch/Arm64/Arm64.h>
 
-namespace fs = std::filesystem;
+namespace Arwen {
 
 using namespace Util;
 using namespace Interpreter;
@@ -107,14 +108,7 @@ void dump_scopes(Interp &interpreter)
 
 std::optional<std::wstring> load_std_lib()
 {
-    fs::path arw_dir { getenv("ARW_DIR") ? getenv("ARW_DIR") : ARWEN_DIR };
-    if (arw_dir.empty()) {
-        arw_dir = "/usr/share/arwen";
-    }
-    auto std_arw { arw_dir / "share" / "std.arw" };
-    if (!fs::exists(std_arw)) {
-        fatal("{} not found", std_arw.string());
-    }
+    auto std_arw { arwen_dir() / "share" / "std.arw" };
     if (auto contents_maybe = read_file_by_name<wchar_t>(std_arw.string()); !contents_maybe.has_value()) {
         std::wcerr << L"Could not read standard library `" << std_arw << L"`" << std::endl;
         return {};
@@ -144,7 +138,6 @@ int debugger_main(int argc, char const **argv)
         }
     };
     Context ctx;
-    auto    arg_ix = parse_options(argc, argv);
 
     auto load_file = [&ctx](std::wstring_view fname) -> bool {
         ctx.contents = L"";
@@ -163,7 +156,7 @@ int debugger_main(int argc, char const **argv)
         if (verbose) {
             std::wcout << "STAGE 1 - Parsing" << std::endl;
         }
-        ctx.parser.program = parse<Arwen::Program>(ctx.parser, "std.arw", load_std_lib().value_or(L""));
+        ctx.parser.program = parse<Arwen::Program>(ctx.parser, as_utf8(ctx.file_name), load_std_lib().value_or(L""));
         ctx.parser.push_namespace(ctx.parser.program->ns);
         auto mod = parse<Arwen::Module>(ctx.parser, as_utf8(ctx.file_name), std::move(ctx.contents));
         for (auto const &err : ctx.parser.errors) {
@@ -297,6 +290,7 @@ int debugger_main(int argc, char const **argv)
 
     setlocale(LC_ALL, "en_US.UTF-8");
     set_logging_config(LoggingConfig { has_option("trace") ? LogLevel::Trace : LogLevel::Info });
+    auto arg_ix = parse_options(argc, argv);
     auto quit { false };
     do {
         auto         from_argv { arg_ix < argc };
@@ -399,6 +393,26 @@ int debugger_main(int argc, char const **argv)
                     trace_program();
                 } else {
                     std::cerr << "Error: no IR available\n";
+                }
+            } else if (parts[0] == L"compile") {
+                if (parts.size() != 2) {
+                    std::cerr << "Error: filename missing\n";
+                } else {
+                    load_file(parts[1]);
+                    parse_file();
+                    if (ctx.normalized == nullptr || ctx.normalized->status != SyntaxNode::Status::Bound) {
+                        std::cerr << "Error: parse failed\n";
+                    } else {
+                        ctx.ir = IR::generate_ir(ctx.normalized);
+                        if (std::holds_alternative<IR::pProgram>(ctx.ir)) {
+                            MUST(Arm64::generate_arm64(std::get<IR::pProgram>(ctx.ir)));
+                            if (from_argv) {
+                                return 0;
+                            }
+                        } else {
+                            std::cerr << "Error: no IR available\n";
+                        }
+                    }
                 }
             } else {
                 std::cout << "?\n";

@@ -52,6 +52,7 @@ add_library(
         src/Util/Align.h
         src/Util/Arena.cpp
         src/Util/Checked.h
+        src/Util/Defer.h
         src/Util/Error.cpp
         #       src/Util/Integer.h
         src/Util/IO.cpp
@@ -59,10 +60,8 @@ add_library(
         src/Util/Lexer.h
         src/Util/Logging.cpp
         src/Util/Options.cpp
-        src/Util/Pipe.h
-        src/Util/Process.h
-        src/Util/Result.h
-        src/Util/Defer.h
+        src/Util/Pipe.cpp
+        src/Util/Process.cpp
         src/Util/Resolve.cpp
         src/Util/StringScanner.h
         src/Util/StringUtil.cpp
@@ -80,6 +79,7 @@ target_link_libraries(
 add_library(
     ArwenLang
     STATIC
+    src/App/Config.cpp
     src/App/Parser.cpp
     src/App/Operator.cpp
     src/App/SyntaxNode.cpp
@@ -121,6 +121,18 @@ target_link_libraries(
         m
 )
 
+add_library(
+    ArwenARM64
+    STATIC
+    src/Arch/Arm64/Arm64.cpp
+)
+
+target_link_libraries(
+        ArwenARM64
+        PRIVATE
+        ArwenLang
+)
+
 add_subdirectory(rt)
 
 include_directories(. src)
@@ -133,16 +145,12 @@ add_executable(
 target_link_libraries(
         arwen
         PRIVATE
-        ArwenLang
-        arwenrt
-        Util
-        trampoline
-        m
+        ArwenARM64
 )
 
 #add_compile_options("-fno-inline-functions")
 
-install(TARGETS Util ArwenLang arwen
+install(TARGETS Util ArwenLang ArwenARM64 arwen
         ARCHIVE DESTINATION lib
         RUNTIME DESTINATION bin
         LIBRARY DESTINATION lib

@@ -67,13 +67,13 @@ std::wstring FunctionType::to_string() const
 {
     return std::format(
         L"Func({}) {}",
-        join(parameters, std::wstring_view { L", " }, [](pType const &t) { return type_name(t); }),
+        join_elements(parameters, std::wstring_view { L", " }, [](pType const &t) { return type_name(t); }),
         result->name);
 }
 
 std::wstring TypeList::to_string() const
 {
-    return std::format(L"({})", join(types, std::wstring_view { L", " }, [](pType const &t) { return type_name(t); }));
+    return std::format(L"({})", join_elements(types, std::wstring_view { L", " }, [](pType const &t) { return type_name(t); }));
 }
 
 intptr_t TypeList::size_of() const
@@ -495,7 +495,7 @@ pType TypeRegistry::function_of(std::vector<pType> const &parameters, pType resu
     auto ret = make_type(
         std::format(
             L"func({}) {}",
-            join(
+            join_elements(
                 parameters,
                 std::wstring_view { L"," },
                 [](pType const &t) -> std::wstring { return t->name; }),
@@ -522,7 +522,7 @@ pType TypeRegistry::typelist_of(std::vector<pType> const &typelist)
 
     auto n = std::format(
         L"({})",
-        join(
+        join_elements(
             typelist,
             std::wstring_view { L"," },
             [](pType const &t) -> std::wstring_view { return std::wstring_view { t->name }; }));
@@ -556,7 +556,7 @@ pType TypeRegistry::struct_of(StructType::Fields const &fields)
 
     auto n = std::format(
         L"{{{}}}",
-        join(
+        join_elements(
             fields,
             std::wstring_view { L"," },
             [](StructType::Field const &f) -> std::wstring { return std::format(L"{}: {}", f.name, f.type->to_string()); }));

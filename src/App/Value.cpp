@@ -654,7 +654,7 @@ std::wstring Value::to_string() const
                 int  ix = 0;
                 auto strukt { std::get<StructType>(type->description) };
                 return std::format(L"{{ {} }}",
-                    join(
+                    join_elements(
                         values,
                         std::wstring_view { L"," },
                         [&ix, &strukt](Value const &v) -> std::wstring {
@@ -800,7 +800,7 @@ void *address_of(Value &val, std::vector<uint64_t> const &path)
 {
     trace("address_of({},{})",
         reinterpret_cast<void *>(&val),
-        join(path, ',', [](uint64_t i) { return std::format("{}", i); }));
+        join_elements(path, ',', [](uint64_t i) { return std::format("{}", i); }));
     auto ret = std::visit(
         overloads {
             [](std::monostate &) -> void * {
