@@ -19,6 +19,8 @@
 
 namespace Arwen::Interpreter {
 
+using namespace Arwen;
+
 Stack::Stack()
     : stack(static_cast<char *>(malloc(1024 * 1024)))
     , cap(1024 * 1024)
@@ -121,12 +123,6 @@ void Stack::push_copy(intptr_t src, size_t size)
 {
     push(stack + src, size);
 }
-
-template<class T>
-concept numeric = std::is_integral_v<T> || std::is_floating_point_v<T>;
-
-template<class T>
-concept numeric_or_bool = std::is_integral_v<T> || std::is_floating_point_v<T> || std::is_same_v<T, bool>;
 
 #undef S
 #define S(O)                                                                              \

@@ -31,4 +31,11 @@ inline intptr_t alignat(intptr_t bytes, intptr_t align)
     return (bytes + (align - 1)) & ~(align - 1);
 }
 
+template<uint8_t WordSize = 8>
+inline intptr_t words_needed(intptr_t bytes)
+{
+    auto ret { bytes / WordSize };
+    return (bytes % WordSize) ? ret + 1 : ret;
+}
+
 }

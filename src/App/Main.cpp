@@ -158,7 +158,7 @@ int debugger_main(int argc, char const **argv)
         }
         ctx.parser.program = parse<Arwen::Program>(ctx.parser, as_utf8(ctx.file_name), load_std_lib().value_or(L""));
         ctx.parser.push_namespace(ctx.parser.program->ns);
-        auto mod = parse<Arwen::Module>(ctx.parser, as_utf8(ctx.file_name), std::move(ctx.contents));
+        auto mod = parse<Arwen::Module>(ctx.parser, as_utf8(ctx.file_name), ctx.contents);
         for (auto const &err : ctx.parser.errors) {
             std::wcerr << err.location.line + 1 << ':' << err.location.column + 1 << " " << err.message << std::endl;
         }
@@ -334,6 +334,8 @@ int debugger_main(int argc, char const **argv)
                         ctx.ir = IR::generate_ir(ctx.normalized);
                     }
                 }
+            } else if (parts[0] == L"cat") {
+                std::wcout << ctx.contents << std::endl;
             } else if (parts[0] == L"print") {
                 if (parts.size() != 2) {
                     std::cerr << "Error: name of tree to print missing\n";

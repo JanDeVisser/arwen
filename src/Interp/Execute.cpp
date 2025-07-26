@@ -43,8 +43,8 @@ void execute_op(Interpreter &interpreter, OpImpl const &impl)
 template<>
 void execute_op<>(Interpreter &interpreter, Operation::AssignFromRef const &impl)
 {
-    auto const val_ref = pop<uint64_t>(interpreter.stack);
     auto const var_ref = pop<uint64_t>(interpreter.stack);
+    auto const val_ref = pop<uint64_t>(interpreter.stack);
     interpreter.stack.copy(var_ref, val_ref, impl.payload->size_of());
     push<uint64_t>(interpreter.stack, var_ref);
     interpreter.call_stack.back().ip++;

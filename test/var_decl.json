@@ -1,6 +1,6 @@
 {
   "name": "var_decl",
-  "exit": 1,
+  "exit": 42,
   "stdout": [],
   "stderr": [],
   "args": []

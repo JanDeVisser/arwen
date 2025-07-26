@@ -10,305 +10,431 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <ranges>
+#include <print>
 #include <sstream>
 #include <string>
 #include <string_view>
 
 #include <Util/Align.h>
 #include <Util/Logging.h>
+#include <Util/Options.h>
+#include <Util/Pipe.h>
 #include <Util/Process.h>
 #include <Util/Utf8.h>
 
 #include <App/Config.h>
+#include <App/Operator.h>
 #include <App/Type.h>
-#include <Util/Options.h>
-#include <Util/Pipe.h>
 
 #include <App/IR/IR.h>
 
 #include <Arch/Arm64/Arm64.h>
+#include <variant>
 
 namespace Arwen::Arm64 {
 
 namespace fs = std::filesystem;
 
-struct RegisterAllocation {
-    int      reg;
-    intptr_t num_regs;
-};
+void Function::add_instruction(std::wstring_view const mnemonic, std::wstring_view const param)
+{
+    *active += std::format(L"\t{}\t{}\n", mnemonic, param);
+}
 
-struct Function {
-    std::wstring                     name;
-    struct Object                   &object;
-    IR::pFunction                    function { nullptr };
-    uint64_t                         stack_depth { 0 };
-    std::map<std::wstring, uint64_t> variables;
+void Function::add_instruction(std::wstring_view const mnemonic)
+{
+    *active += std::format(L"\t{}\n", mnemonic);
+}
 
-    std::wstring  prolog;
-    std::wstring  code;
-    std::wstring  epilog;
-    std::wstring *active { &code };
-
-    std::bitset<28>                 regs;
-    std::vector<RegisterAllocation> regstack;
-
-    template<typename... Args>
-    void add_instruction(std::wstring_view const mnemonic, std::wstring_view param_fmt, Args &&...args)
-    {
-        auto const fmt { std::format(L"\t{{}}\t{}\n", param_fmt) };
-        *active += std::vformat(fmt, std::make_wformat_args(mnemonic, args...));
+void Function::add_text(std::wstring_view const &text)
+{
+    if (text.empty()) {
+        return;
     }
-
-    void add_instruction(std::wstring_view const mnemonic, std::wstring_view const param)
-    {
-        *active += std::format(L"\t{}\t{}\n", mnemonic, param);
-    }
-
-    void add_instruction(std::wstring_view const mnemonic)
-    {
-        *active += std::format(L"\t{}\n", mnemonic);
-    }
-
-    void add_text(std::wstring_view const &text)
-    {
-        if (text.empty()) {
-            return;
-        }
-        auto t = strip(text);
-        for (auto line : split(t, '\n')) {
-            if (line.empty()) {
-                *active += '\n';
-                continue;
-            }
-            line = strip(line);
-            if (line[0] == ';') {
-                *active += std::format(L"\t{}\n", line);
-                continue;
-            }
-            if ((line[0] == '.') || line.ends_with(L":")) {
-                *active += std::format(L"{}\n", line);
-                continue;
-            }
-            for (auto const &p : split(strip(line), ' ')) {
-                if (p.empty()) {
-                    continue;
-                }
-                *active += std::format(L"\t{}", p);
-            }
+    auto t = strip(text);
+    for (auto line : split(t, '\n')) {
+        if (line.empty()) {
             *active += '\n';
+            continue;
         }
-    }
-
-    void add_label(std::wstring_view const label)
-    {
-        *active += std::format(L"\n{}:\n", label);
-    }
-
-    void add_directive(std::wstring_view const directive, std::wstring_view const args)
-    {
-        *active += std::format(L"{}\t{}\n", directive, args);
-    }
-
-    void add_comment(std::wstring_view const comment)
-    {
-        if (comment.empty()) {
-            return;
+        line = strip(line);
+        if (line[0] == ';') {
+            *active += std::format(L"\t{}\n", line);
+            continue;
+        }
+        if ((line[0] == '.') || line.ends_with(L":")) {
+            *active += std::format(L"{}\n", line);
+            continue;
+        }
+        for (auto const &p : split(strip(line), ' ')) {
+            if (p.empty()) {
+                continue;
+            }
+            *active += std::format(L"\t{}", p);
         }
         *active += '\n';
-        for (auto const line : split(strip(comment), '\n')) {
-            *active += std::format(L"\t; {}\n", strip(line));
-        }
     }
+}
 
-    [[nodiscard]] bool empty() const
-    {
-        return code.empty();
-    }
-
-    [[nodiscard]] bool has_text() const
-    {
-        return !empty();
-    }
-
-    void activate_prolog()
-    {
-        active = &prolog;
-    }
-
-    void activate_code()
-    {
-        active = &code;
-    }
-
-    void activate_epilog()
-    {
-        active = &epilog;
-    }
-
-    void emit_return()
-    {
-        add_instruction(L"mov", L"sp,fp");
-        if (stack_depth > 0) {
-            add_instruction(L"add", L"sp,sp,#{}", stack_depth);
-        }
-        add_instruction(L"ldp", L"fp,lr,[sp],16");
-        add_instruction(L"ret");
-    }
-
-    void skeleton()
-    {
-        activate_prolog();
-        add_label(name);
-        add_instruction(L"stp", L"fp,lr,[sp,#-16]!");
-        if (stack_depth > 0) {
-            add_instruction(L"sub", L"sp,sp,#{}", stack_depth);
-        }
-        add_instruction(L"mov", L"fp,sp");
-
-        activate_epilog();
-        emit_return();
-
-        activate_code();
-    }
-
-    RegisterAllocation push_reg(pType const &type)
-    {
-        auto               num { alignat(type->size_of() / 8, 1) };
-        RegisterAllocation ret { -1, num };
-        std::bitset<28>    mask;
-        for (auto ix = 0; ix < num; ++ix) {
-            mask = (mask << 1) | std::bitset<28> { 0x01 };
-        }
-        mask.flip() <<= 9;
-        for (int reg = 9; reg < 16; ++reg) {
-            if ((regs & mask) == regs) {
-                regs |= mask;
-                ret.reg = reg;
-                break;
-            }
-            mask <<= 1;
-        }
-        regstack.push_back(ret);
-        return ret;
-    }
-
-    RegisterAllocation pop_reg(pType const &type)
-    {
-        assert(!regstack.empty());
-        auto            num { alignat(type->size_of() / 8, 1) };
-        std::bitset<28> mask;
-        for (auto ix = 0; ix < num; ++ix) {
-            mask = (mask << 1) | std::bitset<28> { 0x01 };
-        }
-        mask.flip();
-        auto ret { regstack.back() };
-        if (ret.reg != -1) {
-            mask <<= ret.reg;
-            regs &= mask;
-        }
-        return ret;
-    }
-};
-
-struct Object {
-    std::wstring          file_name;
-    IR::pModule           module { nullptr };
-    std::vector<Function> functions;
-
-    uint64_t                         next_label { 0 };
-    std::wstring                     prolog;
-    std::wstring                     text;
-    std::wstring                     data;
-    std::map<std::wstring, uint64_t> strings;
-    bool                             has_exports { false };
-    bool                             has_main { false };
-
-    void add_directive(std::wstring_view const directive, std::wstring_view const args)
-    {
-        if (directive == L".global") {
-            has_exports = true;
-            if (args == L"main") {
-                has_main = true;
-            }
-        }
-        prolog += std::format(L"{}\t{}\n", directive, args);
-    }
-
-    int add_string(std::wstring_view const str)
-    {
-        return add_string(std::wstring { str });
-    }
-
-    int add_string(std::wstring const &str)
-    {
-        if (strings.contains(str)) {
-            return strings.at(str);
-        }
-        auto id = next_label++;
-        text += std::format(L".align 2\nstr_{}:\n\t.byte\t", id);
-        for (auto *ptr = str.data(); *ptr != 0; ++ptr) {
-            auto c = *ptr;
-            for (auto ix = 0; ix < sizeof(c); ++ix) {
-                if (ptr != str.data() || ix > 0) {
-                    text += L",";
-                }
-                text += std::format(L"0x{:x}", c & 0xFF);
-                c >>= 8;
-            }
-        }
-        strings[str] = id;
-        return id;
-    }
-
-    template<typename Arg>
-    void add_data(std::wstring_view const label, bool global, std::wstring_view type, bool is_static, Arg const &arg)
-    {
-        if (data.empty()) {
-            data = L"\n\n.section __DATA,__data\n";
-        }
-        if (global) {
-            data += format(L"\n.global {}", label);
-        }
-        data += format(L"\n.align 8\n{}:\n\t{}\t{}", label, type, arg);
-        if (is_static) {
-            data += L"\n\t.short 0";
-        }
-    }
-};
-
-void analyze(Function &function, std::vector<IR::Operation> const &operations)
+void Function::add_label(std::wstring_view const label)
 {
-    std::vector<uint64_t> depths;
-    uint64_t              depth { 0 };
-    if (function.function) {
-        for (auto const &[name, type] : function.function->parameters) {
-            function.variables[name] = function.stack_depth;
-            depth += alignat(type->size_of(), 16);
+    *active += std::format(L"\n{}:\n", label);
+}
+
+void Function::add_directive(std::wstring_view const directive, std::wstring_view const args)
+{
+    *active += std::format(L"{}\t{}\n", directive, args);
+}
+
+void Function::add_comment(std::wstring_view const comment)
+{
+    if (comment.empty()) {
+        return;
+    }
+    *active += '\n';
+    for (auto const line : split(strip(comment), '\n')) {
+        *active += std::format(L"\t; {}\n", strip(line));
+    }
+}
+
+bool Function::empty() const
+{
+    return code.empty();
+}
+
+bool Function::has_text() const
+{
+    return !empty();
+}
+
+void Function::activate_prolog()
+{
+    active = &prolog;
+}
+
+void Function::activate_code()
+{
+    active = &code;
+}
+
+void Function::activate_epilog()
+{
+    active = &epilog;
+}
+
+void Function::analyze(std::vector<IR::Operation> const &operations)
+{
+    if (function) {
+        for (auto const &[name, type] : function->parameters) {
+            stack_depth += alignat(type->size_of(), 16);
+            variables[name] = stack_depth;
         }
     }
-    function.stack_depth = depth;
+
+    std::vector<uint64_t> depths;
+    auto                  depth = stack_depth;
     for (auto const &op : operations) {
         std::visit(
             overloads {
-                [&function, &depth, &depths](IR::Operation::ScopeBegin const &impl) -> void {
+                [this, &depth, &depths](IR::Operation::ScopeBegin const &impl) -> void {
                     depths.emplace_back(depth);
                     for (auto const &[name, type] : impl.payload) {
-                        function.variables[name] = function.stack_depth;
                         depth += alignat(type->size_of(), 16);
+                        variables[name] = depth;
                     }
-                    if (depth > function.stack_depth) {
-                        function.stack_depth = depth;
-                    }
+                    stack_depth = std::max(stack_depth, depth);
                 },
-                [&function, &depth, &depths](IR::Operation::ScopeEnd const &impl) -> void {
+                [&depth, &depths](IR::Operation::ScopeEnd const &impl) -> void {
                     depth = depths.back();
                     depths.pop_back();
                 },
-                [&function](auto const &impl) -> void {
+                [](auto const &impl) -> void {
                 } },
             op.op);
     }
+}
+
+void Function::emit_return()
+{
+    add_instruction(L"mov", L"sp,fp");
+    add_instruction(L"ldp", L"fp,lr,[sp],16");
+    add_instruction(L"ret");
+}
+
+void Function::skeleton()
+{
+    activate_prolog();
+    add_label(name);
+    add_instruction(L"stp", L"fp,lr,[sp,#-16]!");
+    add_instruction(L"mov", L"fp,sp");
+    if (stack_depth > 0) {
+        add_instruction(L"sub", L"sp,sp,#{}", stack_depth);
+    }
+
+    activate_epilog();
+    emit_return();
+
+    activate_code();
+}
+
+void debug_stack(Function &function, std::string prefix)
+{
+    // std::string c { std::format("{} | [{}] ", prefix, function.stack.size()) };
+    // for (auto const &e : function.stack | std::views::reverse) {
+    //     std::visit(
+    //         overloads {
+    //             [&c](RegisterAllocation const &alloc) {
+    //                 c += std::format("{}/{} ", alloc.reg, alloc.num_regs);
+    //             },
+    //             [&c](VarPointer const &ptr) {
+    //                 c += std::format("VarPointer {} ", ptr);
+    //             } },
+    //         e);
+    // }
+    // std::cout << c << std::endl;
+}
+
+RegisterAllocation Function::push_reg(pType const &type)
+{
+    return push_reg(type->size_of());
+}
+
+RegisterAllocation Function::push_reg(size_t size)
+{
+    auto               num { words_needed(size) };
+    RegisterAllocation ret { -1, num };
+    for (int reg = 9; reg + num < 16; ++reg) {
+        bool available { true };
+        for (auto ix = reg; ix < reg + num; ++ix) {
+            if (regs[ix]) {
+                available = { false };
+                break;
+            }
+        }
+        if (available) {
+            for (auto ix = reg; ix < reg + num; ++ix) {
+                regs[ix] = true;
+            }
+            ret.reg = reg;
+            break;
+        }
+    }
+    stack.push_back(ret);
+    debug_stack(*this, std::format("push_reg({}) {}/{}", size, ret.reg, ret.num_regs));
+    return ret;
+}
+
+RegisterAllocation Function::pop_reg(pType const &type)
+{
+    return pop_reg(type->size_of());
+}
+
+RegisterAllocation Function::pop_reg(size_t size)
+{
+    assert(!stack.empty());
+    assert(std::holds_alternative<RegisterAllocation>(stack.back()));
+
+    auto ret { std::get<RegisterAllocation>(stack.back()) };
+    if (ret.reg != -1) {
+        for (auto ix = ret.reg; ix < ret.reg + ret.num_regs; ++ix) {
+            regs[ix] = false;
+        }
+    }
+    stack.pop_back();
+    debug_stack(*this, std::format("pop_reg({}) {}/{}", size, ret.reg, ret.num_regs));
+    return ret;
+}
+
+// Pushes the value currently in x0... to the register stack
+void Function::push(pType const &type)
+{
+    if (type == TypeRegistry::void_) {
+        return;
+    }
+    push(type->size_of());
+}
+
+void Function::push(size_t size)
+{
+    if (size == 0) {
+        return;
+    }
+    if (auto dest = push_reg(size); dest.reg > 0) {
+        for (auto i = 0; i < dest.num_regs; ++i) {
+            add_instruction(L"mov", L"x{},x{}", dest.reg + i, i);
+        }
+    } else {
+        auto num { dest.num_regs };
+        while (num > 0) {
+            if (num > 1) {
+                add_instruction(L"stp", L"x{},x{},[sp,#16]!", dest.num_regs - num, dest.num_regs - num + 1);
+                num -= 2;
+            } else {
+                add_instruction(L"str", L"x{},[sp,#16]!", dest.num_regs - num);
+                --num;
+            }
+        }
+    }
+}
+
+// Pops the value currently at the top of the value stack to x0..
+int Function::pop(pType const &type, int target)
+{
+    if (type == TypeRegistry::void_) {
+        return 0;
+    }
+    return pop(type->size_of(), target);
+}
+
+int Function::pop(size_t size, int target)
+{
+    if (size == 0) {
+        return 0;
+    }
+    assert(!stack.empty());
+    std::visit(
+        overloads {
+            [this, &size, &target](RegisterAllocation const &) {
+                if (auto src = pop_reg(size); src.reg > 0) {
+                    for (auto i = 0; i < src.num_regs; ++i) {
+                        add_instruction(L"mov", L"x{},x{}", target + i, src.reg + i);
+                    }
+                } else {
+                    auto num { src.num_regs };
+                    while (num > 0) {
+                        if (num > 1) {
+                            add_instruction(L"ldp", L"x{},x{},[sp],#16", target + src.num_regs - num, target + src.num_regs - num + 1);
+                            num -= 2;
+                        } else {
+                            add_instruction(L"str", L"x{},[sp],#16", target + src.num_regs - num);
+                            --num;
+                        }
+                    }
+                }
+            },
+            [this, &size, &target](VarPointer const &) {
+                deref(size, target);
+            } },
+        stack.back());
+    return target + words_needed(size);
+}
+
+// Pops the variable reference off the value stack and moves the value
+// into x0...
+VarPointer Function::deref(pType const &type, int target)
+{
+    if (type == TypeRegistry::void_) {
+        return 0;
+    }
+    return deref(type->size_of(), target);
+}
+
+VarPointer Function::deref(size_t size, int target)
+{
+    if (size == 0) {
+        return 0;
+    }
+    assert(!stack.empty());
+    assert(std::holds_alternative<VarPointer>(stack.back()));
+    auto ptr { std::get<VarPointer>(stack.back()) };
+    auto ret { ptr };
+    stack.pop_back();
+    debug_stack(*this, std::format("deref({}, {}) VarPointer {}", size, target, ptr));
+    auto num_regs { words_needed(size) };
+    auto num { num_regs };
+    while (num > 0) {
+        if (num > 1) {
+            add_instruction(L"ldp", L"x{},x{},[fp,-{}]", target + num_regs - num, target + num_regs - num + 1, ptr);
+            num -= 2;
+            ptr += 2;
+        } else {
+            add_instruction(L"ldr", L"x{},[fp,-{}]", target + num_regs - num, ptr);
+            --num;
+            ++ptr;
+        }
+    }
+    return ret;
+}
+
+// Pops the variable reference off the value stack, then pops an allocation
+// and moves x0... into the variable
+VarPointer Function::assign(pType const &type)
+{
+    if (type == TypeRegistry::void_) {
+        return 0;
+    }
+    return assign(type->size_of());
+}
+
+VarPointer Function::assign(size_t size)
+{
+    if (size == 0) {
+        return 0;
+    }
+
+    // Pop the variable reference:
+    assert(!stack.empty());
+    assert(std::holds_alternative<VarPointer>(stack.back()));
+    auto ptr { std::get<VarPointer>(stack.back()) };
+    auto ret { ptr };
+    stack.pop_back();
+    debug_stack(*this, std::format("assign({}) VarPointer {}", size, ptr));
+
+    // Pop the top of the value stack into x0...
+    pop(size);
+
+    // Move x0... into the variable:
+    auto num_regs { words_needed(size) };
+    auto num { num_regs };
+    while (num > 0) {
+        if (num > 1) {
+            add_instruction(L"stp", L"x{},x{},[fp,-{}]", num_regs - num, num_regs - num + 1, ptr);
+            num -= 2;
+            ptr += 2;
+        } else {
+            add_instruction(L"str", L"x{},[fp,-{}]", num_regs - num, ptr);
+            --num;
+            ++ptr;
+        }
+    }
+    return ret;
+}
+
+void Object::add_directive(std::wstring_view const directive, std::wstring_view const args)
+{
+    if (directive == L".global") {
+        has_exports = true;
+        if (args == L"main") {
+            has_main = true;
+        }
+    }
+    prolog += std::format(L"{}\t{}\n", directive, args);
+}
+
+int Object::add_string(std::wstring_view const str)
+{
+    return add_string(std::wstring { str });
+}
+
+int Object::add_string(std::wstring const &str)
+{
+    if (strings.contains(str)) {
+        return strings.at(str);
+    }
+    auto id = next_label++;
+    text += std::format(L".align 2\nstr_{}:\n\t.byte\t", id);
+    for (auto *ptr = str.data(); *ptr != 0; ++ptr) {
+        auto c = *ptr;
+        for (auto ix = 0; ix < sizeof(c); ++ix) {
+            if (ptr != str.data() || ix > 0) {
+                text += L",";
+            }
+            text += std::format(L"0x{:x}", c & 0xFF);
+            c >>= 8;
+        }
+    }
+    text += '\n';
+    strings[str] = id;
+    return id;
 }
 
 template<typename Impl>
@@ -317,13 +443,44 @@ void generate_op(Function &function, Impl const &impl)
 }
 
 template<>
+void generate_op(Function &function, IR::Operation::AssignFromRef const &impl)
+{
+    // function.stack.push_back(function.assign(impl.payload));
+    function.assign(impl.payload);
+    debug_stack(function, "AssignFromRef");
+}
+
+template<>
+void generate_op(Function &function, IR::Operation::AssignValue const &impl)
+{
+    // function.stack.push_back(function.assign(impl.payload));
+    function.assign(impl.payload);
+    debug_stack(function, "AssignValue");
+}
+
+template<>
+void generate_op(Function &function, IR::Operation::BinaryOperator const &impl)
+{
+    generate_binop(function, impl.payload.lhs, impl.payload.op, impl.payload.rhs);
+}
+
+template<>
+void generate_op(Function &function, IR::Operation::Dereference const &impl)
+{
+    function.deref(impl.payload);
+    function.push(impl.payload);
+}
+
+template<>
 void generate_op(Function &function, IR::Operation::Discard const &impl)
 {
     if (impl.payload == TypeRegistry::void_) {
         return;
     }
-    if (auto reg = function.pop_reg(impl.payload); reg.reg < 0) {
-        function.add_instruction(L"add", L"sp,{}", alignat(reg.num_regs * 8, 16));
+    while (!function.stack.empty()) {
+        if (auto reg = function.pop_reg(impl.payload); reg.reg < 0) {
+            function.add_instruction(L"add", L"sp,{}", alignat(reg.num_regs * 8, 16));
+        }
     }
 }
 
@@ -334,32 +491,27 @@ void generate_op(Function &function, IR::Operation::Jump const &impl)
 }
 
 template<>
+void generate_op(Function &function, IR::Operation::JumpF const &impl)
+{
+    pop<bool>(function);
+    function.add_instruction(L"mov", L"x1,xzr");
+    function.add_instruction(L"cmp", L"x0,x1");
+    function.add_instruction(L"b.eq", std::format(L"lbl_{}", impl.payload));
+}
+
+template<>
+void generate_op(Function &function, IR::Operation::JumpT const &impl)
+{
+    pop<bool>(function);
+    function.add_instruction(L"mov", L"x1,xzr");
+    function.add_instruction(L"cmp", L"x0,x1");
+    function.add_instruction(L"b.ne", std::format(L"lbl_{}", impl.payload));
+}
+
+template<>
 void generate_op(Function &function, IR::Operation::Label const &impl)
 {
     function.add_label(std::format(L"lbl_{}", impl.payload));
-}
-
-void pop(Function &function, pType const &type)
-{
-    if (type == TypeRegistry::void_) {
-        return;
-    }
-    if (auto dest = function.push_reg(type); dest.reg > 0) {
-        for (auto i = 0; i < dest.num_regs; ++i) {
-            function.add_instruction(L"mov", L"x{},x{}", dest.reg + i, i);
-        }
-    } else {
-        auto num { dest.num_regs };
-        while (num > 0) {
-            if (num > 1) {
-                function.add_instruction(L"stp", L"x{},x{},[sp,#16]!", dest.num_regs - num, dest.num_regs - num + 1);
-                num -= 2;
-            } else {
-                function.add_instruction(L"str", L"x{},[sp,#16]!", dest.num_regs - num);
-                --num;
-            }
-        }
-    }
 }
 
 void generate_op(Function &function, IR::Operation::NativeCall const &impl)
@@ -368,8 +520,8 @@ void generate_op(Function &function, IR::Operation::NativeCall const &impl)
     std::vector<RegisterAllocation> allocations;
     int                             reg { 0 };
     for (auto const &[_, param_type] : op.parameters) {
-        allocations.emplace_back(reg, alignat(param_type->size_of() / 8, 1));
-        reg += alignat(param_type->size_of() / 8, 1);
+        allocations.emplace_back(reg, words_needed(param_type->size_of()));
+        reg += words_needed(param_type->size_of());
     }
     for (auto [dest, type] : std::views::zip(
                                  allocations,
@@ -378,35 +530,23 @@ void generate_op(Function &function, IR::Operation::NativeCall const &impl)
                                            return decl.type;
                                        }))
             | std::views::reverse) {
-        auto src { function.pop_reg(type) };
-        if (src.num_regs < 0) {
-            auto num = src.num_regs;
-            while (num > 0) {
-                if (num % 2) {
-                    function.add_instruction(L"ldr", L"x{},[sp],#16", dest.reg + num - 1);
-                    --num;
-                } else {
-                    function.add_instruction(L"ldp", L"x{},x{},[sp],#16", dest.reg + num - 2, dest.reg + num - 1);
-                    num -= 2;
-                }
-            }
-        } else {
-            for (auto i = 0; i < dest.num_regs; ++i) {
-                function.add_instruction(L"mov", L"x{},x{}", dest.reg + i, src.reg + i);
-            }
-        }
+        function.pop(type, dest.reg);
     }
+    std::wstring name { op.name };
     if (auto colon = op.name.rfind(L':'); colon != std::wstring::npos) {
-        function.add_instruction(L"bl", std::format(L"_{}", op.name.substr(colon + 1)));
-    } else {
-        function.add_instruction(L"bl", std::format(L"_{}", op.name));
+        name.erase(0, colon + 1);
     }
-    pop(function, op.return_type);
+    function.add_instruction(L"bl", std::format(L"_{}", name));
+    function.push(op.return_type);
 }
 
 void generate_op(Function &function, IR::Operation::Pop const &impl)
 {
-    pop(function, impl.payload);
+    while (!function.stack.empty()) {
+        if (auto reg = function.pop_reg(impl.payload); reg.reg < 0) {
+            function.add_instruction(L"add", L"sp,{}", alignat(reg.num_regs * 8, 16));
+        }
+    }
 }
 
 template<>
@@ -455,7 +595,7 @@ void generate_op(Function &function, IR::Operation::PushConstant const &impl)
                 assert(slice_type.slice_of == TypeRegistry::u32);
                 auto slice = as<Slice>(impl.payload);
                 auto str_id = function.object.add_string(std::wstring_view { static_cast<wchar_t *>(slice.ptr), static_cast<size_t>(slice.size) });
-                auto reg { function.push_reg(TypeRegistry::u32) };
+                auto reg { function.push_reg(slice_type.size_of()) };
                 if (reg.reg > 0) {
                     function.add_instruction(L"adr", L"x{},str_{}", reg.reg, str_id);
                     function.add_instruction(L"mov", L"x{},#{}", reg.reg + 1, slice.size);
@@ -469,6 +609,13 @@ void generate_op(Function &function, IR::Operation::PushConstant const &impl)
                 function.add_comment(std::format(L"PushConstant {}", impl.payload.type->to_string()));
             } },
         impl.payload.type->description);
+}
+
+template<>
+void generate_op(Function &function, IR::Operation::PushVarAddress const &impl)
+{
+    function.stack.push_back(function.variables[impl.payload.name] + impl.payload.offset);
+    debug_stack(function, std::format("PushVarAddress {}+{}", as_utf8(impl.payload.name), impl.payload.offset));
 }
 
 template<>
@@ -504,17 +651,24 @@ void generate_op(Function &function, IR::Operation::SubRet const &impl)
     function.add_instruction(L"ret");
 }
 
-void generate(Function &function, std::vector<IR::Operation> const &operations)
+template<>
+void generate_op(Function &function, IR::Operation::UnaryOperator const &impl)
 {
-    analyze(function, operations);
-    function.object.add_directive(L".global", function.name);
-    function.skeleton();
-    function.regs.reset();
+    generate_unary(function, impl.payload.operand, impl.payload.op);
+}
+
+void Function::generate(std::vector<IR::Operation> const &operations)
+{
+    analyze(operations);
+    object.add_directive(L".global", name);
+    skeleton();
+    regs.reset();
     for (auto const &op : operations) {
         std::visit(
-            [&function](auto const &impl) -> void {
-                function.add_comment(as_wstring(typeid(decltype(impl)).name()));
-                generate_op(function, impl);
+            [this](auto const &impl) -> void {
+                add_comment(as_wstring(typeid(decltype(impl)).name()));
+                // std::cerr << typeid(decltype(impl)).name() << std::endl;
+                generate_op(*this, impl);
             },
             op.op);
     }
@@ -528,14 +682,14 @@ std::wostream &operator<<(std::wostream &os, Function const &function)
     return os;
 }
 
-void generate(Object &object, IR::pModule module)
+void Object::generate(IR::pModule module)
 {
-    auto &mod_init = object.functions.emplace_back(std::format(L"_{}_init", module->name), object);
-    generate(mod_init, module->operations);
+    auto &mod_init = functions.emplace_back(std::format(L"_{}_init", module->name), *this);
+    mod_init.generate(module->operations);
 
     for (auto const &[name, f] : module->functions) {
-        auto &function = object.functions.emplace_back(name, object, f);
-        generate(function, f->operations);
+        auto &function = functions.emplace_back(name, *this, f);
+        function.generate(f->operations);
     }
 }
 
@@ -557,11 +711,11 @@ std::wostream &operator<<(std::wostream &os, Object const &object)
     return os;
 }
 
-std::expected<bool, ARM64Error> save_and_assemble(Object const &object)
+std::expected<bool, ARM64Error> Object::save_and_assemble() const
 {
     fs::path dot_arwen { ".arwen" };
     fs::create_directory(dot_arwen);
-    fs::path path { dot_arwen / object.file_name };
+    fs::path path { dot_arwen / file_name };
     path.replace_extension("s");
     {
         std::fstream s(path, std::ios::out | std::ios::binary);
@@ -569,7 +723,7 @@ std::expected<bool, ARM64Error> save_and_assemble(Object const &object)
             return std::unexpected(ARM64Error { ARM64ErrorCode::IOError, std::format("Could not open assembly file `{}`", path.string()) });
         }
         std::wstringstream ss;
-        ss << object;
+        ss << *this;
         s << as_utf8(ss.view());
         if (s.fail() || s.bad()) {
             return std::unexpected(ARM64Error { ARM64ErrorCode::IOError, std::format("Could not write assembly file `{}`: {}", path.string(), strerror(errno)) });
@@ -577,8 +731,8 @@ std::expected<bool, ARM64Error> save_and_assemble(Object const &object)
     }
     fs::path o_file { path };
     o_file.replace_extension("o");
-    if (object.module != nullptr) {
-        std::wcerr << std::format(L"[ARM64] Assembling `{}`", object.module->name) << std::endl;
+    if (module != nullptr) {
+        std::wcerr << std::format(L"[ARM64] Assembling `{}`", module->name) << std::endl;
     } else {
         std::println("[ARM64] Assembling root module");
     }
@@ -598,27 +752,23 @@ std::expected<bool, ARM64Error> save_and_assemble(Object const &object)
     return true;
 }
 
-struct Executable {
-    std::vector<Object> objects;
-};
-
-std::expected<void, ARM64Error> generate(Executable &executable, IR::pProgram const &program)
+std::expected<void, ARM64Error> Executable::generate()
 {
-    auto &static_init = executable.objects.emplace_back(L"__program");
+    auto &static_init = objects.emplace_back(L"__program");
     auto &prog_init = static_init.functions.emplace_back(L"__program_init", static_init);
 
-    generate(prog_init, program->operations);
+    prog_init.generate(program->operations);
     for (auto const &[name, mod] : program->modules) {
         prog_init.add_instruction(L"bl", std::format(L"_{}_init", name));
-        generate(executable.objects.emplace_back(name, mod), mod);
+        objects.emplace_back(name, mod).generate(mod);
     }
 
     fs::path dot_arwen { ".arwen" };
     fs::create_directory(dot_arwen);
     std::vector<fs::path> o_files;
-    for (auto const &obj : executable.objects) {
+    for (auto const &obj : objects) {
         if (obj.has_exports) {
-            if (auto res { save_and_assemble(obj) }; !res.has_value()) {
+            if (auto res { obj.save_and_assemble() }; !res.has_value()) {
                 return std::unexpected(res.error());
             }
             fs::path path { dot_arwen / obj.file_name };
@@ -690,8 +840,7 @@ std::wostream &operator<<(std::wostream &os, Executable &executable)
 
 std::expected<void, ARM64Error> generate_arm64(IR::pProgram program)
 {
-    Executable executable;
-    return generate(executable, program);
+    Executable executable { program };
+    return executable.generate();
 }
-
 }

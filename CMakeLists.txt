@@ -125,6 +125,7 @@ add_library(
     ArwenARM64
     STATIC
     src/Arch/Arm64/Arm64.cpp
+    src/Arch/Arm64/GenOp.cpp
 )
 
 target_link_libraries(

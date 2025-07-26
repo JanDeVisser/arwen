@@ -24,6 +24,12 @@ struct overloads : Ts... {
     using Ts::operator()...;
 };
 
+template<class T>
+concept numeric = std::is_integral_v<T> || std::is_floating_point_v<T>;
+
+template<class T>
+concept numeric_or_bool = std::is_integral_v<T> || std::is_floating_point_v<T> || std::is_same_v<T, bool>;
+
 #define ENUMERATE_LOG_LEVELS(S) \
     S(None, 0)                  \
     S(Trace, 1)                 \
