@@ -9,11 +9,13 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <print>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <variant>
 
 #include <Util/Align.h>
 #include <Util/Logging.h>
@@ -29,7 +31,6 @@
 #include <App/IR/IR.h>
 
 #include <Arch/Arm64/Arm64.h>
-#include <variant>
 
 namespace Arwen::Arm64 {
 
@@ -160,14 +161,75 @@ void Function::emit_return()
     add_instruction(L"ret");
 }
 
+void push_to_stack(Function &function, size_t size, int from_reg)
+{
+    if (size == 0) {
+        return;
+    }
+    auto num_regs { words_needed(size) };
+    function.add_instruction(L"sub", L"sp,sp,{}", alignat(num_regs * 8, 16));
+
+    for (int ix = 0; ix < num_regs; ++ix) {
+        if (ix < num_regs - 1) {
+            function.add_instruction(L"stp", L"x{},x{},[sp,{}]", from_reg + ix, from_reg + ix + 1, ix * 8);
+            ++ix;
+        } else {
+            function.add_instruction(L"str", L"x{},[sp,{}]", from_reg + ix, ix * 8);
+        }
+    }
+}
+
+void pop_from_stack(Function &function, size_t size, int to_reg)
+{
+    if (size == 0) {
+        return;
+    }
+    auto num_regs { words_needed(size) };
+    for (int ix = 0; ix < num_regs; ++ix) {
+        if (ix < num_regs - 1) {
+            function.add_instruction(L"ldp", L"x{},x{},[sp,{}]", to_reg + ix, to_reg + ix + 1, ix * 8);
+            ++ix;
+        } else {
+            function.add_instruction(L"ldr", L"x{},[sp,{}]", to_reg + ix, ix * 8);
+        }
+    }
+    function.add_instruction(L"add", L"sp,sp,{}", alignat(num_regs * 8, 16));
+}
+
+int move_into_stack(Function &function, size_t size, int from_reg, uint64_t to_pos)
+{
+    if (size == 0) {
+        return 0;
+    }
+    auto num_regs { words_needed(size) };
+    for (int ix = 0; ix < num_regs; ++ix) {
+        if (ix < num_regs - 1) {
+            function.add_instruction(L"stp", L"x{},x{},[fp,-{}]",
+                from_reg + ix, from_reg + ix + 1, to_pos - ix * 8);
+            ++ix;
+        } else {
+            function.add_instruction(L"str", L"x{},[fp,-{}]",
+                from_reg + ix, to_pos - ix * 8);
+        }
+    }
+    return from_reg + num_regs;
+}
+
 void Function::skeleton()
 {
     activate_prolog();
     add_label(name);
+    add_label(std::format(L"_{}", name));
     add_instruction(L"stp", L"fp,lr,[sp,#-16]!");
     add_instruction(L"mov", L"fp,sp");
     if (stack_depth > 0) {
         add_instruction(L"sub", L"sp,sp,#{}", stack_depth);
+    }
+    if (function) {
+        int reg { 0 };
+        for (auto const &[name, type] : function->parameters) {
+            reg = move_into_stack(*this, type->size_of(), reg, variables[name]);
+        }
     }
 
     activate_epilog();
@@ -202,7 +264,8 @@ RegisterAllocation Function::push_reg(size_t size)
 {
     auto               num { words_needed(size) };
     RegisterAllocation ret { -1, num };
-    for (int reg = 9; reg + num < 16; ++reg) {
+
+    auto check_reg = [this, &num](int reg) -> bool {
         bool available { true };
         for (auto ix = reg; ix < reg + num; ++ix) {
             if (regs[ix]) {
@@ -214,8 +277,25 @@ RegisterAllocation Function::push_reg(size_t size)
             for (auto ix = reg; ix < reg + num; ++ix) {
                 regs[ix] = true;
             }
+        }
+        return available;
+    };
+
+    for (int reg = 9; reg + num < 16; ++reg) {
+        if (check_reg(reg)) {
             ret.reg = reg;
             break;
+        }
+    }
+    if (ret.reg == -1) {
+        for (int reg = 22; reg + num < 29; ++reg) {
+            if (check_reg(reg)) {
+                ret.reg = reg;
+                for (int ix = reg; ix < reg + num; ++ix) {
+                    save_regs[ix] = true;
+                }
+                break;
+            }
         }
     }
     stack.push_back(ret);
@@ -401,13 +481,14 @@ VarPointer Function::assign(size_t size)
 
 void Object::add_directive(std::wstring_view const directive, std::wstring_view const args)
 {
+    prolog += std::format(L"{}\t{}\n", directive, args);
     if (directive == L".global") {
+        prolog += std::format(L"{}\t{}\n", directive, std::format(L"_{}", args));
         has_exports = true;
         if (args == L"main") {
             has_main = true;
         }
     }
-    prolog += std::format(L"{}\t{}\n", directive, args);
 }
 
 int Object::add_string(std::wstring_view const str)
@@ -465,6 +546,45 @@ void generate_op(Function &function, IR::Operation::BinaryOperator const &impl)
 }
 
 template<>
+void generate_op(Function &function, IR::Operation::Break const &impl)
+{
+    function.save_regs[19] = function.save_regs[20] = true;
+    function.add_instruction(L"mov", L"x19,{}", impl.payload.depth);
+    function.add_instruction(L"adr", L"x20,lbl_{}", impl.payload.label);
+    function.add_instruction(L"b", L"lbl_{}", impl.payload.scope_end);
+}
+
+void generate_call(Function &function, IR::Operation::CallOp const &call)
+{
+    std::vector<RegisterAllocation> allocations;
+    int                             reg { 0 };
+    for (auto const &[_, param_type] : call.parameters) {
+        allocations.emplace_back(reg, words_needed(param_type->size_of()));
+        reg += words_needed(param_type->size_of());
+    }
+    for (auto [dest, type] : std::views::zip(
+                                 allocations,
+                                 call.parameters
+                                     | std::views::transform([](auto const &decl) {
+                                           return decl.type;
+                                       }))
+            | std::views::reverse) {
+        function.pop(type, dest.reg);
+    }
+    std::wstring name { call.name };
+    if (auto colon = call.name.rfind(L':'); colon != std::wstring::npos) {
+        name.erase(0, colon + 1);
+    }
+    function.add_instruction(L"bl", std::format(L"_{}", name));
+    function.push(call.return_type);
+}
+
+template<>
+void generate_op(Function &function, IR::Operation::Call const &impl)
+{
+    generate_call(function, impl.payload);
+}
+
 void generate_op(Function &function, IR::Operation::Dereference const &impl)
 {
     function.deref(impl.payload);
@@ -516,32 +636,14 @@ void generate_op(Function &function, IR::Operation::Label const &impl)
 
 void generate_op(Function &function, IR::Operation::NativeCall const &impl)
 {
-    auto const                     &op = impl.payload;
-    std::vector<RegisterAllocation> allocations;
-    int                             reg { 0 };
-    for (auto const &[_, param_type] : op.parameters) {
-        allocations.emplace_back(reg, words_needed(param_type->size_of()));
-        reg += words_needed(param_type->size_of());
-    }
-    for (auto [dest, type] : std::views::zip(
-                                 allocations,
-                                 op.parameters
-                                     | std::views::transform([](auto const &decl) {
-                                           return decl.type;
-                                       }))
-            | std::views::reverse) {
-        function.pop(type, dest.reg);
-    }
-    std::wstring name { op.name };
-    if (auto colon = op.name.rfind(L':'); colon != std::wstring::npos) {
-        name.erase(0, colon + 1);
-    }
-    function.add_instruction(L"bl", std::format(L"_{}", name));
-    function.push(op.return_type);
+    generate_call(function, impl.payload);
 }
 
 void generate_op(Function &function, IR::Operation::Pop const &impl)
 {
+    function.save_regs[21] = true;
+    function.pop(impl.payload->size_of());
+    function.add_instruction(L"mov", L"x21,x0");
     while (!function.stack.empty()) {
         if (auto reg = function.pop_reg(impl.payload); reg.reg < 0) {
             function.add_instruction(L"add", L"sp,{}", alignat(reg.num_regs * 8, 16));
@@ -619,36 +721,26 @@ void generate_op(Function &function, IR::Operation::PushVarAddress const &impl)
 }
 
 template<>
-void generate_op(Function &function, IR::Operation::Return const &impl)
-{
-    function.add_comment(L"Return from function");
-    function.emit_return();
-}
-
-template<>
 void generate_op(Function &function, IR::Operation::ScopeBegin const &)
 {
+    function.save_regs[19] = function.save_regs[20] = true;
+    function.add_instruction(L"mov", L"x19,xzr");
+    function.add_instruction(L"mov", L"x20,xzr");
 }
 
 template<>
-void generate_op(Function &function, IR::Operation::ScopeEnd const &)
+void generate_op(Function &function, IR::Operation::ScopeEnd const &impl)
 {
-}
-
-template<>
-void generate_op(Function &function, IR::Operation::Sub const &impl)
-{
-    function.add_comment(L"Calling in-function subroutine. Saving x0 in callee-saved register");
-    function.add_instruction(L"mov", L"x19,x0");
-    function.add_instruction(L"bl", std::format(L"lbl_{}", impl.payload));
-    function.add_instruction(L"mov", L"x0,x19");
-}
-
-template<>
-void generate_op(Function &function, IR::Operation::SubRet const &impl)
-{
-    function.add_comment(L"Return from in-function subroutine");
-    function.add_instruction(L"ret");
+    function.add_text(std::format(
+        LR"(cmp x19,xzr
+    b.ne 1f
+    cmp  x20,xzr
+    b.eq lbl_{}
+    br   x20
+1:
+    sub  x19,x19,1
+    b    lbl_{})",
+        impl.payload.scope_end, impl.payload.scope_end));
 }
 
 template<>
@@ -663,6 +755,7 @@ void Function::generate(std::vector<IR::Operation> const &operations)
     object.add_directive(L".global", name);
     skeleton();
     regs.reset();
+    save_regs.reset();
     for (auto const &op : operations) {
         std::visit(
             [this](auto const &impl) -> void {
@@ -671,6 +764,25 @@ void Function::generate(std::vector<IR::Operation> const &operations)
                 generate_op(*this, impl);
             },
             op.op);
+    }
+    std::wstring pop_saved_regs;
+    activate_prolog();
+    for (int ix = 19; ix < 29; ++ix) {
+        if (save_regs[ix]) {
+            if (save_regs[ix + 1]) {
+                add_instruction(L"stp", L"x{},x{},[sp,-16]!", ix, ix + 1);
+                pop_saved_regs = std::format(L"ldp x{},x{},[sp],16\n{}", ix, ix + 1, pop_saved_regs);
+                ++ix;
+            } else {
+                add_instruction(L"str", L"x{},[sp,-16]!", ix);
+                pop_saved_regs = std::format(L"ldr x{},[sp],16\n{}", ix, pop_saved_regs);
+            }
+        }
+    }
+    activate_code();
+    if (!pop_saved_regs.empty()) {
+        add_instruction(L"mov", L"x0,x21");
+        add_text(pop_saved_regs);
     }
 }
 

@@ -5,6 +5,7 @@
  */
 
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <ranges>
 #include <variant>
@@ -84,20 +85,23 @@ void add_operation(Generator &generator, Operation op)
     for (auto &ctx : std::views::reverse(generator.ctxs)) {
         if (std::visit(
                 overloads {
-                    [&op](pFunction const &f) -> bool {
-                        f->operations.emplace_back(std::move(op));
-                        return true;
-                    },
-                    [&op](pModule const &mod) -> bool {
-                        mod->operations.emplace_back(std::move(op));
-                        return true;
-                    },
-                    [&op](pProgram const &prog) -> bool {
-                        prog->operations.emplace_back(std::move(op));
-                        return true;
-                    },
-                    [&op](auto const &) -> bool {
+                    [](std::monostate const &) -> bool {
                         return false;
+                    },
+                    [&op](auto const &o) -> bool {
+                        auto &ops = o->operations;
+                        if (!ops.empty()) {
+                            auto &b { ops.back() };
+                            if (op.type() == Operation::Type::Discard && (b.type() == Operation::Type::PushConstant || b.type() == Operation::Type::PushValue)) {
+                                ops.pop_back();
+                                return true;
+                            }
+                            // if (b.type() == Operation::Type::Return && op.type() != Operation::Type::ScopeEnd && op.type() != Operation::Type::Label) {
+                            //     return true;
+                            // }
+                        }
+                        ops.emplace_back(op);
+                        return true;
                     } },
                 ctx.ir_node)) {
             return;
@@ -232,7 +236,7 @@ void generate_node(Generator &generator, std::shared_ptr<Block> const &node)
     auto const scope_end = next_label();
     auto const end_block = next_label();
     add_operation<Operation::PushConstant>(generator, make_void());
-    generator.ctxs.emplace_back(Context { {}, Context::BlockDescriptor { scope_end, end_block } });
+    generator.ctxs.emplace_back(Context { {}, Context::BlockDescriptor { scope_end } });
     {
         Defer _ { [&generator]() { generator.ctxs.pop_back(); } };
 
@@ -246,49 +250,65 @@ void generate_node(Generator &generator, std::shared_ptr<Block> const &node)
             empty &= (discard == nullptr);
             generator.generate(stmt);
         }
+        auto &last = last_op(generator);
+        if (last.type() != Operation::Type::Break) {
+            add_operation<Operation::Pop>(generator, node->bound_type);
+        }
 
         if (empty) {
             add_operation<Operation::PushConstant>(generator, make_void());
         }
-        add_operation<Operation::Pop>(generator, node->bound_type->value_type());
+        add_operation<Operation::Label>(generator, scope_end);
         auto const &bd = std::get<Context::BlockDescriptor>(generator.ctxs.back().unwind);
-        if (bd.defer_stmts.empty()) {
-            add_operation<Operation::Sub>(generator, scope_end);
-        } else {
-            add_operation<Operation::Sub>(generator, bd.defer_stmts.back().second);
-            for (auto const &[defer, label] : bd.defer_stmts) {
-                add_operation<Operation::Label>(generator, label);
-                generator.generate(defer);
-                add_operation<Operation::Discard>(generator, defer->bound_type);
-            }
+        for (auto const &[defer, label] : bd.defer_stmts) {
+            add_operation<Operation::Label>(generator, label);
+            generator.generate(defer);
+            add_operation<Operation::Discard>(generator, defer->bound_type);
         }
     }
-    add_operation<Operation::Jump>(generator, end_block);
-    add_operation<Operation::Label>(generator, scope_end);
-    add_operation<Operation::ScopeEnd>(generator, node->bound_type);
-    add_operation<Operation::SubRet>(generator);
-    add_operation<Operation::Label>(generator, end_block);
+
+    uint64_t enclosing_end { 0 };
+    for (auto const &ctx : generator.ctxs | std::views::reverse) {
+        if (std::visit(
+                overloads {
+                    [&enclosing_end](Context::BlockDescriptor const &bd) -> bool {
+                        enclosing_end = (!bd.defer_stmts.empty()) ? bd.defer_stmts.back().second : bd.scope_end_label;
+                        return true;
+                    },
+                    [&enclosing_end](Context::FunctionDescriptor const &fd) -> bool {
+                        enclosing_end = fd.end_label;
+                        return true;
+                    },
+                    [](auto const &) {
+                        return false;
+                    } },
+                ctx.unwind)) {
+            break;
+        }
+    }
+    add_operation<Operation::ScopeEnd>(generator, Operation::BreakOp { enclosing_end, 0, 0, node->bound_type });
 }
 
 template<>
 void generate_node(Generator &generator, std::shared_ptr<Break> const &node)
 {
+    uint64_t depth { 0 };
+    uint64_t scope_end { 0 };
     for (auto const &ctx : generator.ctxs | std::views::reverse) {
         if (std::visit(
                 overloads {
-                    [&node, &generator](Context::LoopDescriptor const &ld) -> bool {
+                    [&node, &generator, &depth, &scope_end](Context::LoopDescriptor const &ld) -> bool {
                         if (node->label->empty() || ld.name == node->label.value()) {
-                            add_operation<Operation::Jump>(generator, ld.loop_end);
+                            add_operation<Operation::Break>(generator, IR::Operation::BreakOp { scope_end, depth, ld.loop_end });
                             return true;
                         }
                         return false;
                     },
-                    [&generator](Context::BlockDescriptor const &bd) -> bool {
-                        if (!bd.defer_stmts.empty()) {
-                            add_operation<Operation::Sub>(generator, bd.defer_stmts.back().second);
-                        } else {
-                            add_operation<Operation::Sub>(generator, bd.scope_end_label);
+                    [&generator, &depth, &scope_end](Context::BlockDescriptor const &bd) -> bool {
+                        if (depth == 0) {
+                            scope_end = (!bd.defer_stmts.empty()) ? bd.defer_stmts.back().second : bd.scope_end_label;
                         }
+                        ++depth;
                         return false;
                     },
                     [](Context::FunctionDescriptor const &) -> bool {
@@ -334,28 +354,29 @@ void generate_node(Generator &generator, std::shared_ptr<Constant> const &node)
 template<>
 void generate_node(Generator &generator, std::shared_ptr<Continue> const &node)
 {
+    uint64_t depth { 0 };
+    uint64_t scope_end { 0 };
     for (auto const &ctx : generator.ctxs | std::views::reverse) {
         if (std::visit(
                 overloads {
-                    [&node, &generator](Context::LoopDescriptor const &ld) -> bool {
+                    [&node, &generator, &depth, &scope_end](Context::LoopDescriptor const &ld) -> bool {
                         if (node->label->empty() || ld.name == node->label.value()) {
-                            add_operation<Operation::Jump>(generator, ld.loop_begin);
+                            add_operation<Operation::Break>(generator, IR::Operation::BreakOp { scope_end, depth, ld.loop_begin });
                             return true;
                         }
                         return false;
                     },
-                    [&generator](Context::BlockDescriptor const &bd) -> bool {
-                        if (!bd.defer_stmts.empty()) {
-                            add_operation<Operation::Sub>(generator, bd.defer_stmts.back().second);
-                        } else {
-                            add_operation<Operation::Sub>(generator, bd.scope_end_label);
+                    [&generator, &depth, &scope_end](Context::BlockDescriptor const &bd) -> bool {
+                        if (depth == 0) {
+                            scope_end = (!bd.defer_stmts.empty()) ? bd.defer_stmts.back().second : bd.scope_end_label;
                         }
+                        ++depth;
                         return false;
                     },
                     [](Context::FunctionDescriptor const &) -> bool {
                         UNREACHABLE();
                     },
-                    [](auto const &) -> bool {
+                    [](auto const &) {
                         return false;
                     } },
                 ctx.unwind)) {
@@ -404,8 +425,10 @@ void generate_node(Generator &generator, std::shared_ptr<FunctionDefinition> con
         for (auto const &param : node->declaration->parameters) {
             function->parameters.emplace_back(param->name, param->bound_type);
         }
-        generator.ctxs.emplace_back(function, Context::FunctionDescriptor { function->return_type });
+        auto ret_label { next_label() };
+        generator.ctxs.emplace_back(function, Context::FunctionDescriptor { ret_label, function->return_type });
         generator.generate(node->implementation);
+        add_operation<Operation::Label>(generator, ret_label);
         generator.ctxs.pop_back();
     }
     add_operation<Operation::PushConstant>(generator, make_void());
@@ -525,22 +548,21 @@ void generate_node(Generator &generator, std::shared_ptr<Return> const &node)
         add_operation<Operation::Dereference>(generator, value_type);
     }
     add_operation<Operation::Pop>(generator, node->expression->bound_type->value_type());
+
+    uint64_t depth { 0 };
+    uint64_t scope_end { 0 };
     for (auto const &ctx : generator.ctxs | std::views::reverse) {
         if (std::visit(
                 overloads {
-                    [&node, &generator](Context::LoopDescriptor const &ld) -> bool {
-                        return false;
-                    },
-                    [&generator](Context::BlockDescriptor const &bd) -> bool {
-                        if (!bd.defer_stmts.empty()) {
-                            add_operation<Operation::Sub>(generator, bd.defer_stmts.back().second);
-                        } else {
-                            add_operation<Operation::Sub>(generator, bd.scope_end_label);
+                    [&generator, &depth, &scope_end](Context::BlockDescriptor const &bd) -> bool {
+                        if (depth == 0) {
+                            scope_end = (!bd.defer_stmts.empty()) ? bd.defer_stmts.back().second : bd.scope_end_label;
                         }
+                        ++depth;
                         return false;
                     },
-                    [&generator, &node](Context::FunctionDescriptor const &fd) -> bool {
-                        add_operation<Operation::Return>(generator, node->expression->bound_type->value_type());
+                    [&generator, &scope_end](Context::FunctionDescriptor const &fd) -> bool {
+                        add_operation<Operation::Break>(generator, IR::Operation::BreakOp { scope_end, std::numeric_limits<uint64_t>::max(), 0 });
                         return true;
                     },
                     [](auto const &) {
@@ -638,7 +660,6 @@ IRNode generate_ir(pSyntaxNode const &node)
     auto const &ret = generator.ctxs.back().ir_node;
     return ret;
 }
-
 }
 
 std::wostream &operator<<(std::wostream &os, std::monostate const &)
@@ -670,6 +691,12 @@ std::wostream &operator<<(std::wostream &os, std::vector<Arwen::IR::IRVariableDe
 std::wostream &operator<<(std::wostream &os, Arwen::IR::VarPath const &var_path)
 {
     os << var_path.name << ':' << var_path.offset << ' ' << var_path.type->to_string();
+    return os;
+}
+
+std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation::BreakOp const &break_op)
+{
+    os << break_op.scope_end << ',' << break_op.depth << ',' << break_op.label;
     return os;
 }
 

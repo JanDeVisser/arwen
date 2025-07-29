@@ -51,6 +51,7 @@ struct Function {
     std::wstring                     epilog;
     std::wstring                    *active { &code };
     std::bitset<28>                  regs;
+    std::bitset<28>                  save_regs;
     std::vector<ValueStackEntry>     stack;
 
     template<typename... Args>

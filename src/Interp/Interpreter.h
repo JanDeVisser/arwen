@@ -81,7 +81,7 @@ struct Interpreter {
     std::vector<Scope>                             scopes;
     Stack                                          stack;
     std::vector<Context>                           call_stack;
-    std::array<uint64_t, 16>                       registers;
+    std::array<uint64_t, 20>                       registers;
     Callback                                       callback { nullptr };
 
     Interpreter() = default;

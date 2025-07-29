@@ -5,7 +5,6 @@
  */
 
 #include <cstdint>
-#include <limits>
 #include <memory>
 #include <variant>
 
@@ -28,6 +27,14 @@ namespace Arwen::Interpreter {
 using namespace Util;
 using namespace Arwen;
 using namespace Arwen::IR;
+
+uint64_t ip_for_label(Interpreter &interpreter, uint64_t label)
+{
+    auto &ctx { interpreter.call_stack.back() };
+    assert(interpreter.labels.contains(ctx.ir));
+    assert(interpreter.labels[ctx.ir].contains(label));
+    return interpreter.labels[ctx.ir][label];
+}
 
 template<typename OpImpl>
 void execute_op(Interpreter &interpreter, OpImpl const &impl)
@@ -64,6 +71,16 @@ void execute_op<>(Interpreter &interpreter, Operation::BinaryOperator const &imp
 {
     interpreter.stack.evaluate(impl.payload.lhs, impl.payload.op, impl.payload.rhs);
     interpreter.call_stack.back().ip++;
+}
+
+template<>
+void execute_op<>(Interpreter &interpreter, Operation::Break const &impl)
+{
+    uint64_t depth { impl.payload.depth };
+    uint64_t ip { ip_for_label(interpreter, impl.payload.label) };
+    interpreter.move_in(&depth, sizeof(uint64_t), 18);
+    interpreter.move_in(&ip, sizeof(uint64_t), 17);
+    interpreter.call_stack.back().ip = ip_for_label(interpreter, impl.payload.scope_end);
 }
 
 template<>
@@ -233,15 +250,12 @@ void execute_op<>(Interpreter &interpreter, Operation::PushVarAddress const &imp
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::Return const &impl)
-{
-    interpreter.call_stack.back().ip = std::numeric_limits<uint64_t>::max();
-}
-
-template<>
 void execute_op<>(Interpreter &interpreter, Operation::ScopeBegin const &impl)
 {
     interpreter.new_scope(IRNode {}, impl.payload);
+    uint64_t zero { 0 };
+    interpreter.move_in(&zero, sizeof(uint64_t), 17);
+    interpreter.move_in(&zero, sizeof(uint64_t), 18);
     interpreter.call_stack.back().ip++;
 }
 
@@ -249,23 +263,15 @@ template<>
 void execute_op<>(Interpreter &interpreter, Operation::ScopeEnd const &impl)
 {
     interpreter.drop_scope();
-    interpreter.call_stack.back().ip++;
-}
-
-template<>
-void execute_op<>(Interpreter &interpreter, Operation::Sub const &impl)
-{
-    auto &ctx { interpreter.call_stack.back() };
-    ctx.ip += 1;
-    assert(interpreter.labels.contains(ctx.ir));
-    auto ip { interpreter.labels[ctx.ir][impl.payload] };
-    interpreter.call_stack.emplace_back(ctx.ir, ip);
-}
-
-template<>
-void execute_op<>(Interpreter &interpreter, Operation::SubRet const &impl)
-{
-    interpreter.call_stack.pop_back();
+    uint64_t depth { interpreter.move_out(18) };
+    if (depth > 0) {
+        --depth;
+        interpreter.move_in(&depth, sizeof(uint64_t), 18);
+        interpreter.call_stack.back().ip = ip_for_label(interpreter, impl.payload.label);
+        return;
+    }
+    auto jump { interpreter.move_out(17) };
+    interpreter.call_stack.back().ip = (jump == 0) ? interpreter.call_stack.back().ip + 1 : jump;
 }
 
 template<>

@@ -29,20 +29,19 @@ def check_stream(script, which, stream):
 def compile_script(name):
     os.path.exists("stdout") and os.remove("stdout")
     os.path.exists("stderr") and os.remove("stderr")
-    if name.endswith(".obl"):
+    if name.endswith(".arw"):
         f = name
         name = name[:-4]
     else:
         f = name + ".arw"
 
-    print(name)
-    script = {"name": name}
     with open("stdout", "w+") as out, open("stderr", "w+") as err:
         if os.path.exists(name):
             os.remove(name)
-        if os.path.exists(os.path.join(".compiled", name)):
-            os.remove(os.path.join(".compiled", name))
-        ex = subprocess.call(["../build/bin/arwen", "--keep-assembly", f], stdout=out, stderr=err)
+        if os.path.exists(os.path.join(".arwen", name)):
+            os.remove(os.path.join(".arwen", name))
+        print(f)
+        ex = subprocess.call(["../build/bin/arwen", "--keep-assembly", "compile", f], stdout=out, stderr=err)
         if ex != 0:
             print(f"Compilation of '{f}' failed: {ex}")
             subprocess.call(["cat", "stdout"])
@@ -50,7 +49,7 @@ def compile_script(name):
             return None
     os.path.exists("stdout") and os.remove("stdout")
     os.path.exists("stderr") and os.remove("stderr")
-    os.rename(name, os.path.join(".compiled", name))
+    os.rename(name, os.path.join(".arwen", name))
     return name
 
 
@@ -60,10 +59,6 @@ def test_script(name):
 
     with open(name + ".json") as fd:
         script = json.load(fd)
-    # name = compile_script(name)
-    # if name is None:
-    #     print(f"{name}: Compilation Failed")
-    #     return False
 
     with open("stdout", "w+") as out, open("stderr", "w+") as err:
         # cmdline = [os.path.join(".compiled", name)]
@@ -84,9 +79,38 @@ def test_script(name):
     os.remove("stdout")
     os.remove("stderr")
     if error == 0:
-        print(f"{name}: \033[32mOK\033[0m")
+        print(f"{name}: \033[32mOK\033[0m ")
     else:
-        print(f"{name}: \033[31mFAILED\033[0m")
+        print(f"{name}: \033[31mFAILED\033[0m ")
+
+    name = compile_script(name)
+    if name is None:
+        print(f"{name}: \033[31mFAILED\033[0m ")
+        error += 1
+    else:
+        print(f"{name}: \033[32mOK\033[0m ")
+        with open("stdout", "w+") as out, open("stderr", "w+") as err:
+            # cmdline = [os.path.join(".compiled", name)]
+            cmdline = [os.path.join(".arwen", name)]
+            cmdline.extend(script["args"])
+            ex = subprocess.call(cmdline, stdout=out, stderr=err)
+            out.seek(0)
+            err.seek(0)
+
+            error = 0
+            if "exit" in script:
+                expected = script["exit"]
+                if ex != expected and ex != expected + 256 and ex != expected - 256:
+                    print("%s: Exit code %s != %s" % (name, ex, script["exit"]))
+                    error += 1
+            error += check_stream(script, "stdout", out)
+            error += check_stream(script, "stderr", err)
+        os.remove("stdout")
+        os.remove("stderr")
+        if error == 0:
+            print(f"{name}: \033[32mOK\033[0m ")
+        else:
+            print(f"{name}: \033[31mFAILED\033[0m ")
 
     return error == 0
 

@@ -3,3 +3,4 @@ build/
 .zed/
 cmake-build-debug/
 .idea/
+.arwen

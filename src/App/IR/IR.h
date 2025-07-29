@@ -20,6 +20,7 @@ namespace Arwen::IR {
     S(AssignFromRef, pType)                           \
     S(AssignValue, pType)                             \
     S(BinaryOperator, BinaryOp)                       \
+    S(Break, BreakOp)                                 \
     S(Call, CallOp)                                   \
     S(DeclVar, IRVariableDeclaration)                 \
     S(Dereference, pType)                             \
@@ -33,12 +34,13 @@ namespace Arwen::IR {
     S(PushConstant, Value)                            \
     S(PushValue, VarPath)                             \
     S(PushVarAddress, VarPath)                        \
-    S(Return, pType)                                  \
     S(ScopeBegin, std::vector<IRVariableDeclaration>) \
-    S(ScopeEnd, pType)                                \
-    S(Sub, uint64_t)                                  \
-    S(SubRet, std::monostate)                         \
+    S(ScopeEnd, BreakOp)                              \
     S(UnaryOperator, UnaryOp)
+
+// S(Return, pType)                                  \
+// S(Sub, uint64_t)                                  \
+// S(SubRet, std::monostate)                         \
 
 struct IRVariableDeclaration {
     std::wstring name;
@@ -59,6 +61,12 @@ struct Operation {
 #undef S
     };
 
+    struct BreakOp {
+        uint64_t scope_end;
+        uint64_t depth;
+        uint64_t label;
+        pType    exit_type;
+    };
     struct CallOp {
         std::wstring                       name;
         std::vector<IRVariableDeclaration> parameters;
@@ -170,11 +178,11 @@ struct Context {
     };
     struct BlockDescriptor {
         uint64_t                                      scope_end_label;
-        uint64_t                                      block_end_label;
         std::vector<std::pair<pSyntaxNode, uint64_t>> defer_stmts {};
     };
     struct FunctionDescriptor {
-        pType return_type;
+        uint64_t end_label;
+        pType    return_type;
     };
     using UnwindStackEntry = std::variant<std::monostate, FunctionDescriptor, LoopDescriptor, BlockDescriptor>;
 
@@ -202,6 +210,7 @@ std::wostream &operator<<(std::wostream &os, Arwen::IR::IRVariableDeclaration co
 std::wostream &operator<<(std::wostream &os, std::vector<Arwen::IR::IRVariableDeclaration> const &var_decls);
 std::wostream &operator<<(std::wostream &os, Arwen::IR::VarPath const &var_path);
 std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation::CallOp const &call);
+std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation::BreakOp const &block_exit);
 std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation::BinaryOp const &op);
 std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation::UnaryOp const &op);
 std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation const &op);

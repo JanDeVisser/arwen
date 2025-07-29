@@ -114,24 +114,24 @@ Value Interpreter::pop(pType const &type)
 
 void Interpreter::move_in(void *ptr, size_t size, uint8_t reg)
 {
-    assert(reg < 16);
+    assert(reg < registers.size());
     auto num_regs { alignat(size, 8) / 8 };
-    assert(reg + num_regs - 1 < 16);
+    assert(reg + num_regs - 1 < registers.size());
     memcpy(registers.data() + reg, ptr, size);
 }
 
 uint64_t Interpreter::move_out(uint8_t reg)
 {
-    assert(reg < 16);
+    assert(reg < registers.size());
     return registers[reg];
 }
 
 Value Interpreter::move_out(pType const &type, uint8_t reg)
 {
     trace(L"Interpreter::move_out({}, {})", reg, type->to_string());
-    assert(reg < 16);
+    assert(reg < registers.size());
     auto num_regs { alignat(type->size_of(), 8) / 8 };
-    assert(reg + num_regs - 1 < 16);
+    assert(reg + num_regs - 1 < 19);
     auto ret = make_from_buffer(type, registers.data() + reg);
     return ret;
 }
