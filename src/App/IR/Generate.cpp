@@ -237,6 +237,7 @@ void generate_node(Generator &generator, std::shared_ptr<Block> const &node)
     auto const end_block = next_label();
     add_operation<Operation::PushConstant>(generator, make_void());
     generator.ctxs.emplace_back(Context { {}, Context::BlockDescriptor { scope_end } });
+    bool has_defered { false };
     {
         Defer _ { [&generator]() { generator.ctxs.pop_back(); } };
 
@@ -261,6 +262,7 @@ void generate_node(Generator &generator, std::shared_ptr<Block> const &node)
         add_operation<Operation::Label>(generator, scope_end);
         auto const &bd = std::get<Context::BlockDescriptor>(generator.ctxs.back().unwind);
         for (auto const &[defer, label] : bd.defer_stmts) {
+            has_defered = true;
             add_operation<Operation::Label>(generator, label);
             generator.generate(defer);
             add_operation<Operation::Discard>(generator, defer->bound_type);
@@ -272,8 +274,11 @@ void generate_node(Generator &generator, std::shared_ptr<Block> const &node)
         if (std::visit(
                 overloads {
                     [&enclosing_end](Context::BlockDescriptor const &bd) -> bool {
-                        enclosing_end = (!bd.defer_stmts.empty()) ? bd.defer_stmts.back().second : bd.scope_end_label;
-                        return true;
+                        if (!bd.defer_stmts.empty()) {
+                            enclosing_end = bd.defer_stmts.back().second;
+                            return true;
+                        }
+                        return false;
                     },
                     [&enclosing_end](Context::FunctionDescriptor const &fd) -> bool {
                         enclosing_end = fd.end_label;
@@ -286,7 +291,7 @@ void generate_node(Generator &generator, std::shared_ptr<Block> const &node)
             break;
         }
     }
-    add_operation<Operation::ScopeEnd>(generator, Operation::BreakOp { enclosing_end, 0, 0, node->bound_type });
+    add_operation<Operation::ScopeEnd>(generator, Operation::ScopeEnd { enclosing_end, has_defered, node->bound_type });
 }
 
 template<>
@@ -305,10 +310,12 @@ void generate_node(Generator &generator, std::shared_ptr<Break> const &node)
                         return false;
                     },
                     [&generator, &depth, &scope_end](Context::BlockDescriptor const &bd) -> bool {
-                        if (depth == 0) {
-                            scope_end = (!bd.defer_stmts.empty()) ? bd.defer_stmts.back().second : bd.scope_end_label;
+                        if (!bd.defer_stmts.empty()) {
+                            if (scope_end == 0) {
+                                scope_end = bd.defer_stmts.back().second;
+                            }
+                            ++depth;
                         }
-                        ++depth;
                         return false;
                     },
                     [](Context::FunctionDescriptor const &) -> bool {
@@ -367,10 +374,12 @@ void generate_node(Generator &generator, std::shared_ptr<Continue> const &node)
                         return false;
                     },
                     [&generator, &depth, &scope_end](Context::BlockDescriptor const &bd) -> bool {
-                        if (depth == 0) {
-                            scope_end = (!bd.defer_stmts.empty()) ? bd.defer_stmts.back().second : bd.scope_end_label;
+                        if (!bd.defer_stmts.empty()) {
+                            if (scope_end == 0) {
+                                scope_end = bd.defer_stmts.back().second;
+                            }
+                            ++depth;
                         }
-                        ++depth;
                         return false;
                     },
                     [](Context::FunctionDescriptor const &) -> bool {
@@ -533,13 +542,6 @@ void generate_node(Generator &generator, std::shared_ptr<Arwen::Program> const &
     }
 }
 
-// template<>
-// void generate_node(Generator &generator, std::shared_ptr<Return> const &node)
-// {
-//     generator.generate(node->expression);
-//     add_operation<Operation::Return>(generator);
-// }
-
 template<>
 void generate_node(Generator &generator, std::shared_ptr<Return> const &node)
 {
@@ -555,10 +557,12 @@ void generate_node(Generator &generator, std::shared_ptr<Return> const &node)
         if (std::visit(
                 overloads {
                     [&generator, &depth, &scope_end](Context::BlockDescriptor const &bd) -> bool {
-                        if (depth == 0) {
-                            scope_end = (!bd.defer_stmts.empty()) ? bd.defer_stmts.back().second : bd.scope_end_label;
+                        if (!bd.defer_stmts.empty()) {
+                            if (scope_end == 0) {
+                                scope_end = bd.defer_stmts.back().second;
+                            }
+                            ++depth;
                         }
-                        ++depth;
                         return false;
                     },
                     [&generator, &scope_end](Context::FunctionDescriptor const &fd) -> bool {
@@ -709,6 +713,12 @@ std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation::CallOp const 
 std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation::BinaryOp const &op)
 {
     os << Arwen::Operator_name(op.op);
+    return os;
+}
+
+std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation::ScopeEndOp const &scope_end_op)
+{
+    os << scope_end_op.enclosing_end << ',' << scope_end_op.has_defers;
     return os;
 }
 

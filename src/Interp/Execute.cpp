@@ -76,7 +76,7 @@ void execute_op<>(Interpreter &interpreter, Operation::BinaryOperator const &imp
 template<>
 void execute_op<>(Interpreter &interpreter, Operation::Break const &impl)
 {
-    uint64_t depth { impl.payload.depth };
+    uint64_t depth { impl.payload.scope_end != 0 ? impl.payload.depth : 0 };
     uint64_t ip { ip_for_label(interpreter, impl.payload.label) };
     interpreter.move_in(&depth, sizeof(uint64_t), 18);
     interpreter.move_in(&ip, sizeof(uint64_t), 17);
@@ -267,7 +267,7 @@ void execute_op<>(Interpreter &interpreter, Operation::ScopeEnd const &impl)
     if (depth > 0) {
         --depth;
         interpreter.move_in(&depth, sizeof(uint64_t), 18);
-        interpreter.call_stack.back().ip = ip_for_label(interpreter, impl.payload.label);
+        interpreter.call_stack.back().ip = ip_for_label(interpreter, impl.payload.enclosing_end);
         return;
     }
     auto jump { interpreter.move_out(17) };

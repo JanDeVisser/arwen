@@ -35,7 +35,7 @@ namespace Arwen::IR {
     S(PushValue, VarPath)                             \
     S(PushVarAddress, VarPath)                        \
     S(ScopeBegin, std::vector<IRVariableDeclaration>) \
-    S(ScopeEnd, BreakOp)                              \
+    S(ScopeEnd, ScopeEndOp)                           \
     S(UnaryOperator, UnaryOp)
 
 // S(Return, pType)                                  \
@@ -76,6 +76,11 @@ struct Operation {
         pType    lhs;
         Operator op;
         pType    rhs;
+    };
+    struct ScopeEndOp {
+        uint64_t enclosing_end;
+        bool     has_defers;
+        pType    exit_type;
     };
     struct UnaryOp {
         pType    operand;
@@ -212,5 +217,6 @@ std::wostream &operator<<(std::wostream &os, Arwen::IR::VarPath const &var_path)
 std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation::CallOp const &call);
 std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation::BreakOp const &block_exit);
 std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation::BinaryOp const &op);
+std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation::ScopeEndOp const &op);
 std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation::UnaryOp const &op);
 std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation const &op);

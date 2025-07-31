@@ -548,10 +548,12 @@ void generate_op(Function &function, IR::Operation::BinaryOperator const &impl)
 template<>
 void generate_op(Function &function, IR::Operation::Break const &impl)
 {
-    function.save_regs[19] = function.save_regs[20] = true;
-    function.add_instruction(L"mov", L"x19,{}", impl.payload.depth);
-    function.add_instruction(L"adr", L"x20,lbl_{}", impl.payload.label);
-    function.add_instruction(L"b", L"lbl_{}", impl.payload.scope_end);
+    if (impl.payload.label != impl.payload.scope_end) {
+        function.save_regs[19] = function.save_regs[20] = true;
+        function.add_instruction(L"mov", L"x19,{}", impl.payload.depth);
+        function.add_instruction(L"adr", L"x20,lbl_{}", impl.payload.label);
+        function.add_instruction(L"b", L"lbl_{}", impl.payload.scope_end);
+    }
 }
 
 void generate_call(Function &function, IR::Operation::CallOp const &call)
@@ -731,16 +733,19 @@ void generate_op(Function &function, IR::Operation::ScopeBegin const &)
 template<>
 void generate_op(Function &function, IR::Operation::ScopeEnd const &impl)
 {
-    function.add_text(std::format(
-        LR"(cmp x19,xzr
+    if (impl.payload.has_defers) {
+        function.add_text(std::format(
+            LR"(cmp x19,xzr
     b.ne 1f
     cmp  x20,xzr
-    b.eq lbl_{}
+    b.eq 2f
     br   x20
 1:
     sub  x19,x19,1
-    b    lbl_{})",
-        impl.payload.scope_end, impl.payload.scope_end));
+    b    lbl_{}
+2:)",
+            impl.payload.enclosing_end));
+    }
 }
 
 template<>
