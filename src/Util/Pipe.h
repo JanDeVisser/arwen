@@ -19,34 +19,60 @@
 
 namespace Util {
 
-class ReadPipe {
+class ReadPipes {
 public:
-    using OnRead = std::function<void(ReadPipe &)>;
-    ReadPipe() = default;
-    ReadPipe(ReadPipe const &) = delete;
-    ReadPipe(ReadPipe &&) = delete;
-    ReadPipe(OnRead on_read);
-    ~ReadPipe();
+    constexpr static int const StdOut = 0;
+    constexpr static int const StdErr = 1;
+    using Channel = int;
 
-    CError      initialize();
-    CError      initialize(std::optional<OnRead> on_read);
-    CError      connect(int fd);
-    void        connect_parent();
-    void        connect_child(int fd) const;
-    void        close();
-    bool        expect();
-    std::string current();
+    using OnRead = std::function<void(ReadPipes &)>;
+    ReadPipes() = default;
+    ReadPipes(ReadPipes const &) = delete;
+    ReadPipes(ReadPipes &&) = delete;
+    ReadPipes(std::optional<OnRead> on_stdout, std::optional<OnRead> on_stderr = {});
+    ~ReadPipes();
+
+    CError initialize(std::optional<OnRead> on_stdout = {}, std::optional<OnRead> on_stderr = {});
+    void   connect_parent();
+    void   connect_child(int out, int err);
+    void   close();
+
+    template<uint8_t N>
+        requires(N <= StdErr)
+    bool expect()
+    {
+        return expect(N);
+    }
+
+    template<uint8_t N>
+        requires(N <= StdErr)
+    std::string current()
+    {
+        return current(N);
+    }
 
 private:
-    void   read();
-    CError drain();
+    void        read();
+    CError      drain(Channel channel);
+    bool        expect(Channel channel);
+    std::string current(Channel channel);
 
-    int                     m_pipe[2] { 0, 0 };
-    int                     m_fd { -1 };
-    std::string             m_current {};
+    struct Pipe {
+        int                   pipe[2];
+        int                   fd;
+        std::optional<OnRead> on_read;
+        std::string           current;
+
+        CError initialize(std::optional<OnRead> on_read_fnc = {});
+        CError connect(int fd);
+        void   connect_parent();
+        void   connect_child(int fd);
+        void   close();
+    };
+
+    std::array<Pipe, 2>     pipes;
     std::mutex              m_mutex {};
     std::condition_variable m_condition {};
-    std::optional<OnRead>   m_on_read {};
     bool                    m_debug { false };
 };
 

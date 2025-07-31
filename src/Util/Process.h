@@ -24,7 +24,7 @@ using ProcessResult = std::expected<int, LibCError>;
 
 class Process {
 public:
-    using OnRead = typename ReadPipe::OnRead;
+    using OnRead = typename ReadPipes::OnRead;
 
     Process(std::string_view const &cmd) noexcept;
     Process(std::string_view const &cmd, StringList args) noexcept;
@@ -41,13 +41,13 @@ public:
     pid_t         pid() const;
     Process      &on_stdout_read(OnRead const &on_read);
     Process      &on_stderr_read(OnRead const &on_read);
+    std::string   stdout() { return std::move(m_out_pipes.current<ReadPipes::StdOut>()); }
+    std::string   stderr() { return std::move(m_out_pipes.current<ReadPipes::StdErr>()); }
     CError        start();
     CError        background();
     ProcessResult wait();
     ProcessResult execute();
     CError        write_to(std::string_view const &msg);
-    std::string   stdout_file;
-    std::string   stderr_file;
 
     template<typename... Args>
     static ProcessResult execute(std::string_view cmd, Args &&...args)
@@ -70,8 +70,7 @@ private:
     std::string              m_command;
     std::vector<std::string> m_arguments;
     WritePipe                m_in {};
-    ReadPipe                 m_out {};
-    ReadPipe                 m_err {};
+    ReadPipes                m_out_pipes {};
     std::optional<OnRead>    m_on_stdout_read {};
     std::optional<OnRead>    m_on_stderr_read {};
 };

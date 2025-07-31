@@ -849,13 +849,10 @@ std::expected<bool, ARM64Error> Object::save_and_assemble() const
         std::println("[ARM64] Assembling root module");
     }
     Util::Process as { "as", path.string(), "-o", o_file.string() };
-    std::string   as_errors;
-    as.on_stderr_read([&as_errors](Util::ReadPipe &pipe) {
-        as_errors = std::move(pipe.current());
-    });
     if (auto res = as.execute(); !res.has_value()) {
         return std::unexpected(ARM64Error { ARM64ErrorCode::InternalError, std::format("`as` execution failed: {}", res.error().description) });
     } else if (res.value() != 0) {
+        std::string as_errors { as.stderr() };
         return std::unexpected(ARM64Error { ARM64ErrorCode::InternalError, std::format("`as` returned {}:\n{}", res.value(), as_errors) });
     }
     if (!has_option("keep-assembly")) {
@@ -889,17 +886,14 @@ std::expected<void, ARM64Error> Executable::generate()
     }
 
     if (!o_files.empty()) {
-        std::string   sdk_path; // "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX12.1.sdk";
         Util::Process p { "xcrun", "-sdk", "macosx", "--show-sdk-path" };
-        p.on_stdout_read([&sdk_path](Util::ReadPipe &pipe) {
-            sdk_path = strip(std::string_view { pipe.current() });
-        });
         if (auto res = p.execute(); !res.has_value()) {
             return std::unexpected(ARM64Error { ARM64ErrorCode::InternalError, std::format("`xcrun` execution failed: {}", res.error().description) });
         } else if (res.value() != 0) {
             return std::unexpected(ARM64Error { ARM64ErrorCode::InternalError, std::format("`xcrun` execution returned {}", res.value()) });
         }
-        fs::path program_path { as_utf8(program->name) };
+        std::string sdk_path { strip(std::string_view { p.stdout() }) };
+        fs::path    program_path { as_utf8(program->name) };
         program_path.replace_extension();
         std::println("[ARM64] Linking `{}`", program_path.string());
         std::println("[ARM64] SDK path: `{}`", sdk_path);
@@ -922,15 +916,11 @@ std::expected<void, ARM64Error> Executable::generate()
             ld_args.push_back(o.string());
         }
 
-        std::string   linker_errors;
         Util::Process link { "ld", ld_args };
-        link.on_stderr_read([&linker_errors](Util::ReadPipe &pipe) {
-            linker_errors = std::move(pipe.current());
-        });
         if (auto res = link.execute(); !res.has_value()) {
             return std::unexpected(ARM64Error { ARM64ErrorCode::InternalError, std::format("Linker execution failed: {}", res.error().description) });
         } else if (res.value() != 0) {
-            return std::unexpected(ARM64Error { ARM64ErrorCode::InternalError, std::format("Linking failed:\n{}", linker_errors) });
+            return std::unexpected(ARM64Error { ARM64ErrorCode::InternalError, std::format("Linking failed:\n{}", link.stderr()) });
         }
         if (!has_option("keep-objects")) {
             for (auto const &o : o_files) {

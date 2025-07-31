@@ -4,6 +4,10 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <cerrno>
+#include <unistd.h>
+
+#include <Util/Error.h>
 #include <Util/Process.h>
 
 extern "C" {
@@ -68,10 +72,7 @@ CError Process::start()
     if (auto err = m_in.initialize(); !err.has_value()) {
         return std::unexpected(err.error());
     }
-    if (auto err = m_out.initialize(m_on_stdout_read); !err.has_value()) {
-        return std::unexpected(err.error());
-    }
-    if (auto err = m_err.initialize(m_on_stderr_read); !err.has_value()) {
+    if (auto err = m_out_pipes.initialize(m_on_stdout_read, m_on_stderr_read); !err.has_value()) {
         return std::unexpected(err.error());
     }
 
@@ -81,25 +82,13 @@ CError Process::start()
     }
     if (m_pid == 0) {
         m_in.connect_child(STDIN_FILENO);
-
-        auto connect_stream = [this](ReadPipe &pipe, int fileno, std::string const &redirect) {
-            if (redirect.empty()) {
-                pipe.connect_child(fileno);
-            } else {
-                int fd = open(redirect.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0777);
-                assert(fd);
-                while (dup2(fd, fileno) == -1 && (errno == EINTR)) { }
-            }
-        };
-        connect_stream(m_out, STDOUT_FILENO, stdout_file);
-        connect_stream(m_err, STDERR_FILENO, stderr_file);
+        m_out_pipes.connect_child(STDOUT_FILENO, STDERR_FILENO);
         assert(argv[0] != nullptr);
         ::execvp(argv[0], (char *const *) argv);
         fatal("execvp({}) failed: {}", m_command, LibCError(errno).description);
     }
     m_in.connect_parent();
-    m_out.connect_parent();
-    m_err.connect_parent();
+    m_out_pipes.connect_parent();
     return {};
 }
 

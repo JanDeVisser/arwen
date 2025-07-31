@@ -4,6 +4,9 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <optional>
+#include <sys/fcntl.h>
+#include <sys/poll.h>
 #include <thread>
 
 #include <Util/Pipe.h>
@@ -14,135 +17,161 @@ constexpr static int PipeEndRead = 0;
 constexpr static int PipeEndWrite = 1;
 constexpr static int DRAIN_SIZE = (64 * 1024);
 
-ReadPipe::ReadPipe(OnRead on_read)
-    : m_on_read(std::move(on_read))
+ReadPipes::ReadPipes(std::optional<OnRead> on_stdout, std::optional<OnRead> on_stderr)
 {
+    pipes[StdOut].on_read = std::move(on_stdout);
+    pipes[StdErr].on_read = std::move(on_stderr);
 }
 
-ReadPipe::~ReadPipe()
+ReadPipes::~ReadPipes()
 {
     close();
 }
 
-CError ReadPipe::initialize()
+CError ReadPipes::Pipe::initialize(std::optional<OnRead> on_read_fnc)
 {
-    if (pipe(m_pipe) == -1) {
+    on_read = std::move(on_read_fnc);
+    if (::pipe(pipe) == -1) {
         return make_error();
     }
     return {};
 }
 
-CError ReadPipe::initialize(std::optional<OnRead> on_read)
+CError ReadPipes::initialize(std::optional<OnRead> on_stdout, std::optional<OnRead> on_stderr)
 {
-    m_on_read = std::move(on_read);
-    return initialize();
+    if (auto res = pipes[StdOut].initialize(on_stdout); !res.has_value()) {
+        return std::unexpected(res.error());
+    }
+    if (auto res = pipes[StdErr].initialize(on_stderr); !res.has_value()) {
+        return std::unexpected(res.error());
+    }
+    return {};
 }
 
-CError ReadPipe::connect(int fd)
+CError ReadPipes::Pipe::connect(int fd)
 {
-    m_fd = fd;
-    if (fcntl(m_fd, F_SETFL, O_NONBLOCK) < 0) {
+    this->fd = fd;
+    if (fcntl(fd, F_SETFL, O_NONBLOCK) < 0) {
         return make_error();
     }
+    return {};
+}
 
-    std::thread thr = std::thread(&ReadPipe::read, this);
+void ReadPipes::Pipe::connect_parent()
+{
+    MUST(connect(pipe[PipeEndRead]));
+    ::close(pipe[PipeEndWrite]);
+}
+
+void ReadPipes::connect_parent()
+{
+    pipes[StdOut].connect_parent();
+    pipes[StdErr].connect_parent();
+    std::thread thr = std::thread(&ReadPipes::read, this);
     thr.detach();
-    return {};
 }
 
-void ReadPipe::connect_parent()
+void ReadPipes::Pipe::connect_child(int fd)
 {
-    MUST(connect(m_pipe[PipeEndRead]));
-    ::close(m_pipe[PipeEndWrite]);
+    while ((dup2(pipe[PipeEndWrite], fd) == -1) && (errno == EINTR)) { }
+    this->fd = fd;
+    ::close(pipe[PipeEndRead]);
+    ::close(pipe[PipeEndWrite]);
 }
 
-void ReadPipe::connect_child(int fd) const
+void ReadPipes::connect_child(int out, int err)
 {
-    while ((dup2(m_pipe[PipeEndWrite], fd) == -1) && (errno == EINTR)) { }
-    ::close(m_pipe[PipeEndRead]);
-    ::close(m_pipe[PipeEndWrite]);
+    pipes[StdOut].connect_child(out);
+    pipes[StdErr].connect_child(err);
 }
 
-void ReadPipe::close()
+void ReadPipes::Pipe::close()
+{
+    if (fd >= 0) {
+        ::close(fd);
+    }
+    fd = -1;
+}
+
+void ReadPipes::close()
 {
     m_condition.notify_all();
-    if (m_fd >= 0) {
-        ::close(m_fd);
-    }
-    m_fd = -1;
+    pipes[StdOut].close();
+    pipes[StdErr].close();
 }
 
-bool ReadPipe::expect()
+bool ReadPipes::expect(Channel channel)
 {
     std::unique_lock lk(m_mutex);
-    m_condition.wait(lk, [this]() {
-        return !m_current.empty() || m_fd < 0;
+    auto            &p { pipes[channel] };
+    m_condition.wait(lk, [&p]() {
+        return !p.current.empty() || p.fd < 0;
     });
-    if (m_fd < 0) {
+    if (p.fd < 0) {
         return false;
     }
     return true;
 }
 
-std::string ReadPipe::current()
+std::string ReadPipes::current(Channel channel)
 {
     std::string ret;
-    {
+    auto       &p { pipes[channel] };
+    if (p.fd >= 0 && p.current.empty()) {
         std::unique_lock lk(m_mutex);
-        Defer            sg { [&lk]() {
-            lk.unlock();
-        } };
-        if (m_fd >= 0 && m_current.empty()) {
-            m_condition.wait(lk, [this]() {
-                return !m_current.empty() || m_fd < 0;
+        if (p.fd >= 0 && p.current.empty()) {
+            m_condition.wait(lk, [&p]() {
+                return !p.current.empty() || p.fd < 0;
             });
         }
-        if (m_fd < 0) {
-            return {};
-        }
-        ret = std::move(m_current);
-        m_current = "";
     }
+    ret.swap(p.current);
     return ret;
 }
 
-void ReadPipe::read()
+void ReadPipes::read()
 {
-    struct pollfd poll_fd = { 0 };
-    poll_fd.fd = m_fd;
-    poll_fd.events = POLLIN;
+    struct pollfd poll_fd[2] = { 0 };
+    for (auto ix = 0; ix < 2; ++ix) {
+        poll_fd[ix].fd = pipes[ix].fd;
+        poll_fd[ix].events = POLLIN;
+    }
 
-    while (true) {
-        if (poll(&poll_fd, 1, -1) == -1) {
+    bool done { false };
+    do {
+        if (poll(poll_fd, 2, -1) == -1) {
             if (errno == EINTR) {
                 continue;
             }
             break;
         }
-        if (poll_fd.revents & POLLIN) {
-            MUST(drain());
+        for (auto ix = 0; ix < 2; ++ix) {
+            if (poll_fd[ix].revents & POLLIN) {
+                MUST(drain(ix));
+            }
+            if (poll_fd[ix].revents & POLLHUP) {
+                done = true;
+                break;
+            }
         }
-        if (poll_fd.revents & POLLHUP) {
-            break;
-        }
-    }
-    close();
+    } while (!done);
 }
 
-CError ReadPipe::drain()
+CError ReadPipes::drain(Channel channel)
 {
+    auto &p { pipes[channel] };
+    if (p.fd < 0) {
+        return {};
+    }
     {
         std::unique_lock lk(m_mutex);
-        Defer            guard { [&lk]() {
-            lk.unlock();
-        } };
-        char buffer[DRAIN_SIZE];
+        char             buffer[DRAIN_SIZE];
         while (true) {
-            ssize_t count = ::read(m_fd, buffer, sizeof(buffer) - 1);
+            ssize_t count = ::read(p.fd, buffer, sizeof(buffer) - 1);
             if (count >= 0) {
                 buffer[count] = 0;
                 if (count > 0) {
-                    m_current.append(buffer, count);
+                    p.current.append(buffer, count);
                     if (count == sizeof(buffer) - 1) {
                         continue;
                     }
@@ -156,8 +185,8 @@ CError ReadPipe::drain()
         }
         m_condition.notify_all();
     }
-    if (m_on_read) {
-        (*m_on_read)(*this);
+    if (!p.current.empty() && p.on_read) {
+        (*p.on_read)(*this);
     }
     return {};
 }
@@ -216,5 +245,4 @@ Result<size_t> WritePipe::write_chars(char const *buf, size_t num) const
     }
     return { total };
 }
-
 }
