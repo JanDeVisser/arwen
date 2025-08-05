@@ -252,7 +252,7 @@ void generate_node(Generator &generator, std::shared_ptr<Block> const &node)
             generator.generate(stmt);
         }
         auto &last = last_op(generator);
-        if (last.type() != Operation::Type::Break) {
+        if (last.type() == Operation::Type::Break) {
             add_operation<Operation::Pop>(generator, node->bound_type);
         }
 
