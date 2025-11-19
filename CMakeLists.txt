@@ -9,7 +9,7 @@ message("System: ${CMAKE_SYSTEM_NAME}. Processor: ${CMAKE_SYSTEM_PROCESSOR}. Ver
 # message(FATAL_ERROR "Arwen requires Clang because it used C++ language extensions not supported in GCC")
 # endif()
 set(CMAKE_C_STANDARD 23)
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 26)
 
 if (APPLE)
     set(IS_APPLE TRUE)
@@ -105,6 +105,7 @@ add_library(
     src/App/Type.cpp
     src/App/Value.cpp
     src/App/IR/Generate.cpp
+    src/App/IR/IR.cpp
     src/Interp/Execute.cpp
     src/Interp/Interpreter.cpp
     src/Interp/Native.cpp

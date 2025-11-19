@@ -6,14 +6,14 @@
 
 #include <cstddef>
 #include <functional>
-#include <memory>
 
+#include <App/Parser.h>
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
 
 namespace Arwen {
 
-Namespace::Namespace(pNamespace parent)
+Namespace::Namespace(ASTNode parent)
     : parent(std::move(parent))
 {
 }
@@ -35,7 +35,8 @@ pType Namespace::find_type(std::wstring const &name) const
         return types.at(name);
     }
     if (parent != nullptr) {
-        return parent->find_type(name);
+	assert(parent->ns);
+        return parent->ns->find_type(name);
     }
     return nullptr;
 }
@@ -51,13 +52,14 @@ bool Namespace::has_type(std::wstring const &name) const
     return types.contains(name);
 }
 
-pSyntaxNode Namespace::find_variable(std::wstring const &name) const
+ASTNode Namespace::find_variable(std::wstring const &name) const
 {
     if (variables.contains(name)) {
         return variables.at(name);
     }
     if (parent != nullptr) {
-        return parent->find_variable(name);
+	assert(parent->ns);
+        return parent->ns->find_variable(name);
     }
     return nullptr;
 }
@@ -79,7 +81,7 @@ pType Namespace::type_of(std::wstring const &name) const
     return n->bound_type;
 }
 
-void Namespace::register_variable(std::wstring name, pSyntaxNode node)
+void Namespace::register_variable(std::wstring name, ASTNode node)
 {
     assert(!variables.contains(name));
     variables.emplace(name, std::move(node));
@@ -92,7 +94,7 @@ bool Namespace::has_function(std::wstring const &name) const
 
 Namespace::FunctionConstIter Namespace::find_function_here(std::wstring name, pType const &type) const
 {
-    assert(type->is<FunctionType>());
+    assert(is<FunctionType>(type));
     for (auto it = functions.find(name); it != functions.end(); ++it) {
         if (it->second->bound_type == type) {
             return it;
@@ -101,25 +103,26 @@ Namespace::FunctionConstIter Namespace::find_function_here(std::wstring name, pT
     return functions.end();
 }
 
-pFunctionDefinition Namespace::find_function(std::wstring const &name, pType const &type) const
+ASTNode Namespace::find_function(std::wstring const &name, pType const &type) const
 {
-    assert(type->is<FunctionType>());
+    assert(is<FunctionType>(type));
     if (auto here = find_function_here(name, type); here != functions.end()) {
         return here->second;
     }
     if (parent != nullptr) {
-        return parent->find_function(name, type);
+	assert(parent->ns);
+        return parent->ns->find_function(name, type);
     }
     return nullptr;
 }
 
-pFunctionDefinition Namespace::find_function_by_arg_list(std::wstring const &name, pType const &type) const
+ASTNode Namespace::find_function_by_arg_list(std::wstring const &name, pType const &type) const
 {
-    assert(type->is<TypeList>());
+    assert(is<TypeList>(type));
     auto const &type_descr = std::get<TypeList>(type->description);
     for (auto it = functions.find(name); it != functions.end(); ++it) {
         auto const &func_type = (*it).second->bound_type;
-        if (!func_type->is<FunctionType>()) {
+        if (!is<FunctionType>(func_type)) {
             continue;
         }
         auto const &func_type_descr = std::get<FunctionType>(func_type->description);
@@ -128,38 +131,41 @@ pFunctionDefinition Namespace::find_function_by_arg_list(std::wstring const &nam
         }
     }
     if (parent != nullptr) {
-        return parent->find_function_by_arg_list(name, type);
+	assert(parent->ns);
+        return parent->ns->find_function_by_arg_list(name, type);
     }
     return nullptr;
 }
 
-std::vector<pFunctionDefinition> Namespace::find_overloads(std::wstring const &name, TypeSpecifications const &type_args) const
+ASTNodes Namespace::find_overloads(std::wstring const &name, ASTNodes const &type_args) const
 {
-    std::function<void(std::shared_ptr<Namespace const> const &, std::vector<pFunctionDefinition> &)> find_them;
-    find_them = [&name, &find_them, &type_args](std::shared_ptr<Namespace const> const &ns, std::vector<pFunctionDefinition> &overloads) -> void {
-        for (auto it = ns->functions.find(name); it != ns->functions.end() && it->first == name; ++it) {
-            if (auto const &func_def = it->second; func_def->declaration->generics.size() >= type_args.size()) {
+    std::function<void(Namespace const &, ASTNodes &)> find_them;
+    find_them = [&name, &find_them, &type_args](Namespace const &ns, ASTNodes &overloads) -> void {
+        for (auto it = ns.functions.find(name); it != ns.functions.end() && it->first == name; ++it) {
+            if (auto const &func_def = it->second; get<FunctionDeclaration>(get<FunctionDefinition>(func_def).declaration).generics.size() >= type_args.size()) {
                 overloads.push_back(func_def);
             }
         }
-        if (ns->parent != nullptr) {
-            find_them(ns->parent, overloads);
+        if (ns.parent != nullptr) {
+	    assert(ns.parent->ns);
+            find_them(ns.parent->ns.value(), overloads);
         }
     };
-    std::vector<pFunctionDefinition> ret;
-    find_them(shared_from_this(), ret);
+    ASTNodes ret;
+    find_them(*this, ret);
     return ret;
 }
 
-void Namespace::register_function(std::wstring name, pFunctionDefinition fnc)
+void Namespace::register_function(std::wstring name, ASTNode fnc)
 {
-    assert(fnc->bound_type == nullptr || find_function_here(fnc->name, fnc->bound_type) == functions.end());
+    auto const &def = get<FunctionDefinition>(fnc);
+    assert(fnc->bound_type == nullptr || find_function_here(def.name, fnc->bound_type) == functions.end());
     functions.emplace(name, fnc);
 }
 
-void Namespace::unregister_function(std::wstring name, pFunctionDefinition fnc)
+void Namespace::unregister_function(std::wstring name, ASTNode fnc)
 {
-    assert(fnc->bound_type->is<FunctionType>());
+    assert(is<FunctionType>(fnc->bound_type));
     if (auto it = find_function_here(name, fnc->bound_type); it != functions.end()) {
         functions.erase(it);
     }

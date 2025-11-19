@@ -4,27 +4,22 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <App/Parser.h>
 #include <App/SyntaxNode.h>
 
 namespace Arwen {
 
 Break::Break(Label label)
-    : SyntaxNode(SyntaxNodeType::Break)
-    , label(std::move(label))
+    : label(std::move(label))
 {
 }
 
-pSyntaxNode Break::stamp(Parser& parser)
-{
-    return make_node<Break>(location, label);
-}
-
-pType Break::bind(Parser &parser)
+pType Break::bind(ASTNode const &n)
 {
     return TypeRegistry::void_;
 }
 
-std::wostream& Break::header(std::wostream &os)
+std::wostream &Break::header(ASTNode const &, std::wostream &os)
 {
     if (label) {
         os << *label;
@@ -33,22 +28,16 @@ std::wostream& Break::header(std::wostream &os)
 }
 
 Continue::Continue(Label label)
-    : SyntaxNode(SyntaxNodeType::Continue)
-    , label(std::move(label))
+    : label(std::move(label))
 {
 }
 
-pSyntaxNode Continue::stamp(Parser& parser)
-{
-    return make_node<Break>(location, label);
-}
-
-pType Continue::bind(Parser &parser)
+pType Continue::bind(ASTNode const &n)
 {
     return TypeRegistry::void_;
 }
 
-std::wostream& Continue::header(std::wostream &os)
+std::wostream &Continue::header(ASTNode const &, std::wostream &os)
 {
     if (label) {
         os << *label;
@@ -56,96 +45,93 @@ std::wostream& Continue::header(std::wostream &os)
     return os;
 }
 
-Error::Error(pSyntaxNode expression)
-    : SyntaxNode(SyntaxNodeType::Error)
-    , expression(std::move(expression))
+Error::Error(ASTNode expression)
+    : expression(std::move(expression))
 {
 }
 
-pSyntaxNode Error::normalize(Parser &parser)
+ASTNode Error::normalize(ASTNode const &n)
 {
-    return make_node<Error>(location, normalize_node(expression, parser));
+    expression = expression->normalize();
+    return n;
 }
 
-pSyntaxNode Error::stamp(Parser &parser)
+ASTNode Error::stamp(ASTNode const &n)
 {
-    return make_node<Error>(location, stamp_node(expression, parser));
+    expression = expression->stamp();
+    return n;
 }
 
-pType Error::bind(Parser &parser)
+pType Error::bind(ASTNode const &n)
 {
-    return bind_node(expression, parser);
+    return expression->bind();
 }
 
-void Error::dump_node(int indent)
-{
-    if (expression) {
-        expression->dump(indent + 4);
-    }
-}
-
-Return::Return(pSyntaxNode expression)
-    : SyntaxNode(SyntaxNodeType::Return)
-    , expression(std::move(expression))
-{
-}
-
-pSyntaxNode Return::normalize(Parser &parser)
-{
-    return make_node<Return>(location, normalize_node(expression, parser));
-}
-
-pSyntaxNode Return::stamp(Parser &parser)
-{
-    return make_node<Return>(location, stamp_node(expression, parser));
-}
-
-pType Return::bind(Parser &parser)
-{
-    return bind_node(expression, parser);
-}
-
-void Return::dump_node(int indent)
+void Error::dump_node(ASTNode const &, int indent)
 {
     if (expression) {
         expression->dump(indent + 4);
     }
 }
 
-Yield::Yield(Label label, pSyntaxNode statement)
-    : SyntaxNode(SyntaxNodeType::Yield)
-    , label(std::move(label))
+Return::Return(ASTNode expression)
+    : expression(std::move(expression))
+{
+}
+
+ASTNode Return::normalize(ASTNode const &n)
+{
+    expression = expression->normalize();
+    return n;
+}
+
+ASTNode Return::stamp(ASTNode const &n)
+{
+    expression = expression->stamp();
+    return n;
+}
+
+pType Return::bind(ASTNode const &n)
+{
+    return expression->bind();
+}
+
+void Return::dump_node(ASTNode const &, int indent)
+{
+    if (expression) {
+        expression->dump(indent + 4);
+    }
+}
+
+Yield::Yield(Label label, ASTNode statement)
+    : label(std::move(label))
     , statement(std::move(statement))
 {
 }
 
-pSyntaxNode Yield::normalize(Parser &parser)
+ASTNode Yield::normalize(ASTNode const &n)
 {
-    return make_node<Yield>(
-        location,
-        label,
-        normalize_node(statement, parser));
+    statement = statement->normalize();
+    return n;
 }
 
-pSyntaxNode Yield::stamp(Parser &parser)
+ASTNode Yield::stamp(ASTNode const &n)
 {
-    return make_node<Yield>(
-        location,
-        label,
-        stamp_node(statement, parser));
+    statement = statement->stamp();
+    return n;
 }
 
-pType Yield::bind(Parser &parser)
+pType Yield::bind(ASTNode const &n)
 {
-    return bind_node(statement, parser);
+    return statement->bind();
 }
 
-void Yield::dump_node(int indent)
+void Yield::dump_node(ASTNode const &, int indent)
 {
     statement->dump(indent + 4);
 }
 
-std::wostream& Yield::header(std::wostream &os)
+std::wostream &Yield::header(ASTNode const &, std::wostream &os)
 {
     if (label) {
         os << *label;

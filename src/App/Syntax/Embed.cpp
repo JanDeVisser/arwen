@@ -6,6 +6,7 @@
 
 #include <App/Operator.h>
 #include <App/Parser.h>
+#include <App/SyntaxNode.h>
 #include <Util/IO.h>
 #include <Util/Logging.h>
 #include <Util/Utf8.h>
@@ -15,29 +16,23 @@ namespace Arwen {
 using namespace Util;
 
 Embed::Embed(std::wstring_view file_name)
-    : SyntaxNode(SyntaxNodeType::Embed)
-    , file_name(file_name)
+    : file_name(file_name)
 {
 }
 
-pSyntaxNode Embed::normalize(Parser &parser)
+ASTNode Embed::normalize(ASTNode const &n)
 {
     auto fname = as_utf8(file_name);
     if (auto contents_maybe = read_file_by_name<wchar_t>(fname); contents_maybe.has_value()) {
         auto const &contents = contents_maybe.value();
-        return make_node<Constant>(location, make_value(contents));
+        return make_node<Constant>(n, make_value(contents));
     } else {
-        parser.append(location, "Could not open `{}`: {}", fname, contents_maybe.error().to_string());
+        n.error("Could not open `{}`: {}", fname, contents_maybe.error().to_string());
         return nullptr;
     }
 }
 
-pType Embed::bind(Parser &parser)
-{
-    return parser.bind_error(location, L"`@embed` statement have been elided");
-}
-
-std::wostream &Embed::header(std::wostream &os)
+std::wostream &Embed::header(ASTNode const &, std::wostream &os)
 {
     return os << file_name;
 }

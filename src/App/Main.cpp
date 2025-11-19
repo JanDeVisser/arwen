@@ -123,9 +123,9 @@ int debugger_main(int argc, char const **argv)
         std::wstring file_name;
         std::wstring contents;
         Parser       parser;
-        pSyntaxNode  syntax;
-        pSyntaxNode  normalized;
-        IR::IRNode   ir { std::monostate {} };
+        ASTNode      syntax;
+        ASTNode      normalized;
+        IR::IRNodes  ir {};
         Value        exit_code;
 
         void reset()
@@ -134,7 +134,7 @@ int debugger_main(int argc, char const **argv)
             contents = L"";
             syntax = nullptr;
             normalized = nullptr;
-            ir = std::monostate {};
+            ir = {};
         }
     };
     Context ctx;
@@ -157,7 +157,7 @@ int debugger_main(int argc, char const **argv)
             std::wcout << "STAGE 1 - Parsing" << std::endl;
         }
         ctx.parser.program = parse<Arwen::Program>(ctx.parser, as_utf8(ctx.file_name), load_std_lib().value_or(L""));
-        ctx.parser.push_namespace(ctx.parser.program->ns);
+        ctx.parser.push_namespace(ctx.parser.program);
         auto mod = parse<Arwen::Module>(ctx.parser, as_utf8(ctx.file_name), ctx.contents);
         for (auto const &err : ctx.parser.errors) {
             std::wcerr << err.location.line + 1 << ':' << err.location.column + 1 << " " << err.message << std::endl;
@@ -166,7 +166,7 @@ int debugger_main(int argc, char const **argv)
             std::cerr << "Syntax error(s) found" << std::endl;
             return false;
         }
-        ctx.parser.program->modules[mod->name] = mod;
+        get<Arwen::Program>(ctx.parser.program).modules[get<Arwen::Module>(mod).name] = mod;
         ctx.parser.errors.clear();
         ctx.syntax = ctx.parser.program;
 
@@ -174,8 +174,8 @@ int debugger_main(int argc, char const **argv)
             std::wcout << "STAGE 2 - Folding" << std::endl;
         }
         ctx.parser.namespaces.clear();
-        ctx.parser.push_namespace(ctx.parser.program->ns);
-        ctx.normalized = normalize_node(ctx.syntax, ctx.parser);
+        ctx.parser.push_namespace(ctx.parser.program);
+        ctx.normalized = ctx.syntax->normalize();
         if (!ctx.normalized) {
             std::cerr << "Internal error(s) encountered" << std::endl;
             ctx.reset();
@@ -200,7 +200,7 @@ int debugger_main(int argc, char const **argv)
             prev_pass = ctx.parser.unbound;
             ctx.parser.unbound = 0;
             ctx.parser.unbound_nodes.clear();
-            auto bound_type = bind_node(ctx.normalized, ctx.parser);
+            auto bound_type = ctx.normalized->bind();
             if (!bound_type) {
                 if (verbose) {
                     std::wcout << std::endl;
@@ -256,16 +256,16 @@ int debugger_main(int argc, char const **argv)
                 dump_scopes(interpreter);
                 break;
             case Interp::CallbackType::StartModule:
-                std::wcout << "Initializing module " << std::get<IR::pModule>(payload)->name << std::endl;
+                std::wcout << "Initializing module " << std::get<IR::pIR>(payload)->name << std::endl;
                 break;
             case Interp::CallbackType::EndModule:
-                std::wcout << "Module " << std::get<IR::pModule>(payload)->name << " initialized" << std::endl;
+                std::wcout << "Module " << std::get<IR::pIR>(payload)->name << " initialized" << std::endl;
                 break;
             case Interp::CallbackType::StartFunction:
-                std::wcout << "Entering function " << std::get<pFunction>(payload)->name << std::endl;
+                std::wcout << "Entering function " << std::get<pIR>(payload)->name << std::endl;
                 break;
             case Interp::CallbackType::EndFunction:
-                std::wcout << "Leaving function " << std::get<pFunction>(payload)->name << std::endl;
+                std::wcout << "Leaving function " << std::get<pIR>(payload)->name << std::endl;
                 break;
             case Interp::CallbackType::OnScopeStart:
                 break;
@@ -283,7 +283,7 @@ int debugger_main(int argc, char const **argv)
         };
         Interp interpreter;
         interpreter.callback = cb;
-        auto ret = interpreter.execute(ctx.ir);
+        auto ret = interpreter.execute(ctx.ir.program);
         std::wcout << ret << "\n";
         ctx.exit_code = ret;
     };
@@ -328,7 +328,7 @@ int debugger_main(int argc, char const **argv)
                 } else {
                     load_file(parts[1]);
                     parse_file();
-                    if (ctx.normalized == nullptr || ctx.normalized->status != SyntaxNode::Status::Bound) {
+                    if (ctx.normalized == nullptr || ctx.normalized->status != ASTNodeImpl::Status::Bound) {
                         std::cerr << "Error: parse failed\n";
                     } else {
                         ctx.ir = IR::generate_ir(ctx.normalized);
@@ -355,17 +355,13 @@ int debugger_main(int argc, char const **argv)
                     }
                 }
             } else if (parts[0] == L"generate") {
-                if (ctx.normalized == nullptr || ctx.normalized->status != SyntaxNode::Status::Bound) {
+                if (ctx.normalized == nullptr || ctx.normalized->status != ASTNodeImpl::Status::Bound) {
                     std::cerr << "Error: no bound tree available\n";
                 } else {
                     ctx.ir = IR::generate_ir(ctx.normalized);
                 }
             } else if (parts[0] == L"list") {
-                if (std::holds_alternative<std::monostate>(ctx.ir)) {
-                    std::cerr << "Error: no IR available\n";
-                } else {
-                    IR::list(ctx.ir);
-                }
+                IR::list(ctx.ir, std::wcout);
             } else if (parts[0] == L"run") {
                 if (ctx.syntax == nullptr) {
                     if (parts.size() < 2) {
@@ -373,46 +369,34 @@ int debugger_main(int argc, char const **argv)
                     } else {
                         load_file(parts[1]);
                         parse_file(false);
-                        if (ctx.normalized == nullptr || ctx.normalized->status != SyntaxNode::Status::Bound) {
+                        if (ctx.normalized == nullptr || ctx.normalized->status != ASTNodeImpl::Status::Bound) {
                             std::cerr << "Error: parse failed\n";
                         } else {
                             ctx.ir = IR::generate_ir(ctx.normalized);
                         }
                     }
                 }
-                if (std::holds_alternative<IR::pProgram>(ctx.ir)) {
-                    auto ret = Arwen::Interpreter::execute_ir(ctx.ir);
-                    if (from_argv) {
-                        return as<int32_t>(ret);
-                    }
-                    std::wcout << ret << "\n";
-                    ctx.exit_code = ret;
-                } else {
-                    std::cerr << "Error: no IR available\n";
+                auto ret = Arwen::Interpreter::execute_ir(ctx.ir);
+                if (from_argv) {
+                    return as<int32_t>(ret);
                 }
+                std::wcout << ret << "\n";
+                ctx.exit_code = ret;
             } else if (parts[0] == L"trace") {
-                if (std::holds_alternative<IR::pProgram>(ctx.ir)) {
-                    trace_program();
-                } else {
-                    std::cerr << "Error: no IR available\n";
-                }
+                trace_program();
             } else if (parts[0] == L"compile") {
                 if (parts.size() != 2) {
                     std::cerr << "Error: filename missing\n";
                 } else {
                     load_file(parts[1]);
                     parse_file();
-                    if (ctx.normalized == nullptr || ctx.normalized->status != SyntaxNode::Status::Bound) {
+                    if (ctx.normalized == nullptr || ctx.normalized->status != ASTNodeImpl::Status::Bound) {
                         std::cerr << "Error: parse failed\n";
                     } else {
                         ctx.ir = IR::generate_ir(ctx.normalized);
-                        if (std::holds_alternative<IR::pProgram>(ctx.ir)) {
-                            MUST(Arm64::generate_arm64(std::get<IR::pProgram>(ctx.ir)));
-                            if (from_argv) {
-                                return 0;
-                            }
-                        } else {
-                            std::cerr << "Error: no IR available\n";
+                        MUST(Arm64::generate_arm64(ctx.ir));
+                        if (from_argv) {
+                            return 0;
                         }
                     }
                 }

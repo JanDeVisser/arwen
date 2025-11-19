@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <cstdio>
 #include <cstring>
 #include <format>
 #include <iostream>
@@ -241,7 +242,11 @@ void assert_msg(std::string_view const &file, size_t line, std::string_view cons
 #define warning(fmt, ...) warning_msg(__FILE__, __LINE__, __func__, fmt __VA_OPT__(, ) __VA_ARGS__)
 #define log_error(fmt, ...) error_msg(__FILE__, __LINE__, __func__, fmt __VA_OPT__(, ) __VA_ARGS__)
 #define fatal(fmt, ...) fatal_msg(__FILE__, __LINE__, __func__, fmt __VA_OPT__(, ) __VA_ARGS__)
-#define assert(condition) assert_msg(__FILE__, __LINE__, __func__, condition, "Assertion error: {}", #condition)
+#define assert(condition)                                                              \
+    do {                                                                               \
+        bool __c = (condition);                                                        \
+	Util::assert_msg(__FILE__, __LINE__, __func__, __c, "Assertion error: " #condition); \
+    } while (0)
 #define assert_with_msg(condition, fmt, ...) assert_msg(__FILE__, __LINE__, __func__, condition, "Assertion error: " #condition ": " fmt __VA_OPT__(, ) __VA_ARGS__)
 
 #define UNREACHABLE() fatal("Unreachable")

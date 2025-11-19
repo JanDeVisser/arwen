@@ -20,7 +20,7 @@ using namespace Util;
 using namespace Arwen;
 using namespace Arwen::IR;
 
-Scope::Scope(Interpreter &interpreter, IRNode const &ir, std::vector<IRVariableDeclaration> variables, std::optional<uint64_t> parent)
+Scope::Scope(Interpreter &interpreter, pIR const &ir, std::vector<IRVariableDeclaration> variables, std::optional<uint64_t> parent)
     : interpreter(interpreter)
     , ir(ir)
     , parent(parent)
@@ -57,7 +57,7 @@ void Scope::setup()
 void Scope::release()
 {
     trace(L"Scope::release()");
-    if (std::holds_alternative<IR::pProgram>(ir) || std::holds_alternative<IR::pModule>(ir)) {
+    if (is<IR::Program>(ir) || is<IR::Module>(ir)) {
         trace("Scope::release: static Scope bp: {}", bp);
         return;
     }

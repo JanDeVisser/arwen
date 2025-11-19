@@ -9,7 +9,6 @@
 #include <format>
 #include <functional>
 #include <limits>
-#include <memory>
 #include <ranges>
 #include <string>
 #include <string_view>
@@ -36,31 +35,31 @@ IntType   IntType::i64 { true, 64, std::numeric_limits<int64_t>::max(), std::num
 FloatType FloatType::f32 { 32 };
 FloatType FloatType::f64 { 64 };
 
-pType TypeRegistry::u8 { nullptr };
-pType TypeRegistry::u16 { nullptr };
-pType TypeRegistry::u32 { nullptr };
-pType TypeRegistry::u64 { nullptr };
-pType TypeRegistry::i8 { nullptr };
-pType TypeRegistry::i16 { nullptr };
-pType TypeRegistry::i32 { nullptr };
-pType TypeRegistry::i64 { nullptr };
-pType TypeRegistry::f32 { nullptr };
-pType TypeRegistry::f64 { nullptr };
-pType TypeRegistry::boolean { nullptr };
-pType TypeRegistry::string { nullptr };
-pType TypeRegistry::string_builder { nullptr };
-pType TypeRegistry::cstring { nullptr };
-pType TypeRegistry::character { nullptr };
-pType TypeRegistry::void_ { nullptr };
-pType TypeRegistry::pointer { nullptr };
-pType TypeRegistry::ambiguous { nullptr };
-pType TypeRegistry::undetermined { nullptr };
+pType TypeRegistry::u8;
+pType TypeRegistry::u16;
+pType TypeRegistry::u32;
+pType TypeRegistry::u64;
+pType TypeRegistry::i8;
+pType TypeRegistry::i16;
+pType TypeRegistry::i32;
+pType TypeRegistry::i64;
+pType TypeRegistry::f32;
+pType TypeRegistry::f64;
+pType TypeRegistry::boolean;
+pType TypeRegistry::string;
+pType TypeRegistry::string_builder;
+pType TypeRegistry::cstring;
+pType TypeRegistry::character;
+pType TypeRegistry::void_;
+pType TypeRegistry::pointer;
+pType TypeRegistry::ambiguous;
+pType TypeRegistry::undetermined;
 
 TypeRegistry TypeRegistry::s_registry {};
 
 std::wstring type_name(pType const &type)
 {
-    return (type != nullptr) ? type->name : L"nullptr";
+    return type ? (type->name) : L"nullptr";
 }
 
 std::wstring FunctionType::to_string() const
@@ -175,7 +174,7 @@ intptr_t EnumType::size_of() const
         values.begin(),
         values.end(),
         [&maxsize, this](Value const &value) -> void {
-            if (value.payload != nullptr) {
+            if (value.payload) {
                 maxsize = std::max(alignat(value.payload->size_of(), align_of()), maxsize);
             }
         });
@@ -189,7 +188,7 @@ intptr_t EnumType::align_of() const
         values.begin(),
         values.end(),
         [&ret](Value const &value) -> void {
-            ret = std::max((value.payload != nullptr) ? value.payload->align_of() : 0, ret);
+            ret = std::max((value.payload) ? value.payload->align_of() : 0, ret);
         });
     return ret;
 }
@@ -253,46 +252,46 @@ intptr_t ErrorType::align_of() const
 
 std::map<std::wstring, pType> Type::infer_generic_arguments(pType const &param_type) const
 {
-    std::function<void(std::map<std::wstring, pType> &, Type const &, Type const &)> infer;
-    infer = [&infer](std::map<std::wstring, pType> &mapping, Type const &arg, Type const &param) {
+    std::function<void(std::map<std::wstring, pType> &, pType const &, pType const &)> infer;
+    infer = [&infer](std::map<std::wstring, pType> &mapping, pType const &arg, pType const &param) {
         std::visit(overloads {
                        [&mapping, &infer](OptionalType const &d, OptionalType const &other) -> void {
-                           infer(mapping, *d.type, *other.type);
+                           infer(mapping, d.type, other.type);
                        },
                        [&mapping, &infer](ErrorType const &d, ErrorType const &other) -> void {
-                           infer(mapping, *d.success, *other.success);
-                           infer(mapping, *d.error, *other.error);
+                           infer(mapping, d.success, other.success);
+                           infer(mapping, d.error, other.error);
                        },
                        [&mapping, &infer](SliceType const &d, SliceType const &other) -> void {
-                           infer(mapping, *d.slice_of, *other.slice_of);
+                           infer(mapping, d.slice_of, other.slice_of);
                        },
                        [&mapping, &infer](Array const &d, Array const &other) -> void {
-                           infer(mapping, *d.array_of, *other.array_of);
+                           infer(mapping, d.array_of, other.array_of);
                        },
                        [&mapping, &infer](DynArray const &d, DynArray const &other) -> void {
-                           infer(mapping, *d.array_of, *other.array_of);
+                           infer(mapping, d.array_of, other.array_of);
                        },
                        [&mapping, &infer](ZeroTerminatedArray const &d, ZeroTerminatedArray const &other) -> void {
-                           infer(mapping, *d.array_of, *other.array_of);
+                           infer(mapping, d.array_of, other.array_of);
                        },
                        [&mapping, &infer](RangeType const &d, RangeType const &other) -> void {
-                           infer(mapping, *d.range_of, *other.range_of);
+                           infer(mapping, d.range_of, other.range_of);
                        },
                        [&mapping, &infer, &arg](auto const &d, TypeAlias const &other) -> void {
-                           infer(mapping, arg, *other.alias_of);
+                           infer(mapping, arg, other.alias_of);
                        },
                        [&mapping, &arg](auto const &d, GenericParameter const &generic) -> void {
-                           mapping[generic.name] = arg.shared_from_this();
+                           mapping[generic.name] = arg;
                        },
                        [](auto const &d, auto const &other) -> void {
                        } },
-            arg.description, param.description);
+            arg->description, param->description);
     };
-    if (is<TypeAlias>()) {
+    if (is<TypeAlias>(id)) {
         return std::get<TypeAlias>(description).alias_of->infer_generic_arguments(param_type);
     }
     std::map<std::wstring, pType> ret;
-    infer(ret, *this, *param_type);
+    infer(ret, this->id, param_type);
     return ret;
 }
 
@@ -334,8 +333,8 @@ pType TypeRegistry::generic_parameter(std::wstring name)
                            [](auto const &) -> bool {
                                return false;
                            } },
-                t->description)) {
-            return t;
+                t.description)) {
+            return t.id;
         }
     }
     auto ret = make_type(std::format(L"{}", name), GenericParameter { std::move(name) });
@@ -344,7 +343,7 @@ pType TypeRegistry::generic_parameter(std::wstring name)
 
 pType TypeRegistry::referencing(pType type)
 {
-    assert(type != nullptr);
+    assert(type);
     for (auto const &t : types) {
         if (std::visit(overloads {
                            [&type](ReferenceType const descr) -> bool {
@@ -353,8 +352,8 @@ pType TypeRegistry::referencing(pType type)
                            [](auto const &) -> bool {
                                return false;
                            } },
-                t->description)) {
-            return t;
+                t.description)) {
+            return t.id;
         }
     }
     auto ret = make_type(std::format(L"&{}", type->name), ReferenceType { type });
@@ -363,14 +362,14 @@ pType TypeRegistry::referencing(pType type)
 
 pType TypeRegistry::alias_for(pType type)
 {
-    assert(type != nullptr);
+    assert(type);
     auto ret = make_type(std::format(L"AliasOf({})", type->name), TypeAlias { type });
     return ret;
 }
 
 pType TypeRegistry::slice_of(pType type)
 {
-    assert(type != nullptr);
+    assert(type);
     for (auto const &t : types) {
         if (std::visit(overloads {
                            [&type](SliceType const descr) -> bool {
@@ -379,8 +378,8 @@ pType TypeRegistry::slice_of(pType type)
                            [](auto const &) -> bool {
                                return false;
                            } },
-                t->description)) {
-            return t;
+                t.description)) {
+            return t.id;
         }
     }
     auto ret = make_type(std::format(L"[]{}", type->name), SliceType { type });
@@ -389,6 +388,7 @@ pType TypeRegistry::slice_of(pType type)
 
 pType TypeRegistry::zero_terminated_array_of(pType type)
 {
+    assert(type);
     for (auto const &t : types) {
         if (std::visit(overloads {
                            [&type](ZeroTerminatedArray const &descr) -> bool {
@@ -397,8 +397,8 @@ pType TypeRegistry::zero_terminated_array_of(pType type)
                            [](auto const &) -> bool {
                                return false;
                            } },
-                t->description)) {
-            return t;
+                t.description)) {
+            return t.id;
         }
     }
     auto ret = make_type(std::format(L"[0]{}", type->name), ZeroTerminatedArray { type });
@@ -407,6 +407,8 @@ pType TypeRegistry::zero_terminated_array_of(pType type)
 
 pType TypeRegistry::array_of(pType type, size_t size)
 {
+    assert(type);
+    assert(size > 0);
     for (auto const &t : types) {
         if (std::visit(overloads {
                            [&type, &size](Array const &descr) -> bool {
@@ -415,8 +417,8 @@ pType TypeRegistry::array_of(pType type, size_t size)
                            [](auto const &) -> bool {
                                return false;
                            } },
-                t->description)) {
-            return t;
+                t.description)) {
+            return t.id;
         }
     }
     auto ret = make_type(std::format(L"[{}]{}", size, type->name), Array { type, size });
@@ -433,8 +435,8 @@ pType TypeRegistry::dyn_array_of(pType type)
                            [](auto const &) -> bool {
                                return false;
                            } },
-                t->description)) {
-            return t;
+                t.description)) {
+            return t.id;
         }
     }
     auto ret = make_type(std::format(L"[*]{}", type->name), DynArray { type });
@@ -443,6 +445,7 @@ pType TypeRegistry::dyn_array_of(pType type)
 
 pType TypeRegistry::optional_of(pType type)
 {
+    assert(type);
     for (auto const &t : types) {
         if (std::visit(overloads {
                            [&type](OptionalType const descr) -> bool {
@@ -451,8 +454,8 @@ pType TypeRegistry::optional_of(pType type)
                            [](auto const &) -> bool {
                                return false;
                            } },
-                t->description)) {
-            return t;
+                t.description)) {
+            return t.id;
         }
     }
     auto ret = make_type(std::format(L"{}?", type->name), OptionalType { type });
@@ -461,6 +464,8 @@ pType TypeRegistry::optional_of(pType type)
 
 pType TypeRegistry::error_of(pType success, pType error)
 {
+    assert(success);
+    assert(error);
     for (auto const &t : types) {
         if (std::visit(overloads {
                            [&success, &error](ErrorType const descr) -> bool {
@@ -469,8 +474,8 @@ pType TypeRegistry::error_of(pType success, pType error)
                            [](auto const &) -> bool {
                                return false;
                            } },
-                t->description)) {
-            return t;
+                t.description)) {
+            return t.id;
         }
     }
     auto ret = make_type(std::format(L"{}/{}", success->name, error->name), ErrorType { success, error });
@@ -487,8 +492,8 @@ pType TypeRegistry::function_of(std::vector<pType> const &parameters, pType resu
                            [](auto const &x) -> bool {
                                return false;
                            } },
-                t->description)) {
-            return t;
+                t.description)) {
+            return t.id;
         }
     }
 
@@ -515,8 +520,8 @@ pType TypeRegistry::typelist_of(std::vector<pType> const &typelist)
                     [](auto const &) -> bool {
                         return false;
                     } },
-                t->description)) {
-            return t;
+                t.description)) {
+            return t.id;
         }
     }
 
@@ -549,8 +554,8 @@ pType TypeRegistry::struct_of(StructType::Fields const &fields)
                     [](auto const &) -> bool {
                         return false;
                     } },
-                t->description)) {
-            return t;
+                t.description)) {
+            return t.id;
         }
     }
 

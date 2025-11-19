@@ -4,57 +4,42 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <App/Operator.h>
-#include <App/Parser.h>
+#include <cstddef>
+
 #include <Util/IO.h>
 #include <Util/Logging.h>
 #include <Util/Utf8.h>
-#include <cstddef>
+
+#include <App/Operator.h>
+#include <App/Parser.h>
+#include <App/SyntaxNode.h>
 
 namespace Arwen {
 
 using namespace Util;
 
 Include::Include(std::wstring_view file_name)
-    : SyntaxNode(SyntaxNodeType::Include)
-    , file_name(file_name)
+    : file_name(file_name)
 {
 }
 
-pSyntaxNode Include::normalize(Parser &parser)
+ASTNode Include::normalize(ASTNode const &n)
 {
     auto fname = as_utf8(file_name);
     if (auto contents_maybe = read_file_by_name<wchar_t>(fname); contents_maybe.has_value()) {
         auto const &contents = contents_maybe.value();
-        Parser      include_parser;
-        include_parser.level = parser.level;
-        auto node = include_parser.parse_file(std::move(contents), parser.namespaces.back());
-        if (include_parser.level != parser.level) {
-            parser.append(location, "Unbalanced block(s) in @include");
-            return nullptr;
-        }
+        auto node = parse<Block>(*(n.repo), fname, std::move(contents));
         if (node) {
-            node = normalize_node(node, parser);
-            if (node) {
-                node->location = location;
-            }
-            return node;
-        }
-        for (auto &err : include_parser.errors) {
-            parser.errors.push_back(err);
+	    node->location = n->location;
+            return node->normalize();
         }
     } else {
-        parser.append(location, "Could not open include file `{}`", fname);
+        n.error(L"Could not open include file `{}`", file_name);
     }
     return nullptr;
 }
 
-pType Include::bind(Parser &parser)
-{
-    return parser.bind_error(location, L"`@include` statement should have been elided");
-}
-
-std::wostream& Include::header(std::wostream &os)
+std::wostream &Include::header(ASTNode const &, std::wostream &os)
 {
     return os << file_name;
 }

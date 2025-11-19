@@ -14,39 +14,32 @@
 
 namespace Arwen {
 
-Module::Module(std::wstring name, std::wstring source, SyntaxNodes const &statements, pNamespace const &ns)
-    : SyntaxNode(SyntaxNodeType::Module, ns)
-    , name(std::move(name))
+Module::Module(std::wstring name, std::wstring source)
+    : name(std::move(name))
+    , source(std::move(source))
+{
+}
+
+Module::Module(std::wstring name, std::wstring source, ASTNodes const &statements)
+    : name(std::move(name))
     , source(std::move(source))
     , statements(statements)
 {
 }
 
-// Module::Module(std::wstring name, std::wstring source, pBlock statements)
-//     : SyntaxNode(SyntaxNodeType::Module)
-//     , name(std::move(name))
-//     , source(std::move(source))
-//     , statements(std::move(statements))
-// {
-// }
-
-pSyntaxNode Module::normalize(Parser &parser)
+ASTNode Module::normalize(ASTNode const &n)
 {
-    return make_node<Module>(
-        location,
-        name,
-        source,
-        normalize_nodes(statements, parser),
-        ns);
+    n->init_namespace();
+    statements = normalize_nodes(statements);
+    return n;
 }
 
-pType Module::bind(Parser &parser)
+pType Module::bind(ASTNode const &n)
 {
-    assert(ns != nullptr);
     pType type = TypeRegistry::void_;
     pType undetermined { nullptr };
     for (auto &statement : statements) {
-        type = bind_node(statement, parser);
+        type = statement->bind();
         if (type == TypeRegistry::undetermined) {
             undetermined = TypeRegistry::undetermined;
         }
@@ -57,12 +50,12 @@ pType Module::bind(Parser &parser)
     return type;
 }
 
-std::wostream &Module::header(std::wostream &os)
+std::wostream &Module::header(ASTNode const &n, std::wostream &os)
 {
     return os << name;
 }
 
-void Module::dump_node(int const indent)
+void Module::dump_node(ASTNode const &n, int const indent)
 {
     for (auto const &stmt : statements) {
         stmt->dump(indent + 4);

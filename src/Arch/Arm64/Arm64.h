@@ -43,7 +43,7 @@ using ValueStackEntry = std::variant<RegisterAllocation, VarPointer>;
 struct Function {
     std::wstring                     name;
     struct Object                   &object;
-    IR::pFunction                    function { nullptr };
+    IR::pIR                          function { nullptr };
     uint64_t                         stack_depth { 0 };
     std::map<std::wstring, uint64_t> variables;
     std::wstring                     prolog;
@@ -104,7 +104,7 @@ void push(Function &function)
 
 struct Object {
     std::wstring                     file_name;
-    IR::pModule                      module { nullptr };
+    IR::pIR                          module { nullptr };
     std::vector<Function>            functions;
     uint64_t                         next_label { 0 };
     std::wstring                     prolog;
@@ -117,7 +117,7 @@ struct Object {
     void                            add_directive(std::wstring_view const directive, std::wstring_view const args);
     int                             add_string(std::wstring_view const str);
     int                             add_string(std::wstring const &str);
-    void                            generate(IR::pModule module);
+    void                            generate(IR::pIR const &module);
     std::expected<bool, ARM64Error> save_and_assemble() const;
 
     template<typename Arg>
@@ -137,7 +137,7 @@ struct Object {
 };
 
 struct Executable {
-    IR::pProgram        program;
+    IR::pIR             program;
     std::vector<Object> objects;
 
     std::expected<void, ARM64Error> generate();
@@ -145,7 +145,7 @@ struct Executable {
 
 void                            generate_unary(Function &function, pType const &operand, Operator op);
 void                            generate_binop(Function &function, pType const &lhs_type, Operator op, pType const &rhs_type);
-std::expected<void, ARM64Error> generate_arm64(IR::pProgram program);
+std::expected<void, ARM64Error> generate_arm64(IR::IRNodes const &ir);
 
 std::wostream &operator<<(std::wostream &os, Function const &function);
 std::wostream &operator<<(std::wostream &os, Object const &object);

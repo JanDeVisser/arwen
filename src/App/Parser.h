@@ -6,8 +6,8 @@
 
 #pragma once
 
+#include <concepts>
 #include <format>
-#include <memory>
 #include <string>
 #include <string_view>
 
@@ -22,6 +22,7 @@
 #include <App/Operator.h>
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
+#include <type_traits>
 
 namespace Arwen {
 
@@ -59,64 +60,83 @@ struct Parser {
     std::wstring_view               text;
     ArwenLexer                      lexer {};
     ParseLevel                      level { ParseLevel::Module };
+    std::vector<ASTNodeImpl>        nodes;
     std::vector<ArwenError>         errors;
-    std::vector<pSyntaxNode>        unbound_nodes;
-    std::vector<pNamespace>         namespaces;
-    std::shared_ptr<Program>        program;
+    std::vector<ASTNode>            unbound_nodes;
+    std::vector<ASTNode>            namespaces;
+    ASTNode                         program;
     int                             pass { 0 };
     int                             unbound { 0 };
 
+    size_t             size() const { return nodes.size(); }
+    bool               empty() const { return nodes.empty(); }
+    ASTNodeImpl const &operator[](size_t ix) const { return nodes[ix]; }
+    ASTNodeImpl       &operator[](size_t ix) { return nodes[ix]; }
+
+    template<class N, typename... Args>
+        requires std::derived_from<N, AbstractSyntaxNode>
+    ASTNode make_node(TokenLocation const &loc, Args... args)
+    {
+        ASTNode ret = this->make_node<N>(loc, args...);
+        ret->location = loc;
+        return ret;
+    }
+
+    template<class N, typename... Args>
+        requires std::derived_from<N, AbstractSyntaxNode>
+    ASTNode make_node(Args... args)
+    {
+        nodes.push_back(ASTNodeImpl::make<N>(args...));
+        return { this };
+    }
+
     Parser();
 
-    pSyntaxNode                parse_file(std::wstring const &text, pNamespace ns);
-    pSyntaxNode                parse_script(std::wstring text);
-    Token                      parse_statements(SyntaxNodes &statements);
-    pSyntaxNode                parse_statement();
-    pSyntaxNode                parse_module_level_statement();
-    std::wstring_view          text_at(size_t start, std::optional<size_t> end) const;
-    std::wstring_view          text_of(Token const &token) const;
-    std::wstring_view          text_of(LexerErrorMessage const &error) const;
-    std::wstring_view          text_of(LexerError const &error) const;
-    std::wstring_view          text_of(LexerResult const &res) const;
-    std::wstring_view          text_of(TokenLocation const &location) const;
-    pSyntaxNode                parse_primary();
-    pSyntaxNode                parse_expression(Precedence min_prec = 0);
-    bool                       check_op();
-    std::optional<OperatorDef> check_binop();
-    std::optional<OperatorDef> check_prefix_op();
-    std::optional<OperatorDef> check_postfix_op();
-    pTypeSpecification         parse_type();
-    pSyntaxNode                parse_break_continue();
-    pSyntaxNode                parse_defer();
-    pSyntaxNode                parse_embed();
-    pSyntaxNode                parse_enum();
-    pSyntaxNode                parse_for();
-    pSyntaxNode                parse_func();
-    pSyntaxNode                parse_if();
-    pSyntaxNode                parse_import();
-    pSyntaxNode                parse_include();
-    pSyntaxNode                parse_loop();
-    pSyntaxNode                parse_public();
-    pSyntaxNode                parse_return_error();
-    pSyntaxNode                parse_struct();
-    pSyntaxNode                parse_var_decl();
-    pSyntaxNode                parse_while();
-    pSyntaxNode                parse_yield();
-
-    [[nodiscard]] pType                            type_of(std::wstring const &name) const;
-    [[nodiscard]] bool                             has_function(std::wstring const &name, pType const &type) const;
-    [[nodiscard]] pFunctionDefinition              find_function(std::wstring const &name, pType const &type) const;
-    [[nodiscard]] pFunctionDefinition              find_function_by_arg_list(std::wstring const &name, pType const &type) const;
-    [[nodiscard]] std::vector<pFunctionDefinition> find_overloads(std::wstring const &name, TypeSpecifications const &type_args) const;
-    void                                           register_variable(std::wstring name, pSyntaxNode node);
-    [[nodiscard]] bool                             has_variable(std::wstring const &name) const;
-    void                                           register_function(std::wstring name, pFunctionDefinition node);
-    void                                           unregister_function(std::wstring name, pFunctionDefinition node);
-    [[nodiscard]] pType                            find_type(std::wstring const &name) const;
-    void                                           register_type(std::wstring name, pType type);
-    void                                           push_namespace(pNamespace const &ns);
-    pNamespace const                              &push_new_namespace(pNamespace const &parent = nullptr);
-    void                                           pop_namespace();
+    Token                              parse_statements(ASTNodes &statements);
+    ASTNode                            parse_statement();
+    ASTNode                            parse_module_level_statement();
+    std::wstring_view                  text_at(size_t start, std::optional<size_t> end) const;
+    std::wstring_view                  text_of(Token const &token) const;
+    std::wstring_view                  text_of(LexerErrorMessage const &error) const;
+    std::wstring_view                  text_of(LexerError const &error) const;
+    std::wstring_view                  text_of(LexerResult const &res) const;
+    std::wstring_view                  text_of(TokenLocation const &location) const;
+    ASTNode                            parse_primary();
+    ASTNode                            parse_expression(Precedence min_prec = 0);
+    bool                               check_op();
+    std::optional<OperatorDef>         check_binop();
+    std::optional<OperatorDef>         check_prefix_op();
+    std::optional<OperatorDef>         check_postfix_op();
+    ASTNode                            parse_type();
+    ASTNode                            parse_break_continue();
+    ASTNode                            parse_defer();
+    ASTNode                            parse_embed();
+    ASTNode                            parse_enum();
+    ASTNode                            parse_for();
+    ASTNode                            parse_func();
+    ASTNode                            parse_if();
+    ASTNode                            parse_import();
+    ASTNode                            parse_include();
+    ASTNode                            parse_loop();
+    ASTNode                            parse_public();
+    ASTNode                            parse_return_error();
+    ASTNode                            parse_struct();
+    ASTNode                            parse_var_decl();
+    ASTNode                            parse_while();
+    ASTNode                            parse_yield();
+    [[nodiscard]] pType                type_of(std::wstring const &name) const;
+    [[nodiscard]] bool                 has_function(std::wstring const &name, pType const &type) const;
+    [[nodiscard]] ASTNode              find_function(std::wstring const &name, pType const &type) const;
+    [[nodiscard]] ASTNode              find_function_by_arg_list(std::wstring const &name, pType const &type) const;
+    [[nodiscard]] std::vector<ASTNode> find_overloads(std::wstring const &name, ASTNodes const &type_args) const;
+    void                               register_variable(std::wstring name, ASTNode node);
+    [[nodiscard]] bool                 has_variable(std::wstring const &name) const;
+    void                               register_function(std::wstring name, ASTNode node);
+    void                               unregister_function(std::wstring name, ASTNode node);
+    [[nodiscard]] pType                find_type(std::wstring const &name) const;
+    void                               register_type(std::wstring name, pType type);
+    void                               push_namespace(ASTNode const &ns);
+    void                               pop_namespace();
 
     void append(LexerErrorMessage const &lexer_error);
     void append(LexerErrorMessage const &lexer_error, char const *message);
@@ -164,7 +184,8 @@ struct Parser {
         append(lexer_error.location, std::vformat(message.get(), std::make_wformat_args(args...)));
     }
 
-    pType bind_error(TokenLocation location, std::wstring msg);
+    pType bind_error(TokenLocation location, std::wstring const &msg);
+    pType bind_error(TokenLocation location, std::string const &msg);
 
     template<typename... Args>
     pType bind_error(TokenLocation location, std::format_string<Args...> const message, Args &&...args)
@@ -179,26 +200,53 @@ struct Parser {
     }
 };
 
+template<typename Node, typename... Args>
+    requires std::derived_from<Node, AbstractSyntaxNode>
+ASTNode make_node(ASTNode const &from, Args... args)
+{
+    return from.repo->make_node<Node>(from->location, args...);
+}
+
 template<typename Node>
-std::shared_ptr<Node> parse(Parser &parser, std::string_view name, std::wstring text)
+    requires is_component<Node> || std::is_same_v<Node, Block>
+ASTNode parse(Parser &parser, std::string_view module_name, std::wstring text)
 {
     parser.text = text;
     parser.lexer.push_source(text);
 
-    parser.push_new_namespace();
-    Defer       pop_ns { [&parser]() { parser.pop_namespace(); } };
-    SyntaxNodes statements;
+    ASTNode ret;
+    if constexpr (std::is_same_v<Node, Block>) {
+        ret = parser.make_node<Node>();
+    } else {
+        ret = parser.make_node<Node>(as_wstring(module_name), text);
+    }        
+    ASTNodes statements;
     if (auto t = parser.parse_statements(statements); !t.matches(TokenKind::EndOfFile)) {
         parser.append(t, "Expected end of file");
         return nullptr;
     }
     if (!statements.empty()) {
-        return make_node<Node>(
-            statements[0]->location + statements.back()->location,
-            as_wstring(name),
-            std::move(text),
-            statements,
-            parser.namespaces.back());
+        ret->location = statements[0]->location + statements.back()->location;
+        std::visit(
+            overloads {
+                [&statements](Program &n) {
+                    n.statements = std::move(statements);
+                },
+                [&statements](Module &n) {
+                    n.statements = std::move(statements);
+                },
+                [&statements](Block &n) {
+                    n.statements = std::move(statements);
+                },
+                [](auto &n) { UNREACHABLE(); } },
+            ret->node);
+        if constexpr (std::is_same_v<Node, Program>) {
+            parser.program = ret;
+        }
+        if constexpr (std::is_same_v<Node, Module>) {
+            get<Program>(parser.program).modules[std::wstring(name(ret))] = ret;
+        }
+        return ret;
     }
     return nullptr;
 }

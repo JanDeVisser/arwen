@@ -6,7 +6,6 @@
 
 #include <cstdlib>
 #include <iostream>
-#include <memory>
 #include <string>
 
 #include <Util/Defer.h>
@@ -18,57 +17,50 @@
 
 namespace Arwen {
 
-Program::Program(std::wstring name, pNamespace ns)
-    : SyntaxNode(SyntaxNodeType::Program, ns)
-    , name(std::move(name))
+Program::Program(std::wstring name, std::wstring source)
+    : name(std::move(name))
+    , source(std::move(source))
 {
 }
 
-Program::Program(std::wstring name, std::map<std::wstring, pModule> modules, SyntaxNodes statements, pNamespace ns)
-    : SyntaxNode(SyntaxNodeType::Program, ns)
-    , name(std::move(name))
+Program::Program(std::wstring name, std::map<std::wstring, ASTNode> modules, ASTNodes statements)
+    : name(std::move(name))
     , modules(std::move(modules))
     , statements(std::move(statements))
 {
 }
 
-Program::Program(std::wstring name, std::wstring source, SyntaxNodes statements, pNamespace ns)
-    : SyntaxNode(SyntaxNodeType::Program, ns)
-    , name(std::move(name))
-    , source(std::move(source))
-    , statements(std::move(statements))
+ASTNode Program::normalize(ASTNode const &n)
 {
-}
-
-pSyntaxNode Program::normalize(Parser &parser)
-{
+    n->init_namespace();
+    for (auto const &t : TypeRegistry::the().types) {
+	n->ns->register_type(t.name, t.id);
+    }
     for (auto &[name, mod] : modules) {
-        auto const normalized = std::dynamic_pointer_cast<Module>(normalize_node(mod, parser));
+        auto const normalized = mod->normalize();
         if (normalized != nullptr && normalized != mod) {
-            modules[mod->name] = normalized;
+            modules[std::get<Module>(mod->node).name] = normalized;
         }
     }
-    statements = normalize_nodes(statements, parser);
-    return shared_from_this();
+    statements = normalize_nodes(statements);
+    return n;
 }
 
-pType Program::bind(Parser &parser)
+pType Program::bind(ASTNode const &n)
 {
-    parser.push_namespace(ns);
-    Defer pop_scope { [&parser]() { parser.pop_namespace(); } };
     pType ret { nullptr };
-    if (parser.pass == 0) {
-        for (auto &[_, mod] : modules) {
-            ns->register_variable(mod->name, mod);
+    if (n.repo->pass == 0) {
+        for (auto &[name, mod] : modules) {
+            n->ns->register_variable(name, mod);
         }
     }
     for (auto &[_, mod] : modules) {
-        if (auto t = bind_node(mod, parser); t == TypeRegistry::undetermined) {
+        if (auto t = mod->bind(); t == TypeRegistry::undetermined) {
             ret = t;
         }
     }
     for (auto &statement : statements) {
-        if (auto t = bind_node(statement, parser); t == TypeRegistry::undetermined) {
+        if (auto t = statement->bind(); t == TypeRegistry::undetermined) {
             ret = t;
         }
     }
@@ -78,12 +70,12 @@ pType Program::bind(Parser &parser)
     return ret;
 }
 
-std::wostream &Program::header(std::wostream &os)
+std::wostream &Program::header(ASTNode const &n, std::wostream &os)
 {
     return os << name;
 }
 
-void Program::dump_node(int indent)
+void Program::dump_node(ASTNode const &n, int indent)
 {
     for (auto const &stmt : statements) {
         stmt->dump(indent + 4);

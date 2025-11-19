@@ -86,36 +86,37 @@ void execute_op<>(Interpreter &interpreter, Operation::Break const &impl)
 template<>
 void execute_op<>(Interpreter &interpreter, Operation::Call const &impl)
 {
-    auto find_func = [&impl](Scope &s) -> IRNode {
+    auto find_func = [&impl](Scope &s) -> pIR {
         return std::visit(
             overloads {
-                [&impl](IR::pModule &mod) -> IRNode {
-                    if (mod->functions.contains(impl.payload.name)) {
-                        return mod->functions[impl.payload.name];
+                [&impl](IR::Module &mod) -> pIR {
+                    if (mod.functions.contains(impl.payload.name)) {
+                        return mod.functions[impl.payload.name];
                     }
-                    if (mod->program->functions.contains(impl.payload.name)) {
-                        return mod->program->functions[impl.payload.name];
-                    }
-                    return {};
-                },
-                [&impl](IR::pProgram &prog) -> IRNode {
-                    if (prog->functions.contains(impl.payload.name)) {
-                        return prog->functions[impl.payload.name];
+		    auto const& p = get<IR::Program>(mod.program);
+                    if (p.functions.contains(impl.payload.name)) {
+                        return p.functions.at(impl.payload.name);
                     }
                     return {};
                 },
-                [](auto &) -> IRNode {
+                [&impl](IR::Program &prog) -> pIR {
+                    if (prog.functions.contains(impl.payload.name)) {
+                        return prog.functions[impl.payload.name];
+                    }
+                    return {};
+                },
+                [](auto &) -> pIR {
                     return {};
                 },
             },
-            s.ir);
+            s.ir->node);
     };
 
     auto scope_ix = interpreter.scopes.size() - 1;
     while (true) {
         Scope &s { interpreter.scopes[scope_ix] };
-        if (auto const &f = find_func(s); std::holds_alternative<IR::pFunction>(f)) {
-            auto const &ret = std::get<IR::pFunction>(f)->return_type;
+        if (auto const &f = find_func(s); f != nullptr) {
+            auto const &ret = get<IR::Function>(f).return_type;
             intptr_t    depth { 0 };
             for (auto const &param : impl.payload.parameters) {
                 depth += alignat(param.type->size_of(), 8);
@@ -252,7 +253,7 @@ void execute_op<>(Interpreter &interpreter, Operation::PushVarAddress const &imp
 template<>
 void execute_op<>(Interpreter &interpreter, Operation::ScopeBegin const &impl)
 {
-    interpreter.new_scope(IRNode {}, impl.payload);
+    interpreter.new_scope(pIR {}, impl.payload);
     uint64_t zero { 0 };
     interpreter.move_in(&zero, sizeof(uint64_t), 17);
     interpreter.move_in(&zero, sizeof(uint64_t), 18);
