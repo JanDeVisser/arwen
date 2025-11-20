@@ -287,7 +287,7 @@ std::map<std::wstring, pType> Type::infer_generic_arguments(pType const &param_t
                        } },
             arg->description, param->description);
     };
-    if (is<TypeAlias>(id)) {
+    if (std::holds_alternative<TypeAlias>(description)) {
         return std::get<TypeAlias>(description).alias_of->infer_generic_arguments(param_type);
     }
     std::map<std::wstring, pType> ret;

@@ -159,21 +159,7 @@ void Interpreter::execute_operations(pIR const &ir)
     }
 }
 
-Value Interpreter::execute(pIR const &ir)
-{
-    assert(ir != nullptr);
-    return std::visit(
-        overloads {
-            [](std::monostate const &) -> Value {
-                fatal("Can't execute null IR Node");
-            },
-            [this, &ir](auto const &obj) -> Value {
-                return execute_node(*this, ir, obj);
-            } },
-        ir->node);
-}
-
-Value execute_node(Interpreter &interpreter, pIR const &ir, IR::Program const &program)
+Value execute_program(Interpreter &interpreter, pIR const &ir, IR::Program const &program)
 {
     trace(L"Running program {}", ir->name);
     interpreter.new_scope(ir);
@@ -194,7 +180,7 @@ Value execute_node(Interpreter &interpreter, pIR const &ir, IR::Program const &p
     return make_void();
 }
 
-Value execute_node(Interpreter &interpreter, pIR const &ir, IR::Module const &module)
+Value execute_module(Interpreter &interpreter, pIR const &ir, IR::Module const &module)
 {
     if (interpreter.callback != nullptr) {
         interpreter.callback(Interpreter::CallbackType::StartModule, interpreter, ir);
@@ -208,7 +194,7 @@ Value execute_node(Interpreter &interpreter, pIR const &ir, IR::Module const &mo
     return interpreter.pop(ir->syntax_node->bound_type);
 }
 
-Value execute_node(Interpreter &interpreter, pIR const &ir, IR::Function const &function)
+Value execute_function(Interpreter &interpreter, pIR const &ir, IR::Function const &function)
 {
     if (interpreter.callback != nullptr) {
         interpreter.callback(Interpreter::CallbackType::StartFunction, interpreter, ir);
@@ -222,6 +208,23 @@ Value execute_node(Interpreter &interpreter, pIR const &ir, IR::Function const &
         interpreter.callback(Interpreter::CallbackType::EndFunction, interpreter, ir);
     }
     return interpreter.move_out(function.return_type);
+}
+
+Value Interpreter::execute(pIR const &ir)
+{
+    assert(ir != nullptr);
+    return std::visit(
+        overloads {
+	    [this, &ir](IR::Program const &obj) -> Value {
+                return execute_program(*this, ir, obj);
+            },
+	    [this, &ir](IR::Module const &obj) -> Value {
+                return execute_module(*this, ir, obj);
+            },
+	    [this, &ir](IR::Function const &obj) -> Value {
+                return execute_function(*this, ir, obj);
+            } },
+        ir->node);
 }
 
 Value execute_ir(pIR const &ir)

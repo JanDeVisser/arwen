@@ -33,13 +33,13 @@ public:
         }
     }
 
-    Ptr(nullptr_t const &)
+    Ptr(std::nullptr_t const &)
         : repo(nullptr)
         , id()
     {
     }
 
-    Ptr &operator=(nullptr_t const &)
+    Ptr &operator=(std::nullptr_t const &)
     {
         repo = nullptr;
         id.reset();

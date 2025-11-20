@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "App/SyntaxNode.h"
 #include <bitset>
 #include <cstdint>
 #include <cstdio>
@@ -12,6 +13,7 @@
 #include <format>
 #include <fstream>
 #include <print>
+#include <ranges>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -125,7 +127,7 @@ void Function::activate_epilog()
 void Function::analyze(std::vector<IR::Operation> const &operations)
 {
     if (function) {
-        for (auto const &[name, type] : function->parameters) {
+        for (auto const &[name, type] : get<IR::Function>(function).parameters) {
             stack_depth += alignat(type->size_of(), 16);
             variables[name] = stack_depth;
         }
@@ -227,7 +229,7 @@ void Function::skeleton()
     }
     if (function) {
         int reg { 0 };
-        for (auto const &[name, type] : function->parameters) {
+        for (auto const &[name, type] : get<IR::Function>(function).parameters) {
             reg = move_into_stack(*this, type->size_of(), reg, variables[name]);
         }
     }
@@ -567,7 +569,7 @@ void generate_call(Function &function, IR::Operation::CallOp const &call)
     for (auto [dest, type] : std::views::zip(
                                  allocations,
                                  call.parameters
-                                     | std::views::transform([](auto const &decl) {
+				 | std::ranges::views::transform([](auto const &decl) {
                                            return decl.type;
                                        }))
             | std::views::reverse) {
@@ -799,12 +801,12 @@ std::wostream &operator<<(std::wostream &os, Function const &function)
     return os;
 }
 
-void Object::generate(IR::pModule module)
+void Object::generate(IR::pIR const &module)
 {
     auto &mod_init = functions.emplace_back(std::format(L"_{}_init", module->name), *this);
     mod_init.generate(module->operations);
 
-    for (auto const &[name, f] : module->functions) {
+    for (auto const &[name, f] : get<IR::Module>(module).functions) {
         auto &function = functions.emplace_back(name, *this, f);
         function.generate(f->operations);
     }
@@ -872,7 +874,7 @@ std::expected<void, ARM64Error> Executable::generate()
     auto &prog_init = static_init.functions.emplace_back(L"__program_init", static_init);
 
     prog_init.generate(program->operations);
-    for (auto const &[name, mod] : program->modules) {
+    for (auto const &[name, mod] : get<IR::Program>(program).modules) {
         prog_init.add_instruction(L"bl", std::format(L"_{}_init", name));
         objects.emplace_back(name, mod).generate(mod);
     }
@@ -945,7 +947,7 @@ std::wostream &operator<<(std::wostream &os, Executable &executable)
     return os;
 }
 
-std::expected<void, ARM64Error> generate_arm64(IR::pProgram program)
+std::expected<void, ARM64Error> generate_arm64(IR::pIR const &program)
 {
     Executable executable { program };
     return executable.generate();

@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <bitset>
 #include <expected>
 #include <string>
 

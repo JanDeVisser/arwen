@@ -135,7 +135,7 @@ target_link_libraries(
         ArwenLang
 )
 
-add_subdirectory(rt)
+#add_subdirectory(rt)
 
 include_directories(. src)
 

@@ -54,7 +54,7 @@ std::optional<Atom> Atom::coerce(pType const &to_type) const
     return std::visit(
         overloads {
             [&cur_type, &to_type](std::integral auto const &v) -> std::optional<Atom> {
-                if (to_type->is<IntType>()) {
+                if (is<IntType>(to_type)) {
                     auto const &[is_signed, width_bits, max_value, min_value] = std::get<IntType>(to_type->description);
                     if (static_cast<uint64_t>(v) > max_value) {
                         return {};
@@ -74,7 +74,7 @@ std::optional<Atom> Atom::coerce(pType const &to_type) const
                     BitWidths(S)
 #undef S
                 }
-                if (to_type->is<FloatType>()) {
+                if (is<FloatType>(to_type)) {
                     auto const &[width_bits] = std::get<FloatType>(to_type->description);
 #undef S
 #define S(W, T)                            \
@@ -84,13 +84,13 @@ std::optional<Atom> Atom::coerce(pType const &to_type) const
                     FloatBitWidths(S)
 #undef S
                 }
-                if (to_type->is<PointerType>() && cur_type == TypeRegistry::u64) {
+                if (is<PointerType>(to_type) && cur_type == TypeRegistry::u64) {
                     return Atom { reinterpret_cast<void *>(v) };
                 }
                 return {};
             },
             [&cur_type, &to_type](std::floating_point auto const &v) -> std::optional<Atom> {
-                if (to_type->is<IntType>()) {
+                if (is<IntType>(to_type)) {
                     auto const &[is_signed, width_bits, max_value, min_value] = std::get<IntType>(to_type->description);
                     if (static_cast<uint64_t>(v) > max_value) {
                         return {};
@@ -110,7 +110,7 @@ std::optional<Atom> Atom::coerce(pType const &to_type) const
                     BitWidths(S)
 #undef S
                 }
-                if (to_type->is<FloatType>()) {
+                if (is<FloatType>(to_type)) {
                     auto const &[width_bits] = std::get<FloatType>(to_type->description);
 #undef S
 #define S(W, T)                            \
@@ -618,11 +618,11 @@ std::optional<Value> Value::coerce(pType const &to_type) const
     if (type == TypeRegistry::cstring && to_type == TypeRegistry::string) {
         return Value { TypeRegistry::string, Atom { cstring_to_string(static_cast<char const *>(as<void *>(*this))) } };
     }
-    if (type->is<DynArray>() && to_type->is<SliceType>() && std::get<DynArray>(type->description).array_of == std::get<SliceType>(type->description).slice_of) {
+    if (is<DynArray>(type) && is<SliceType>(to_type) && std::get<DynArray>(type->description).array_of == std::get<SliceType>(type->description).slice_of) {
         auto const dyn_arr = as<DynamicArray>(*this);
         return Value { to_type, Slice { dyn_arr.ptr, dyn_arr.size } };
     }
-    if (type->is<Array>() && to_type->is<SliceType>() && std::get<Array>(type->description).array_of == std::get<SliceType>(type->description).slice_of) {
+    if (is<Array>(type) && is<SliceType>(to_type) && std::get<Array>(type->description).array_of == std::get<SliceType>(type->description).slice_of) {
         auto const arr = as<StaticArray>(*this);
         return Value { to_type, Slice { arr.ptr, arr.size } };
     }
@@ -886,11 +886,13 @@ Value evaluate(Value const &lhs, Operator op, Value const &rhs)
             return len;
         }
         default:
+	    break;
         }
     }
     case Operator::Sizeof:
         return Value { static_cast<int64_t>(lhs.type->size_of()) };
     default:
+	break;
     }
     return evaluate_on_atoms(lhs, op, rhs);
 }

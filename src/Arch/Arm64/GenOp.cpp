@@ -10,6 +10,7 @@
 #include <App/Type.h>
 
 #include <Arch/Arm64/Arm64.h>
+#include <type_traits>
 
 namespace Arwen::Arm64 {
 
@@ -111,6 +112,7 @@ void generate_unary_LogicalInvert<bool>(Function &function, TypeDescription cons
 }
 
 template<std::signed_integral Operand>
+requires (!std::is_same_v<Operand, int64_t>)
 void generate_unary_Negate(Function &function, TypeDescription const &)
 {
     pop<Operand>(function);

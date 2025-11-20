@@ -105,13 +105,11 @@ struct Interpreter {
     Value    move_out(pType const &type, uint8_t reg = 0);
     Value    pop(pType const &type);
 
-    template<typename T>
-    void move_in(T value, uint8_t reg = 0)
+    void move_in(auto value, uint8_t reg = 0)
     {
-        move_in(&value, sizeof(T), reg);
+        move_in(&value, sizeof(decltype(value)), reg);
     }
 
-    template<>
     inline void move_in(Value val, uint8_t reg)
     {
         std::visit(

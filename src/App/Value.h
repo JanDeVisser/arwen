@@ -136,23 +136,20 @@ struct Value {
     Value(void *val);
     Value(Atom atom);
 
-    template<typename T>
-    Value(pType const &type, T val)
-        : Value(type, Atom { val })
-    {
-    }
-
-    template<>
     Value(pType const &type, Atom val)
         : type(type)
         , payload(val)
     {
     }
 
-    template<>
     Value(pType const &type, Values values)
         : type(type)
         , payload(values)
+    {
+    }
+
+    Value(pType const &type, auto val)
+        : Value(type, Atom { val })
     {
     }
 

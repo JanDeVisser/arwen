@@ -98,7 +98,7 @@ struct ASTNode : public Ptr<struct ASTNodeImpl, Parser> {
 
     ASTNode() = default;
 
-    ASTNode(nullptr_t const &n)
+    ASTNode(std::nullptr_t const &n)
         : Ptr(n)
     {
     }

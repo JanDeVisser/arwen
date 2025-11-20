@@ -19,7 +19,7 @@ Result<ssize_t>      write_utf8(std::ofstream &os, std::wstring_view const &cont
 Result<std::wstring> read_utf8(std::ifstream &is);
 
 template<class T>
-std::string as_utf8(std::basic_string_view<T> const &)
+[[noreturn]] std::string as_utf8(std::basic_string_view<T> const &)
 {
     static_assert(false);
 }
@@ -41,7 +41,7 @@ inline std::string as_utf8(std::wstring_view const &s)
 }
 
 template<class T>
-std::string as_utf8(std::basic_string<T> const &)
+[[noreturn]] std::string as_utf8(std::basic_string<T> const &)
 {
     static_assert(false);
 }
@@ -73,7 +73,7 @@ inline std::string as_utf8(wchar_t const *s)
 }
 
 template<class T>
-std::wstring as_wstring(std::basic_string_view<T> const &)
+[[noreturn]] std::wstring as_wstring(std::basic_string_view<T> const &)
 {
     static_assert(false);
 }
@@ -95,7 +95,7 @@ inline std::wstring as_wstring(std::wstring_view const &s)
 }
 
 template<class T>
-std::wstring as_wstring(std::basic_string<T> const &)
+[[noreturn]] std::wstring as_wstring(std::basic_string<T> const &)
 {
     static_assert(false);
 }
