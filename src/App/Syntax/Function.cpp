@@ -41,8 +41,8 @@ FunctionDeclaration::FunctionDeclaration(std::wstring name, ASTNodes generics, A
 
 ASTNode FunctionDeclaration::normalize(ASTNode const &n)
 {
-    generics = normalize_nodes(generics);
-    parameters = normalize_nodes(parameters);
+    normalize_nodes(generics);
+    normalize_nodes(parameters);
     return_type = return_type->normalize();
     return n;
 }
@@ -438,7 +438,7 @@ pType Call::bind(ASTNode const &n)
         }
     }
     if (function != nullptr) {
-	auto const &func = get<FunctionDefinition>(function);
+        auto const &func = get<FunctionDefinition>(function);
         if (function->bound_type == nullptr || is<Undetermined>(function->bound_type)) {
             function->bind();
         }

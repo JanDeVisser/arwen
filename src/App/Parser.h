@@ -8,6 +8,7 @@
 
 #include <concepts>
 #include <format>
+#include <iostream>
 #include <string>
 #include <string_view>
 
@@ -77,7 +78,7 @@ struct Parser {
         requires std::derived_from<N, AbstractSyntaxNode>
     ASTNode make_node(TokenLocation const &loc, Args... args)
     {
-        ASTNode ret = this->make_node<N>(loc, args...);
+        ASTNode ret = this->make_node<N>(args...);
         ret->location = loc;
         return ret;
     }
@@ -87,7 +88,12 @@ struct Parser {
     ASTNode make_node(Args... args)
     {
         nodes.push_back(ASTNodeImpl::make<N>(args...));
-        return { this };
+        ASTNode ret = { this };
+        nodes.back().id = ret;
+        // std::wcout << L"[C] ";
+        // ret->header(std::wcout);
+        // std::wcout << "\n";
+        return ret;
     }
 
     Parser();
@@ -135,6 +141,7 @@ struct Parser {
     void                               unregister_function(std::wstring name, ASTNode node);
     [[nodiscard]] pType                find_type(std::wstring const &name) const;
     void                               register_type(std::wstring name, pType type);
+    void                               clear_namespaces();
     void                               push_namespace(ASTNode const &ns);
     void                               pop_namespace();
 
@@ -209,7 +216,7 @@ ASTNode make_node(ASTNode const &from, Args... args)
 
 template<typename Node>
     requires is_component<Node> || std::is_same_v<Node, Block>
-ASTNode parse(Parser &parser, std::string_view module_name, std::wstring text)
+ASTNode parse(Parser &parser, std::string_view module_name, std::wstring const &text)
 {
     parser.text = text;
     parser.lexer.push_source(text);
@@ -219,7 +226,7 @@ ASTNode parse(Parser &parser, std::string_view module_name, std::wstring text)
         ret = parser.make_node<Node>();
     } else {
         ret = parser.make_node<Node>(as_wstring(module_name), text);
-    }        
+    }
     ASTNodes statements;
     if (auto t = parser.parse_statements(statements); !t.matches(TokenKind::EndOfFile)) {
         parser.append(t, "Expected end of file");

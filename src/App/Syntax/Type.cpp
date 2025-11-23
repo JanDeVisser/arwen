@@ -20,7 +20,7 @@ pType resolve(T const &, ASTNode const &)
 }
 
 template<>
-pType resolve(TypeNameNode const &d, ASTNode const& n)
+pType resolve(TypeNameNode const &d, ASTNode const &n)
 {
     auto t = n.repo->find_type(d.name);
     if (t == nullptr) {
@@ -35,40 +35,40 @@ pType resolve(TypeNameNode const &d, ASTNode const& n)
 TypeSpecification &specification(ASTNode const &type)
 {
     return get<TypeSpecification>(type);
-}    
+}
 
 template<>
-pType resolve(ReferenceDescriptionNode const &d, ASTNode const& n)
+pType resolve(ReferenceDescriptionNode const &d, ASTNode const &n)
 {
     return TypeRegistry::the().referencing(specification(d.referencing).resolve(n));
 }
 
-pType resolve(SliceDescriptionNode const &d, ASTNode const& n)
+pType resolve(SliceDescriptionNode const &d, ASTNode const &n)
 {
     return TypeRegistry::the().slice_of(specification(d.slice_of).resolve(n));
 }
 
-pType resolve(ZeroTerminatedArrayDescriptionNode const &d, ASTNode const& n)
+pType resolve(ZeroTerminatedArrayDescriptionNode const &d, ASTNode const &n)
 {
     return TypeRegistry::the().zero_terminated_array_of(specification(d.array_of).resolve(n));
 }
 
-pType resolve(ArrayDescriptionNode const &d, ASTNode const& n)
+pType resolve(ArrayDescriptionNode const &d, ASTNode const &n)
 {
     return TypeRegistry::the().array_of(specification(d.array_of).resolve(n), d.size);
 }
 
-pType resolve(DynArrayDescriptionNode const &d, ASTNode const& n)
+pType resolve(DynArrayDescriptionNode const &d, ASTNode const &n)
 {
     return TypeRegistry::the().dyn_array_of(specification(d.array_of).resolve(n));
 }
 
-pType resolve(OptionalDescriptionNode const &d, ASTNode const& n)
+pType resolve(OptionalDescriptionNode const &d, ASTNode const &n)
 {
     return TypeRegistry::the().optional_of(specification(d.optional_of).resolve(n));
 }
 
-pType resolve(ErrorDescriptionNode const &d, ASTNode const& n)
+pType resolve(ErrorDescriptionNode const &d, ASTNode const &n)
 {
     return TypeRegistry::the().error_of(specification(d.success).resolve(n), specification(d.error).resolve(n));
 }
@@ -78,7 +78,7 @@ TypeSpecification::TypeSpecification(TypeSpecificationDescription description)
 {
 }
 
-ASTNode TypeSpecification::normalize(ASTNode const& n)
+ASTNode TypeSpecification::normalize(ASTNode const &n)
 {
     description = std::visit(
         overloads {
@@ -115,11 +115,11 @@ ASTNode TypeSpecification::normalize(ASTNode const& n)
             },
         },
         this->description);
-    n->bind();
+    // n->bind(); // Why?
     return n;
 }
 
-pType TypeSpecification::bind(ASTNode const& n)
+pType TypeSpecification::bind(ASTNode const &n)
 {
     auto ret = resolve(n);
     if (ret == nullptr) {
@@ -128,7 +128,7 @@ pType TypeSpecification::bind(ASTNode const& n)
     return ret;
 }
 
-    std::wostream &TypeSpecification::header(ASTNode const&, std::wostream &os)
+std::wostream &TypeSpecification::header(ASTNode const &, std::wostream &os)
 {
     return os << to_string();
 }
@@ -174,7 +174,7 @@ std::wstring TypeSpecification::to_string()
         this->description);
 }
 
-pType TypeSpecification::resolve(ASTNode const& n)
+pType TypeSpecification::resolve(ASTNode const &n)
 {
     if (n->bound_type == nullptr || n->bound_type == TypeRegistry::undetermined) {
         n->bound_type = std::visit(
@@ -190,7 +190,7 @@ Void::Void()
 {
 }
 
-pType Void::bind(ASTNode const& n)
+pType Void::bind(ASTNode const &n)
 {
     return TypeRegistry::void_;
 }

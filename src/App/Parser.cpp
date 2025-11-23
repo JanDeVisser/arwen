@@ -4,10 +4,11 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "Util/Error.h"
 #include <algorithm>
 #include <cstddef>
+#include <iostream>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
 
@@ -236,7 +237,7 @@ ASTNode Parser::parse_statement()
                 if (block.empty()) {
                     return make_node<Void>(t.location + end_token.location);
                 }
-                return make_node<Block>(t.location + end_token.location, block, namespaces.back());
+                return make_node<Block>(t.location + end_token.location, block);
             }
         }
         case '=':
@@ -834,7 +835,7 @@ ASTNode Parser::parse_for()
         append(token, "Error parsing `for` block");
         return {};
     }
-    return make_node<ForStatement>(location + stmt->location, std::wstring { text_of(var_name) }, range, stmt, namespaces.back());
+    return make_node<ForStatement>(location + stmt->location, std::wstring { text_of(var_name) }, range, stmt);
 }
 
 ASTNode Parser::parse_func()
@@ -934,8 +935,7 @@ ASTNode Parser::parse_func()
                     decl->location + res.value().location,
                     get<FunctionDeclaration>(decl).name,
                     decl,
-                    make_node<ExternLink>(res.value().location, std::wstring { name }),
-                    namespaces.back());
+                    make_node<ExternLink>(res.value().location, std::wstring { name }));
             }
         }
         if (auto impl = parse_statement(); impl != nullptr) {
@@ -943,8 +943,7 @@ ASTNode Parser::parse_func()
                 decl->location + impl->location,
                 get<FunctionDeclaration>(decl).name,
                 decl,
-                impl,
-                namespaces.back());
+                impl);
         }
     }
     return {};
@@ -1080,7 +1079,7 @@ ASTNode Parser::parse_public()
     if (!name) {
         return {};
     }
-    return make_node<PublicDeclaration>(t.location + decl->location, name, decl);
+    return make_node<PublicDeclaration>(t.location + decl->location, *name, decl);
 }
 
 ASTNode Parser::parse_return_error()
@@ -1305,19 +1304,34 @@ void Parser::register_type(std::wstring name, pType type)
     namespaces.back()->ns->register_type(std::move(name), std::move(type));
 }
 
+void Parser::clear_namespaces()
+{
+    namespaces.clear();
+}
+
 void Parser::push_namespace(ASTNode const &ns)
 {
     assert(ns->ns);
     if (!namespaces.empty() && ns->ns->parent == nullptr) {
-	ns->ns->parent = namespaces.back();
+        ns->ns->parent = namespaces.back();
     }
     namespaces.push_back(ns);
+    std::wcerr << L"[S+]";
+    for (auto &n : namespaces | std::ranges::views::reverse) {
+        std::wcerr << " <- " << n.id.value();
+    }
+    std::wcerr << "\n";
 }
 
 void Parser::pop_namespace()
 {
     assert(!namespaces.empty());
     namespaces.pop_back();
+    std::wcerr << L"[S-]";
+    for (auto &n : namespaces | std::ranges::views::reverse) {
+        std::wcerr << " <- " << n.id.value();
+    }
+    std::wcerr << "\n";
 }
 
 void Parser::append(LexerErrorMessage const &lexer_error)

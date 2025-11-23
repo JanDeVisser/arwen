@@ -12,15 +12,15 @@
 
 namespace Util {
 
-std::mutex g_logging_mutex;
-LoggingConfig config { LogLevel::Info };
+std::mutex    g_logging_mutex;
+LoggingConfig log_config { LogLevel::Info };
 
-std::optional<LogLevel> LogLevel_by_name(std::string_view const& name)
+std::optional<LogLevel> LogLevel_by_name(std::string_view const &name)
 {
 #undef S
-#define S(level, cardinal) \
-    if (name == #level) {                      \
-        return LogLevel::level;                \
+#define S(level, cardinal)      \
+    if (name == #level) {       \
+        return LogLevel::level; \
     }
     ENUMERATE_LOG_LEVELS(S)
 #undef S
@@ -29,7 +29,7 @@ std::optional<LogLevel> LogLevel_by_name(std::string_view const& name)
 
 void set_logging_config(LoggingConfig const &c)
 {
-    config = c;
+    log_config = c;
 }
 
 }

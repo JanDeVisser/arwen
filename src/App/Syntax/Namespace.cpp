@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <cstddef>
 #include <functional>
 
 #include <App/Parser.h>
@@ -35,7 +34,7 @@ pType Namespace::find_type(std::wstring const &name) const
         return types.at(name);
     }
     if (parent != nullptr) {
-	assert(parent->ns);
+        assert(parent->ns);
         return parent->ns->find_type(name);
     }
     return nullptr;
@@ -58,7 +57,7 @@ ASTNode Namespace::find_variable(std::wstring const &name) const
         return variables.at(name);
     }
     if (parent != nullptr) {
-	assert(parent->ns);
+        assert(parent->ns);
         return parent->ns->find_variable(name);
     }
     return nullptr;
@@ -110,7 +109,7 @@ ASTNode Namespace::find_function(std::wstring const &name, pType const &type) co
         return here->second;
     }
     if (parent != nullptr) {
-	assert(parent->ns);
+        assert(parent->ns);
         return parent->ns->find_function(name, type);
     }
     return nullptr;
@@ -131,7 +130,7 @@ ASTNode Namespace::find_function_by_arg_list(std::wstring const &name, pType con
         }
     }
     if (parent != nullptr) {
-	assert(parent->ns);
+        assert(parent->ns);
         return parent->ns->find_function_by_arg_list(name, type);
     }
     return nullptr;
@@ -147,7 +146,7 @@ ASTNodes Namespace::find_overloads(std::wstring const &name, ASTNodes const &typ
             }
         }
         if (ns.parent != nullptr) {
-	    assert(ns.parent->ns);
+            assert(ns.parent->ns);
             find_them(ns.parent->ns.value(), overloads);
         }
     };

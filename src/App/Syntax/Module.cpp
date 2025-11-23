@@ -30,7 +30,7 @@ Module::Module(std::wstring name, std::wstring source, ASTNodes const &statement
 ASTNode Module::normalize(ASTNode const &n)
 {
     n->init_namespace();
-    statements = normalize_nodes(statements);
+    normalize_nodes(statements);
     return n;
 }
 

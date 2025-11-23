@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <cstdlib>
 #include <iostream>
+#include <ranges>
 #include <string>
 
 #include <Util/Defer.h>
@@ -34,7 +34,7 @@ ASTNode Program::normalize(ASTNode const &n)
 {
     n->init_namespace();
     for (auto const &t : TypeRegistry::the().types) {
-	n->ns->register_type(t.name, t.id);
+        n->ns->register_type(t.name, t.id);
     }
     for (auto &[name, mod] : modules) {
         auto const normalized = mod->normalize();
@@ -42,7 +42,7 @@ ASTNode Program::normalize(ASTNode const &n)
             modules[std::get<Module>(mod->node).name] = normalized;
         }
     }
-    statements = normalize_nodes(statements);
+    normalize_nodes(statements);
     return n;
 }
 

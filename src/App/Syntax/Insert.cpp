@@ -29,29 +29,30 @@ Insert::Insert(std::wstring_view script_text)
 {
 }
 
-ASTNode Insert::normalize(ASTNode const& n)
+ASTNode Insert::normalize(ASTNode const &n)
 {
-    auto   script = parse<Block>(*(n.repo), "*Insert*", script_text);
+    auto script = parse<Block>(*(n.repo), "*Insert*", script_text);
     if (script) {
         std::cout << "Parsed compile time script\n\n";
         script->dump();
         script = script->normalize();
         while (script->bound_type == nullptr || script->bound_type == TypeRegistry::undetermined) {
             if (script->bind() == nullptr) {
-		return nullptr;
-	    }                
+                return nullptr;
+            }
         }
         std::cout << "Running compile time script\n\n";
         script->dump();
 
-        auto        script_ir = IR::generate_ir(script);
-        auto        output_val = execute_ir(script_ir);
-        auto const  output_dynarr = as<DynamicArray>(output_val);
-        auto const  output = std::wstring { static_cast<wchar_t *>(output_dynarr.ptr), static_cast<size_t>(output_dynarr.size) };
+        IRNodes script_ir {};
+        IR::generate_ir(script, script_ir);
+        auto       output_val = execute_ir(script_ir);
+        auto const output_dynarr = as<DynamicArray>(output_val);
+        auto const output = std::wstring { static_cast<wchar_t *>(output_dynarr.ptr), static_cast<size_t>(output_dynarr.size) };
 
         if (auto node = parse<Block>(*(n.repo), "*Insert Eval*", output); node) {
             std::cerr << "@insert after parsing\n";
-	    node->location = n->location;
+            node->location = n->location;
             node->dump();
             node = node->normalize();
             std::cerr << "@insert after normalizing\n";

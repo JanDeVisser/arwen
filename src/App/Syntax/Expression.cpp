@@ -119,7 +119,7 @@ BinaryExpression::BinaryExpression(ASTNode lhs, Operator const op, ASTNode rhs)
 ASTNode BinaryExpression::normalize(ASTNode const &n)
 {
     auto make_expression_list = [&n]() -> ASTNode {
-        ASTNodes                      nodes;
+        ASTNodes                     nodes;
         std::function<void(ASTNode)> flatten;
         flatten = [&nodes, &flatten](ASTNode const &n) {
             if (auto const binary_expr = std::get_if<BinaryExpression>(&n->node); binary_expr != nullptr) {
@@ -164,14 +164,17 @@ ASTNode BinaryExpression::normalize(ASTNode const &n)
     switch (op) {
     case Operator::Call: {
         auto arg_list = rhs->normalize();
-        if (std::get_if<Void>(&arg_list->node) != nullptr) {
+        if (is<Void>(arg_list)) {
             arg_list = make_node<ExpressionList>(arg_list, ASTNodes {});
         }
-        if (std::get_if<ExpressionList>(&arg_list->node) == nullptr) {
+        if (!is<ExpressionList>(arg_list)) {
             arg_list = make_node<ExpressionList>(arg_list, ASTNodes { arg_list });
         }
-        assert(std::holds_alternative<ExpressionList>(arg_list->node));
-        return make_node<Call>(n, lhs->normalize(), arg_list);
+        assert(is<ExpressionList>(arg_list));
+        arg_list = arg_list->normalize();
+        auto call = make_node<Call>(n, lhs->normalize(), arg_list);
+        call = call->normalize();
+        return call;
     }
     case Operator::Sequence:
         return make_expression_list();
@@ -516,7 +519,7 @@ ExpressionList::ExpressionList(ASTNodes expressions)
 
 ASTNode ExpressionList::normalize(ASTNode const &n)
 {
-    expressions = normalize_nodes(expressions);
+    normalize_nodes(expressions);
     return n;
 }
 

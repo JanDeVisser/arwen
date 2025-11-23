@@ -5,7 +5,6 @@
  */
 
 #include <cstdint>
-#include <memory>
 #include <variant>
 
 #include <Util/Align.h>
@@ -93,7 +92,7 @@ void execute_op<>(Interpreter &interpreter, Operation::Call const &impl)
                     if (mod.functions.contains(impl.payload.name)) {
                         return mod.functions[impl.payload.name];
                     }
-		    auto const& p = get<IR::Program>(mod.program);
+                    auto const &p = get<IR::Program>(mod.program);
                     if (p.functions.contains(impl.payload.name)) {
                         return p.functions.at(impl.payload.name);
                     }

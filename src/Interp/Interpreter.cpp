@@ -159,41 +159,6 @@ void Interpreter::execute_operations(pIR const &ir)
     }
 }
 
-Value execute_program(Interpreter &interpreter, pIR const &ir, IR::Program const &program)
-{
-    trace(L"Running program {}", ir->name);
-    interpreter.new_scope(ir);
-    interpreter.call_stack.emplace_back(ir, 0);
-    pIR main { nullptr };
-    for (auto const &mod : program.modules | std::views::values) {
-        interpreter.execute(mod);
-        auto &m = get<IR::Module>(mod);
-        if (main == nullptr && m.functions.contains(L"main")) {
-            main = m.functions[L"main"];
-            break;
-        }
-    }
-    if (main != nullptr) {
-        auto ret { execute_node(interpreter, main, get<Function>(main)) };
-        return ret;
-    }
-    return make_void();
-}
-
-Value execute_module(Interpreter &interpreter, pIR const &ir, IR::Module const &module)
-{
-    if (interpreter.callback != nullptr) {
-        interpreter.callback(Interpreter::CallbackType::StartModule, interpreter, ir);
-    }
-    interpreter.call_stack.emplace_back(ir, 0);
-    interpreter.new_scope(ir, ir->variables);
-    interpreter.execute_operations(ir);
-    if (interpreter.callback != nullptr) {
-        interpreter.callback(Interpreter::CallbackType::EndModule, interpreter, ir);
-    }
-    return interpreter.pop(ir->syntax_node->bound_type);
-}
-
 Value execute_function(Interpreter &interpreter, pIR const &ir, IR::Function const &function)
 {
     if (interpreter.callback != nullptr) {
@@ -210,27 +175,62 @@ Value execute_function(Interpreter &interpreter, pIR const &ir, IR::Function con
     return interpreter.move_out(function.return_type);
 }
 
+Value execute_module(Interpreter &interpreter, pIR const &ir, IR::Module const &module)
+{
+    if (interpreter.callback != nullptr) {
+        interpreter.callback(Interpreter::CallbackType::StartModule, interpreter, ir);
+    }
+    interpreter.call_stack.emplace_back(ir, 0);
+    interpreter.new_scope(ir, ir->variables);
+    interpreter.execute_operations(ir);
+    if (interpreter.callback != nullptr) {
+        interpreter.callback(Interpreter::CallbackType::EndModule, interpreter, ir);
+    }
+    return interpreter.pop(ir->syntax_node->bound_type);
+}
+
+Value execute_program(Interpreter &interpreter, pIR const &ir, IR::Program const &program)
+{
+    trace(L"Running program {}", ir->name);
+    interpreter.new_scope(ir);
+    interpreter.call_stack.emplace_back(ir, 0);
+    pIR main { nullptr };
+    for (auto const &mod : program.modules | std::views::values) {
+        interpreter.execute(mod);
+        auto &m = get<IR::Module>(mod);
+        if (main == nullptr && m.functions.contains(L"main")) {
+            main = m.functions[L"main"];
+            break;
+        }
+    }
+    if (main != nullptr) {
+        auto ret { execute_function(interpreter, main, get<Function>(main)) };
+        return ret;
+    }
+    return make_void();
+}
+
 Value Interpreter::execute(pIR const &ir)
 {
     assert(ir != nullptr);
     return std::visit(
         overloads {
-	    [this, &ir](IR::Program const &obj) -> Value {
+            [this, &ir](IR::Program const &obj) -> Value {
                 return execute_program(*this, ir, obj);
             },
-	    [this, &ir](IR::Module const &obj) -> Value {
+            [this, &ir](IR::Module const &obj) -> Value {
                 return execute_module(*this, ir, obj);
             },
-	    [this, &ir](IR::Function const &obj) -> Value {
+            [this, &ir](IR::Function const &obj) -> Value {
                 return execute_function(*this, ir, obj);
             } },
         ir->node);
 }
 
-Value execute_ir(pIR const &ir)
+Value execute_ir(IRNodes const &ir)
 {
     Interpreter interpreter;
-    return interpreter.execute(ir);
+    return interpreter.execute(ir.program);
 }
 
 }

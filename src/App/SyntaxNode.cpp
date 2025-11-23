@@ -4,11 +4,12 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <cstddef>
 #include <iostream>
 #include <ostream>
+#include <ranges>
 #include <string>
 #include <unistd.h>
+#include <variant>
 
 #include <Util/Defer.h>
 #include <Util/Lexer.h>
@@ -20,7 +21,6 @@
 #include <App/Parser.h>
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
-#include <variant>
 
 namespace Arwen {
 
@@ -114,10 +114,37 @@ void ASTNodeImpl::init_namespace()
 
 std::wostream &ASTNodeImpl::header_line(std::wostream &os)
 {
-    os << SyntaxNodeType_name(type()) << " (" << location.index << ".." << location.index + location.length << ") ";
-    std::visit([this](auto &n) { n.header(id, std::wcout); }, node);
+    header(os);
+    return os;
+}
+
+std::wostream &ASTNodeImpl::header(std::wostream &os)
+{
+    os << id.id.value() << " " << SyntaxNodeType_name(type()) << " (" << location.index << ".." << location.index + location.length << ") ";
+    std::visit([this](auto &n) { n.header(id, std::wcerr); }, node);
     if (bound_type != nullptr) {
         os << " -> " << bound_type->to_string();
+    }
+    os << " ";
+    switch (status) {
+    case Status::Initialized:
+        std::wcerr << L"Initialized";
+        break;
+    case Status::Normalized:
+        std::wcerr << L"Normalized";
+        break;
+    case Status::Bound:
+        std::wcerr << L"Bound";
+        break;
+    case Status::Undetermined:
+        std::wcerr << L"Undetermined";
+        break;
+    case Status::Ambiguous:
+        std::wcerr << L"Ambiguous";
+        break;
+    case Status::BindErrors:
+        std::wcerr << L"BindErrors";
+        break;
     }
     return os;
 }
@@ -125,53 +152,74 @@ std::wostream &ASTNodeImpl::header_line(std::wostream &os)
 void ASTNodeImpl::dump(int indent)
 {
     print_indent(indent);
-    header_line(std::wcout);
-    std::cout << std::endl;
+    header_line(std::wcerr);
+    std::cerr << std::endl;
     if (ns.has_value()) {
         print_indent(indent);
-        std::cout << "{" << std::endl;
+        std::cerr << "{" << std::endl;
         if (ns->parent != nullptr) {
             print_indent(indent + 4);
-            std::wcout << "parent: ";
+            std::wcerr << "parent: ";
             if (ns->parent != nullptr) {
-                ns->parent->header_line(std::wcout) << std::endl;
+                ns->parent->header_line(std::wcerr) << std::endl;
             } else {
-                std::cout << "[null]\n";
+                std::cerr << "[null]\n";
             }
         }
         for (auto const &[n, t] : ns->types) {
             print_indent(indent + 4);
-            std::wcout << n << ": " << t->to_string() << "\n";
+            std::wcerr << n << ": " << t->to_string() << "\n";
         }
         for (auto const &[n, f] : ns->functions) {
             print_indent(indent + 4);
-            std::wcout << n << ": " << f->bound_type->to_string() << "\n";
+            std::wcerr << n << ": " << f->bound_type->to_string() << "\n";
         }
         for (auto const &[n, v] : ns->variables) {
             print_indent(indent + 4);
-            std::wcout << n << ": " << v->bound_type->to_string() << "\n";
+            std::wcerr << n << ": " << v->bound_type->to_string() << "\n";
         }
         print_indent(indent);
-        std::cout << "}" << std::endl;
+        std::cerr << "}" << std::endl;
     }
-    dump_node(id, indent);
+    std::visit([this, indent](auto &n) { return n.dump_node(id, indent); }, node);
+}
+
+ASTNode ASTNodeImpl::clone()
+{
+    return std::visit([this](auto n) -> ASTNode {
+        return make_node<decltype(n)>(id, n);
+    },
+        node);
 }
 
 ASTNode ASTNodeImpl::normalize()
 {
-    if (status != Status::Initialized) {
+    // std::wcerr << L"[->N] ";
+    // header(std::wcerr);
+    // std::wcerr << "\n";
+    if (status >= Status::Normalized) {
         return id;
     }
     if (ns.has_value()) {
         id.repo->push_namespace(id);
     }
-    auto ret = std::visit([this](auto &n) { return n.normalize(id); }, node);
-    if (ns.has_value()) {
+    auto ret = std::visit([this](auto n) {
+        ASTNode ret = n.normalize(id);
+        if (ret && ret.id == id.id) {
+            ret->node.emplace<decltype(n)>(n);
+        }
+        return ret;
+    },
+        node);
+    if (id->ns.has_value()) {
         id.repo->pop_namespace();
     }
-    if (ret != nullptr && ret->status == ASTNodeImpl::Status::Initialized) {
+    if (ret != nullptr && ret->status < ASTNodeImpl::Status::Normalized) {
         ret->status = Status::Normalized;
     }
+    // std::wcerr << L"[N->] ";
+    // ret->header(std::wcerr);
+    // std::wcerr << "\n";
     return ret;
 }
 
@@ -189,6 +237,9 @@ ASTNode ASTNodeImpl::stamp()
 
 pType ASTNodeImpl::bind()
 {
+    // std::wcerr << L"[B] ";
+    // header(std::wcerr);
+    // std::wcerr << "\n";
     assert(status >= Status::Normalized);
     if (status == Status::Bound) {
         return bound_type;
@@ -217,6 +268,9 @@ pType ASTNodeImpl::bind()
         status = Status::Bound;
     }
     bound_type = ret;
+    // std::wcerr << L"[B->] ";
+    // header(std::wcerr);
+    // std::wcerr << "\n";
     return ret;
 }
 
@@ -232,12 +286,14 @@ DeferStatement::DeferStatement(ASTNode stmt)
 
 ASTNode DeferStatement::normalize(ASTNode const &n)
 {
-    return make_node<DeferStatement>(stmt, stmt->normalize());
+    stmt = stmt->normalize();
+    return n;
 }
 
 ASTNode DeferStatement::stamp(ASTNode const &n)
 {
-    return make_node<DeferStatement>(n, stmt->stamp());
+    stmt = stmt->stamp();
+    return n;
 }
 
 pType DeferStatement::bind(ASTNode const &n)
@@ -258,13 +314,20 @@ pType Dummy::bind(ASTNode const &n)
     return TypeRegistry::void_;
 }
 
-ASTNodes normalize_nodes(ASTNodes const &nodes)
+void normalize_nodes(ASTNodes &nodes)
 {
-    ASTNodes normalized;
-    for (auto const &n : nodes) {
-        normalized.emplace_back(n->normalize());
+    std::vector<size_t> deleted;
+    for (size_t ix = 0; ix < nodes.size(); ++ix) {
+        auto normalized = nodes[ix]->normalize();
+        if (normalized == nullptr) {
+            deleted.emplace_back(ix);
+            continue;
+        }
+        nodes[ix] = normalized;
     }
-    return normalized;
+    for (auto ix : deleted | std::ranges::views::reverse) {
+        nodes.erase(nodes.begin() + ix);
+    }
 }
 
 ASTNodes stamp_nodes(ASTNodes const &nodes)

@@ -9,6 +9,7 @@
 
 #include <App/IR/IR.h>
 #include <Util/Logging.h>
+#include <variant>
 
 namespace Arwen::IR {
 
@@ -58,11 +59,11 @@ std::wostream &Module::list(pIR const &ir, std::wostream &os) const
 
 std::wostream &Program::list(pIR const &ir, std::wostream &os) const
 {
-    os << '\n';
+    os << "\n";
     for (auto const &func : functions | std::views::values) {
         list_node(func, os);
     }
-    os << '\n';
+    os << "\n";
     for (auto const &mod : modules | std::views::values) {
         list_node(mod, os);
     }
@@ -71,12 +72,12 @@ std::wostream &Program::list(pIR const &ir, std::wostream &os) const
 
 std::wostream &list_node(pIR const &ir, std::wostream &os)
 {
-    std::wcout << "== ["
-               << std::visit(overloads { [](Function const &) -> wchar_t { return L'F'; },
-                                 [](Module const &) -> wchar_t { return L'M'; },
-                                 [](Program const &) -> wchar_t { return L'P'; } },
-                      ir->node)
-               << "] = " << ir->name << " ===================\n";
+    os << "== ["
+       << std::visit(overloads { [](Function const &) -> wchar_t { return L'F'; },
+                         [](Module const &) -> wchar_t { return L'M'; },
+                         [](Program const &) -> wchar_t { return L'P'; } },
+              ir->node)
+       << "] = " << ir->name << " ===================\n";
     for (auto const &op : ir->operations) {
         list(op, os);
     }
@@ -86,8 +87,11 @@ std::wostream &list_node(pIR const &ir, std::wostream &os)
 
 std::wostream &list(IRNodes const &ir, std::wostream &os)
 {
-    for (size_t ix = 0; ix < ir.size(); ++ix) {
-        list_node(pIR { const_cast<IRNodes *>(&ir), ix }, os);
+    for (auto const &n : ir.nodes) {
+        if (std::holds_alternative<Program>(n.node)) {
+            list_node(n.id, os);
+            break;
+        }
     }
     return os;
 }

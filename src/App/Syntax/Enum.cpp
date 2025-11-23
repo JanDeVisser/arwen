@@ -49,7 +49,7 @@ std::wostream &EnumValue::header(ASTNode const &, std::wostream &os)
     os << label;
     if (value != nullptr) {
         os << " = ";
-        value->header(value, os);
+        value->header(os);
     }
     if (payload != nullptr) {
         os << " ("

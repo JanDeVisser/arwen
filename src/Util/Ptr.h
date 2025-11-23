@@ -16,6 +16,8 @@ template<class T, class Repo = std::vector<T>>
 class Ptr {
 public:
     Ptr() = default;
+    Ptr(Ptr const &) = default;
+
     Ptr(Repo *repo, size_t id)
         : repo(repo)
         , id(id)
@@ -43,7 +45,14 @@ public:
     {
         repo = nullptr;
         id.reset();
-	return *this;
+        return *this;
+    }
+
+    Ptr &operator=(Ptr const &other)
+    {
+        repo = other.repo;
+        id = other.id;
+        return *this;
     }
 
     //    T const *operator->() const
@@ -57,7 +66,7 @@ public:
     {
         assert(repo != nullptr);
         assert(id.has_value() && id.value() < repo->size());
-        return const_cast<T*>(&((*repo)[id.value()]));
+        return const_cast<T *>(&((*repo)[id.value()]));
     }
 
     T const &operator*() const

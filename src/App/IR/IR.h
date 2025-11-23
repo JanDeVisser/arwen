@@ -14,8 +14,8 @@
 #include <Util/Logging.h>
 #include <Util/Ptr.h>
 
-#include <App/SyntaxNode.h>
 #include <App/Parser.h>
+#include <App/SyntaxNode.h>
 #include <App/Type.h>
 
 namespace Arwen::IR {
@@ -194,6 +194,7 @@ struct IRNode {
 
     std::wstring  name;
     ASTNode       syntax_node;
+    pIR           id;
     Operations    operations;
     Declarations  variables;
     IRNodeVariant node;
@@ -232,7 +233,9 @@ template<ir_node N>
 pIR make_node(IRNodes &ir, std::wstring name, ASTNode ast)
 {
     ir.nodes.push_back(IRNode::make<N>(std::move(name), std::move(ast)));
-    return { &ir };
+    pIR ret { &ir };
+    ret->id = ret;
+    return ret;
 }
 
 struct Context {
@@ -251,8 +254,8 @@ struct Context {
     };
     using UnwindStackEntry = std::variant<std::monostate, FunctionDescriptor, LoopDescriptor, BlockDescriptor>;
 
-    std::optional<pIR> ir_node;
-    UnwindStackEntry   unwind;
+    pIR              ir_node;
+    UnwindStackEntry unwind;
 
     Context(pIR ir_node, UnwindStackEntry unwind)
         : ir_node(std::move(ir_node))
@@ -262,12 +265,12 @@ struct Context {
 };
 
 struct Generator {
+    IRNodes             &ir;
     std::vector<Context> ctxs;
-    IRNodes              ir;
     void                 generate(ASTNode const &node);
 };
 
-IRNodes        generate_ir(ASTNode const &node);
+IRNodes       &generate_ir(ASTNode const &node, IRNodes &ir);
 std::wostream &list_node(pIR const &ir, std::wostream &os);
 std::wostream &list(IRNodes const &ir, std::wostream &os);
 

@@ -6,7 +6,6 @@
 
 #pragma once
 
-#include "Util/Logging.h"
 #include <concepts>
 #include <cstddef>
 #include <map>
@@ -256,7 +255,7 @@ struct DeferStatement final : AbstractSyntaxNode {
 };
 
 struct Dummy final : AbstractSyntaxNode {
-    Dummy();
+    Dummy() = default;
     pType bind(ASTNode const &n);
 };
 
@@ -319,7 +318,6 @@ struct ExternLink final : AbstractSyntaxNode {
 
     ExternLink(std::wstring link_name);
     pType          bind(ASTNode const &n);
-    ASTNode        stamp(ASTNode const &n);
     std::wostream &header(ASTNode const &n, std::wostream &os);
 };
 
@@ -356,15 +354,14 @@ struct FunctionDefinition final : AbstractSyntaxNode {
     ASTNode      implementation;
 
     FunctionDefinition(std::wstring name, ASTNode declaration, ASTNode implementation);
+    FunctionDefinition(std::wstring name);
+
     ASTNode normalize(ASTNode const &n);
     pType   bind(ASTNode const &n);
     ASTNode stamp(ASTNode const &n);
     void    dump_node(ASTNode const &n, int indent);
     ASTNode instantiate(ASTNode const &n, std::vector<pType> const &generic_args) const;
     ASTNode instantiate(ASTNode const &n, std::map<std::wstring, pType> const &generic_args) const;
-
-private:
-    FunctionDefinition(std::wstring name);
 };
 
 struct Identifier final : AbstractSyntaxNode {
@@ -585,8 +582,7 @@ using TypeSpecificationDescription = std::variant<
     ErrorDescriptionNode>;
 
 template<class S>
-concept is_type_specification =
-    std::is_same_v<S, TypeNameNode>
+concept is_type_specification = std::is_same_v<S, TypeNameNode>
     || std::is_same_v<S, ReferenceDescriptionNode>
     || std::is_same_v<S, SliceDescriptionNode>
     || std::is_same_v<S, ZeroTerminatedArrayDescriptionNode>
@@ -602,9 +598,9 @@ struct TypeSpecification final : AbstractSyntaxNode {
     TypeSpecification(TypeSpecificationDescription description);
 
     template<class S>
-    requires is_type_specification<S>
+        requires is_type_specification<S>
     TypeSpecification(S specification)
-	: description(specification)
+        : description(specification)
     {
     }
 
@@ -762,12 +758,11 @@ struct ASTNodeImpl {
 
     [[nodiscard]] SyntaxNodeType type() const { return static_cast<SyntaxNodeType>(node.index()); }
     void                         init_namespace();
-    ASTNode                      clone();
     void                         dump(int indent = 0);
     std::wostream               &header_line(std::wostream &os);
-    std::wostream               &header(ASTNode const &n, std::wostream &os);
-    void                         dump_node(ASTNode const &n, int indent);
+    std::wostream               &header(std::wostream &os);
 
+    ASTNode clone();
     ASTNode normalize();
     pType   bind();
     ASTNode stamp();
@@ -824,7 +819,7 @@ static inline std::wstring_view name(ASTNode const &n)
         n->node);
 }
 
-ASTNodes normalize_nodes(ASTNodes const &nodes);
+void     normalize_nodes(ASTNodes &nodes);
 ASTNodes stamp_nodes(ASTNodes const &nodes);
 pType    bind_nodes(ASTNodes const &nodes);
 

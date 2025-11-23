@@ -9,13 +9,12 @@
 #include <filesystem>
 #include <ios>
 #include <iostream>
+#include <iterator>
 #include <locale.h>
 #include <optional>
 #include <ostream>
 #include <string>
 #include <string_view>
-#include <variant>
-#include <wchar.h>
 
 #include <Util/IO.h>
 #include <Util/Lexer.h>
@@ -33,8 +32,18 @@
 #include <App/IR/IR.h>
 
 #include <Interp/Interpreter.h>
+#include <system_error>
+#include <type_traits>
+#include <utility>
+#include <variant>
+#include <vector>
 
+#ifdef IS_ARM64
 #include <Arch/Arm64/Arm64.h>
+#endif
+#ifdef IS_X86_64
+#include <Arch/Linux/x86_64/X86_64.h>
+#endif
 
 namespace Arwen {
 
@@ -106,19 +115,249 @@ void dump_scopes(Interp &interpreter)
     std::cout << std::endl;
 }
 
-std::optional<std::wstring> load_std_lib()
+std::optional<std::wstring> load_file(fs::path const &file)
 {
-    auto std_arw { arwen_dir() / "share" / "std.arw" };
-    if (auto contents_maybe = read_file_by_name<wchar_t>(std_arw.string()); !contents_maybe.has_value()) {
-        std::wcerr << L"Could not read standard library `" << std_arw << L"`" << std::endl;
+    if (!fs::exists(file)) {
+        std::cerr << "File `" << file << "` does not exist\n";
         return {};
-    } else {
-        return contents_maybe.value();
     }
+    auto contents_maybe = read_file_by_name<wchar_t>(file.string());
+    if (!contents_maybe.has_value()) {
+        std::cerr << "Could not read file `" << file << "`: " << contents_maybe.error().description << std::endl;
+        return {};
+    }
+    return contents_maybe.value();
+};
+
+std::optional<std::wstring> load_file(std::wstring_view fname)
+{
+    return load_file(fs::path { fname });
 }
 
-int debugger_main(int argc, char const **argv)
+std::optional<std::wstring> load_directory(fs::path directory)
 {
+    std::wstring ret;
+    for (auto const &entry : fs::directory_iterator(directory)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".arw") {
+            if (auto contents_maybe = load_file(entry.path()); !contents_maybe) {
+                return {};
+            } else {
+                ret += contents_maybe.value();
+            }
+        }
+    }
+    return ret;
+}
+
+std::optional<std::wstring> load_files(std::vector<fs::path> const &files)
+{
+    std::wstring ret;
+    for (auto const &file : files) {
+        if (fs::is_regular_file(file)) {
+            if (auto contents_maybe = load_file(file); !contents_maybe) {
+                return {};
+            } else {
+                ret += contents_maybe.value();
+            }
+        }
+    }
+    return ret;
+}
+
+struct Builder {
+    using Source = std::variant<fs::path, std::vector<fs::path>>;
+
+    fs::path     arw_dir;
+    Source       source;
+    std::string  program_name;
+    Parser       parser {};
+    std::wstring source_text;
+    bool         verbose { false };
+    IR::IRNodes  ir {};
+
+    static std::error_code error;
+
+    bool build()
+    {
+        if (!parse()) {
+            return false;
+        }
+        if (has_option("stop-after-parse")) {
+            return true;
+        }
+        if (!normalize() || !bind()) {
+            return false;
+        }
+        if (has_option("stop-after-bind")) {
+            return true;
+        }
+        if (!generate_ir() /*|| !generate_code()*/) {
+            return false;
+        }
+        if (has_option("list")) {
+            list(ir, std::wcout);
+        }
+        return true;
+    }
+
+    bool parse()
+    {
+        auto std_lib = load_std_lib();
+        if (!std_lib) {
+            return false;
+        }
+        auto program = Arwen::parse<Arwen::Program>(parser, program_name, *std_lib);
+        if (!program) {
+            std::cerr << "Error(s) parsing builtins\n";
+            return false;
+        }
+        if (auto source_text_maybe = std::visit(
+                overloads {
+                    [this](fs::path const &p) -> std::optional<std::wstring> {
+                        if (fs::is_directory(p)) {
+                            return load_directory(p);
+                        } else if (fs::is_regular_file(p)) {
+                            return load_file(p);
+                        } else {
+                            std::cerr << "File `" << p << "` is not a regular file or directory\n";
+                            return {};
+                        }
+                    },
+                    [this](std::vector<fs::path> const &paths) -> std::optional<std::wstring> {
+                        return load_files(paths);
+                    } },
+                source);
+            !source_text_maybe) {
+            return false;
+        } else {
+            source_text = *source_text_maybe;
+            auto mod = Arwen::parse<Arwen::Module>(parser, as_utf8(program_name), source_text);
+            if (!parser.errors.empty()) {
+                std::cerr << "Syntax error(s) found:\n";
+                for (auto const &err : parser.errors) {
+                    std::wcerr << err.location.line + 1 << ':' << err.location.column + 1 << " " << err.message << std::endl;
+                }
+                return false;
+            }
+            return true;
+        }
+    }
+
+    bool normalize()
+    {
+        auto normalized = parser.program->normalize();
+        if (!parser.errors.empty()) {
+            std::cerr << "Error(s) found during normalization:\n";
+            for (auto const &err : parser.errors) {
+                std::wcerr << err.location.line + 1 << ':' << err.location.column + 1 << " " << err.message << std::endl;
+            }
+            return false;
+        }
+        assert(normalized);
+        parser.program = normalized;
+        return true;
+    }
+
+    bool bind()
+    {
+        parser.pass = 0;
+        parser.unbound = std::numeric_limits<int>::max();
+        int prev_pass;
+        do {
+            if (verbose) {
+                std::wcout << parser.pass << " ";
+                std::flush(std::wcout);
+            }
+            prev_pass = parser.unbound;
+            parser.unbound = 0;
+            parser.unbound_nodes.clear();
+            auto bound_type = parser.program->bind();
+            if (!bound_type) {
+                if (verbose) {
+                    std::wcout << std::endl;
+                }
+                std::cerr << "Internal error(s) encountered" << std::endl;
+                return false;
+            }
+            if (!parser.errors.empty()) {
+                if (verbose) {
+                    std::wcout << std::endl;
+                }
+                std::cerr << "Error(s) found during binding:\n";
+                for (auto const &err : parser.errors) {
+                    std::wcerr << err.location.line << ':' << err.location.column << " " << err.message << std::endl;
+                }
+                return false;
+            }
+            ++parser.pass;
+        } while (parser.unbound > 0 && parser.unbound < prev_pass);
+        if (verbose) {
+            std::cout << std::endl;
+        }
+        return true;
+    }
+
+    bool generate_ir()
+    {
+        IR::generate_ir(parser.program, ir);
+        return true;
+    }
+
+    bool generate_code()
+    {
+#ifdef IS_ARM64
+        MUST(Arm64::generate_arm64(ir));
+#endif
+#ifdef IS_X86_64
+        MUST(X86_64::generate_x86_64(ir));
+#endif
+        return true;
+    }
+
+private:
+    Builder()
+        : Builder(fs::current_path())
+    {
+    }
+
+    Builder(fs::path root)
+        : arw_dir(arwen_dir())
+        , source(std::move(root))
+        , program_name(root.stem().string())
+        , verbose(log_config.level == LogLevel::Trace)
+    {
+    }
+
+    Builder(std::vector<fs::path> source)
+        : arw_dir(arwen_dir())
+        , source(std::move(source))
+        , program_name(({ auto const &__s = std::get<1>(this->source); assert(!__s.empty()); __s[0].stem().string(); }))
+        , verbose(log_config.level == LogLevel::Trace)
+    {
+    }
+
+    std::optional<std::wstring> load_std_lib()
+    {
+        return load_file(fs::path { arwen_dir() / "share" / "std.arw" });
+    }
+
+    template<typename T>
+        requires std::is_same_v<T, fs::path> || std::is_same_v<T, std::vector<fs::path>>
+    friend std::optional<Builder> make_builder(T);
+};
+
+template<typename T>
+    requires std::is_same_v<T, fs::path> || std::is_same_v<T, std::vector<fs::path>>
+std::optional<Builder> make_builder(T source)
+{
+    return Builder { source };
+}
+
+int debugger_main()
+{
+    std::cerr << "Debugger has been disabled\n\n";
+    return 0;
+#if 0    
     struct Context {
         std::wstring file_name;
         std::wstring contents;
@@ -138,93 +377,6 @@ int debugger_main(int argc, char const **argv)
         }
     };
     Context ctx;
-
-    auto load_file = [&ctx](std::wstring_view fname) -> bool {
-        ctx.contents = L"";
-        ctx.file_name = L"";
-        if (auto contents_maybe = read_file_by_name<wchar_t>(as_utf8(fname)); !contents_maybe.has_value()) {
-            std::wcerr << L"Could not read file `" << fname << '`' << std::endl;
-            return false;
-        } else {
-            ctx.contents = contents_maybe.value();
-            ctx.file_name = fname;
-            return true;
-        }
-    };
-
-    auto parse_file = [&ctx](bool verbose = true) -> bool {
-        if (verbose) {
-            std::wcout << "STAGE 1 - Parsing" << std::endl;
-        }
-        ctx.parser.program = parse<Arwen::Program>(ctx.parser, as_utf8(ctx.file_name), load_std_lib().value_or(L""));
-        ctx.parser.push_namespace(ctx.parser.program);
-        auto mod = parse<Arwen::Module>(ctx.parser, as_utf8(ctx.file_name), ctx.contents);
-        for (auto const &err : ctx.parser.errors) {
-            std::wcerr << err.location.line + 1 << ':' << err.location.column + 1 << " " << err.message << std::endl;
-        }
-        if (!mod) {
-            std::cerr << "Syntax error(s) found" << std::endl;
-            return false;
-        }
-        get<Arwen::Program>(ctx.parser.program).modules[get<Arwen::Module>(mod).name] = mod;
-        ctx.parser.errors.clear();
-        ctx.syntax = ctx.parser.program;
-
-        if (verbose) {
-            std::wcout << "STAGE 2 - Folding" << std::endl;
-        }
-        ctx.parser.namespaces.clear();
-        ctx.parser.push_namespace(ctx.parser.program);
-        ctx.normalized = ctx.syntax->normalize();
-        if (!ctx.normalized) {
-            std::cerr << "Internal error(s) encountered" << std::endl;
-            ctx.reset();
-            return false;
-        }
-        for (auto const &err : ctx.parser.errors) {
-            std::wcerr << err.location.line << ':' << err.location.column << " " << err.message << std::endl;
-            return false;
-        }
-
-        if (verbose) {
-            std::wcout << "STAGE 3 - Binding. Pass ";
-        }
-        ctx.parser.pass = 0;
-        ctx.parser.unbound = std::numeric_limits<int>::max();
-        int prev_pass;
-        do {
-            if (verbose) {
-                std::wcout << ctx.parser.pass << " ";
-                std::flush(std::wcout);
-            }
-            prev_pass = ctx.parser.unbound;
-            ctx.parser.unbound = 0;
-            ctx.parser.unbound_nodes.clear();
-            auto bound_type = ctx.normalized->bind();
-            if (!bound_type) {
-                if (verbose) {
-                    std::wcout << std::endl;
-                }
-                std::cerr << "Internal error(s) encountered" << std::endl;
-                ctx.reset();
-                return false;
-            }
-            if (!ctx.parser.errors.empty()) {
-                if (verbose) {
-                    std::wcout << std::endl;
-                }
-                for (auto const &err : ctx.parser.errors) {
-                    std::wcerr << err.location.line << ':' << err.location.column << " " << err.message << std::endl;
-                }
-                return false;
-            }
-            ++ctx.parser.pass;
-        } while (ctx.parser.unbound > 0 && ctx.parser.unbound < prev_pass);
-        if (verbose) {
-            std::cout << std::endl;
-        }
-        return true;
-    };
 
     auto trace_program = [&ctx]() {
         enum class DebuggerState {
@@ -288,24 +440,13 @@ int debugger_main(int argc, char const **argv)
         ctx.exit_code = ret;
     };
 
-    setlocale(LC_ALL, "en_US.UTF-8");
-    set_logging_config(LoggingConfig { has_option("trace") ? LogLevel::Trace : LogLevel::Info });
-    auto arg_ix = parse_options(argc, argv);
     auto quit { false };
     do {
-        auto         from_argv { arg_ix < argc };
-        std::wstring cmdline {};
-        for (; arg_ix < argc; ++arg_ix) {
-            cmdline += as_wstring(argv[arg_ix]);
-            cmdline += ' ';
+        auto cmdline_maybe = get_command_string();
+        if (!cmdline_maybe.has_value()) {
+            break;
         }
-        if (cmdline.empty()) {
-            auto cmdline_maybe = get_command_string();
-            if (!cmdline_maybe.has_value()) {
-                break;
-            }
-            cmdline = *cmdline_maybe;
-        }
+        auto cmdline = *cmdline_maybe;
         if (auto stripped = strip(std::wstring_view { cmdline }); !stripped.empty()) {
             auto parts = split(stripped, ' ');
             if (parts[0] == L"quit") {
@@ -326,12 +467,15 @@ int debugger_main(int argc, char const **argv)
                 if (parts.size() != 2) {
                     std::cerr << "Error: filename missing\n";
                 } else {
-                    load_file(parts[1]);
-                    parse_file();
-                    if (ctx.normalized == nullptr || ctx.normalized->status != ASTNodeImpl::Status::Bound) {
-                        std::cerr << "Error: parse failed\n";
-                    } else {
-                        ctx.ir = IR::generate_ir(ctx.normalized);
+                    ctx.file_name = parts[1];
+                    if (auto contents_maybe = load_file(ctx.file_name); contents_maybe) {
+                        ctx.contents = contents_maybe.value();
+                        ctx.contents = parse_file(load_file(ctx.file_name));
+                        if (ctx.normalized == nullptr || ctx.normalized->status != ASTNodeImpl::Status::Bound) {
+                            std::cerr << "Error: parse failed\n";
+                        } else {
+                            ctx.ir = IR::generate_ir(ctx.normalized);
+                        }
                     }
                 }
             } else if (parts[0] == L"cat") {
@@ -377,9 +521,6 @@ int debugger_main(int argc, char const **argv)
                     }
                 }
                 auto ret = Arwen::Interpreter::execute_ir(ctx.ir);
-                if (from_argv) {
-                    return as<int32_t>(ret);
-                }
                 std::wcout << ret << "\n";
                 ctx.exit_code = ret;
             } else if (parts[0] == L"trace") {
@@ -394,10 +535,12 @@ int debugger_main(int argc, char const **argv)
                         std::cerr << "Error: parse failed\n";
                     } else {
                         ctx.ir = IR::generate_ir(ctx.normalized);
+#ifdef IS_ARM64
                         MUST(Arm64::generate_arm64(ctx.ir));
-                        if (from_argv) {
-                            return 0;
-                        }
+#endif
+#ifdef IS_X86_64
+                        MUST(X86_64::generate_x86_64(ctx.ir));
+#endif
                     }
                 }
             } else {
@@ -406,11 +549,58 @@ int debugger_main(int argc, char const **argv)
         }
     } while (!quit);
     return 0;
+#endif
+}
+
+void usage()
+{
+    std::cout << "arwen - Arwen language compiler\n\n";
+    std::cout << "Usage:\n";
+    std::cout << "   arwen --help - This text\n";
+    std::cout << "   arwen [--trace] [--list] build\n";
+    std::cout << "   arwen [--trace] [--list] compile <file> ...\n";
+    std::cout << "   arwen [--trace] [--list] run <file> ... [-- <arg> ...]\n";
+    std::cout << "   arwen [--trace] [--list] eval <file> ... [-- <arg> ...]\n";
+    std::cout << "   arwen [--trace] [--list] - Start debugger\n\n";
+    exit(1);
+}
+
+int main(int argc, char const **argv)
+{
+    setlocale(LC_ALL, "en_US.UTF-8");
+    auto arg_ix = parse_options(argc, argv);
+    set_logging_config(LoggingConfig { has_option("trace") ? LogLevel::Trace : LogLevel::Info });
+    if (has_option("help") || has_option("usage")) {
+        usage();
+    }
+    if (arg_ix == argc) {
+        return debugger_main();
+    }
+    if (strcmp(argv[arg_ix], "build") == 0) {
+        if (auto builder_maybe = make_builder(fs::current_path()); builder_maybe) {
+            if (!builder_maybe->build()) {
+                return 1;
+            }
+        }
+    } else if (strcmp(argv[arg_ix], "compile") == 0 && argc - arg_ix > 1) {
+        std::vector<fs::path> files;
+        for (size_t ix = arg_ix + 1; ix < argc; ++ix) {
+            files.emplace_back(argv[ix]);
+        }
+        if (auto builder_maybe = make_builder(files); builder_maybe) {
+            if (!builder_maybe->build()) {
+                return 1;
+            }
+        }
+    } else {
+        usage();
+    }
+    return 0;
 }
 
 }
 
 int main(int argc, char const **argv)
 {
-    return Arwen::debugger_main(argc, argv);
+    return Arwen::main(argc, argv);
 }

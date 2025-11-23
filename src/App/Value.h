@@ -271,7 +271,7 @@ inline std::wostream &operator<<(std::wostream &os, Arwen::Atom const &atom)
                 os << std::boolalpha << b;
             },
             [&os](Slice const &v) -> void {
-                os << static_cast<char *>(v.ptr);
+                os << static_cast<wchar_t *>(v.ptr);
             },
             [&os](DynamicArray const &v) -> void {
                 UNREACHABLE();

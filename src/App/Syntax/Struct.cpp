@@ -49,7 +49,7 @@ Struct::Struct(std::wstring name, ASTNodes members)
 
 ASTNode Struct::normalize(ASTNode const &n)
 {
-    members = normalize_nodes(members);
+    normalize_nodes(members);
     return n;
 }
 

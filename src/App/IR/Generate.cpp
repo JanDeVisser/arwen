@@ -5,7 +5,6 @@
  */
 
 #include <cstdint>
-#include <memory>
 #include <ranges>
 #include <string>
 #include <variant>
@@ -32,7 +31,7 @@ void add_operation(Generator &generator, Operation op)
 {
     for (auto &ctx : std::views::reverse(generator.ctxs)) {
         if (ctx.ir_node) {
-            auto &ops = (*ctx.ir_node)->operations;
+            auto &ops = ctx.ir_node->operations;
             if (!ops.empty()) {
                 auto &b { ops.back() };
                 if (op.type() == Operation::Type::Discard && (b.type() == Operation::Type::PushConstant || b.type() == Operation::Type::PushValue)) {
@@ -66,7 +65,7 @@ Operation &last_op(Generator &generator)
 {
     for (auto &ctx : std::views::reverse(generator.ctxs)) {
         if (ctx.ir_node) {
-            auto ir_node = ctx.ir_node.value();
+            auto ir_node = ctx.ir_node;
             return ir_node->operations.back();
         }
     }
@@ -77,8 +76,8 @@ template<typename T>
 pIR const &find_ir_node(Generator const &generator)
 {
     for (auto &ctx : std::views::reverse(generator.ctxs)) {
-        if (ctx.ir_node && is<T>(*ctx.ir_node)) {
-            return *ctx.ir_node;
+        if (ctx.ir_node && is<T>(ctx.ir_node)) {
+            return ctx.ir_node;
         }
     }
     UNREACHABLE();
@@ -356,8 +355,8 @@ void generate_node(Generator &generator, ASTNode const &n, FunctionDefinition co
     if (!is<ExternLink>(node.implementation)) {
         auto const &module = find_ir_node<Module>(generator);
         auto        function = make_node<Function>(generator.ir, node.name, n);
-	auto &f = get<Function>(function);
-	f.module = module;
+        auto       &f = get<Function>(function);
+        f.module = module;
         auto const &decl = get<FunctionDeclaration>(node.declaration);
         f.return_type = decl.return_type->bound_type;
         get<Module>(module).functions.emplace(node.name, function);
@@ -578,10 +577,11 @@ void Generator::generate(ASTNode const &n)
         n->node);
 }
 
-IRNodes generate_ir(ASTNode const &node)
+IRNodes &generate_ir(ASTNode const &node, IRNodes &ir)
 {
-    Generator generator {};
+    Generator generator { ir };
     assert(is<Arwen::Program>(node));
+    std::cerr << "1\n";
     generator.generate(node);
     return generator.ir;
 }

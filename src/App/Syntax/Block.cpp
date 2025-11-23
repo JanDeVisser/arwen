@@ -9,7 +9,6 @@
 #include <App/Parser.h>
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
-#include <cstddef>
 
 namespace Arwen {
 
@@ -21,16 +20,7 @@ Block::Block(ASTNodes statements)
 ASTNode Block::normalize(ASTNode const &n)
 {
     const_cast<ASTNode &>(n)->init_namespace();
-    ASTNodes normalized;
-    for (auto const &stmt : statements) {
-        auto new_stmt = stmt->normalize();
-        if (new_stmt == nullptr) {
-            stmt.repo->append(stmt->location, "Folding statement failed");
-            return nullptr;
-        }
-        normalized.emplace_back(new_stmt);
-    }
-    statements = normalized;
+    normalize_nodes(statements);
     return n;
 }
 
