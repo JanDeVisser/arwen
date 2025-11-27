@@ -9,7 +9,9 @@ message("System: ${CMAKE_SYSTEM_NAME}. Processor: ${CMAKE_SYSTEM_PROCESSOR}. Ver
 # message(FATAL_ERROR "Arwen requires Clang because it used C++ language extensions not supported in GCC")
 # endif()
 set(CMAKE_C_STANDARD 23)
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 26)
+
+# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-all-candidates")
 
 if (APPLE)
     set(IS_APPLE TRUE)
@@ -23,6 +25,14 @@ else ()
     set(OS linux)
     set(ICONV)
 endif ()
+
+if( "${CMAKE_SYSTEM_PROCESSOR}"  STREQUAL "arm64")
+  set(IS_ARM64 TRUE)
+endif()
+
+if( "${CMAKE_SYSTEM_PROCESSOR}"  STREQUAL "x86_64")
+  set(IS_X86_64 TRUE)
+endif()
 
 # set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ -lc++abi")
 set(CMAKE_INSTALL_PREFIX ${PROJECT_BINARY_DIR} CACHE PATH "..." FORCE)
@@ -105,6 +115,7 @@ add_library(
     src/App/Type.cpp
     src/App/Value.cpp
     src/App/IR/Generate.cpp
+    src/App/IR/IR.cpp
     src/Interp/Execute.cpp
     src/Interp/Interpreter.cpp
     src/Interp/Native.cpp
@@ -121,37 +132,53 @@ target_link_libraries(
         m
 )
 
+if (IS_APPLE)
+
 add_library(
-    ArwenARM64
+    ArwenCodeGen
     STATIC
+    src/Arch/AssemblyWriter.cpp
     src/Arch/Arm64/Arm64.cpp
     src/Arch/Arm64/GenOp.cpp
 )
 
-target_link_libraries(
-        ArwenARM64
-        PRIVATE
-        ArwenLang
-)
+endif()
+
+if (IS_LINUX)
+add_library(
+    ArwenCodeGen
+    STATIC
+    src/Arch/AssemblyWriter.cpp
+    src/Arch/Linux/x86_64/X86_64.cpp
+    src/Arch/Linux/x86_64/GenOp.cpp
+  )
+endif()  
 
 add_subdirectory(rt)
 
 include_directories(. src)
 
+target_link_libraries(
+        ArwenCodeGen
+        PRIVATE
+        ArwenLang
+      )
+
 add_executable(
         arwen
+        src/App/Debugger.cpp
         src/App/Main.cpp
 )
 
 target_link_libraries(
         arwen
         PRIVATE
-        ArwenARM64
+        ArwenCodeGen
 )
 
 #add_compile_options("-fno-inline-functions")
 
-install(TARGETS Util ArwenLang ArwenARM64 arwen
+install(TARGETS Util ArwenLang ArwenCodeGen arwen
         ARCHIVE DESTINATION lib
         RUNTIME DESTINATION bin
         LIBRARY DESTINATION lib

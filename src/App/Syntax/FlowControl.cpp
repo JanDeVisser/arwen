@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <App/Parser.h>
 #include <App/SyntaxNode.h>
 
 namespace Arwen {

@@ -9,6 +9,7 @@
 
 #include <Util/Utf8.h>
 
+#include <App/Parser.h>
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
 #include <App/Value.h>
@@ -16,68 +17,64 @@
 namespace Arwen {
 
 Constant::Constant(Value value)
-    : SyntaxNode(SyntaxNodeType::Constant)
-    , bound_value(std::move(value))
+    : bound_value(std::move(value))
 {
 }
 
-std::wostream &Constant::header(std::wostream &os)
+std::wostream &Constant::header(ASTNode const &, std::wostream &os)
 {
     assert(bound_value.has_value());
     os << bound_value.value();
     return os;
 }
 
-pType Constant::bind(Parser &parser)
+pType Constant::bind(ASTNode const &n)
 {
     assert(bound_value.has_value());
     return bound_value->type;
 }
 
 BoolConstant::BoolConstant(bool value)
-    : SyntaxNode(SyntaxNodeType::BoolConstant)
-    , value(value)
+    : value(value)
 {
 }
 
-pSyntaxNode BoolConstant::normalize(Parser &)
+ASTNode BoolConstant::normalize(ASTNode const &n)
 {
-    return make_node<Constant>(location, Value { value });
+    return make_node<Constant>(n, Value { value });
 }
 
-std::wostream &BoolConstant::header(std::wostream &os)
+std::wostream &BoolConstant::header(ASTNode const &, std::wostream &os)
 {
     return os << ((value) ? L"True" : L"False");
 }
 
 Nullptr::Nullptr()
-    : SyntaxNode(SyntaxNodeType::Nullptr)
 {
 }
 
-pSyntaxNode Nullptr::normalize(Parser &)
+ASTNode Nullptr::normalize(ASTNode const &n)
 {
-    return make_node<Constant>(location, Value { nullptr });
+    return make_node<Constant>(n, Value { nullptr });
 }
 
-std::wostream &Nullptr::header(std::wostream &os)
+std::wostream &Nullptr::header(ASTNode const &, std::wostream &os)
 {
     return os << L"Null";
 }
 
 Number::Number(std::wstring_view number, NumberType type)
-    : SyntaxNode(SyntaxNodeType::Number)
-    , number(number)
+    : number(number)
     , number_type(type)
 {
 }
 
-std::wostream &Number::header(std::wostream &os)
+std::wostream &Number::header(ASTNode const &, std::wostream &os)
 {
     return os << number << L" " << as_wstring(NumberType_name(number_type));
 }
 
-pSyntaxNode Number::normalize(Parser &)
+ASTNode Number::normalize(ASTNode const &n)
 {
     switch (number_type) {
     case NumberType::Decimal: {
@@ -85,7 +82,7 @@ pSyntaxNode Number::normalize(Parser &)
         auto const narrow_string = as_utf8(number);
         auto const value = strtod(narrow_string.data(), &end_ptr);
         assert(end_ptr != narrow_string.data());
-        return make_node<Constant>(location, Value { value });
+        return make_node<Constant>(n, Value { value });
     }
     default: {
         using T = int64_t;
@@ -96,24 +93,23 @@ pSyntaxNode Number::normalize(Parser &)
                                    return { 0 };
                                })
                                .value();
-        return make_node<Constant>(location, Value { value });
+        return make_node<Constant>(n, Value { value });
     }
     }
 }
 
 QuotedString::QuotedString(std::wstring_view str, QuoteType type)
-    : SyntaxNode(SyntaxNodeType::QuotedString)
-    , string(str)
+    : string(str)
     , quote_type(type)
 {
 }
 
-std::wostream &QuotedString::header(std::wostream &os)
+std::wostream &QuotedString::header(ASTNode const &, std::wostream &os)
 {
     return os << string;
 }
 
-pSyntaxNode QuotedString::normalize(Parser &parser)
+ASTNode QuotedString::normalize(ASTNode const &n)
 {
     switch (quote_type) {
     case QuoteType::DoubleQuote: {
@@ -143,10 +139,10 @@ pSyntaxNode QuotedString::normalize(Parser &parser)
                 }
             }
         }
-        return make_node<Constant>(location, make_value(s));
+        return make_node<Constant>(n, make_value(s));
     }
     case QuoteType::SingleQuote:
-        return make_node<Constant>(location, Value { string[1] });
+        return make_node<Constant>(n, Value { string[1] });
     default:
         UNREACHABLE();
     }

@@ -6,19 +6,19 @@
 
 #include <concepts>
 #include <cstdint>
+#include <type_traits>
 
 #include <App/Type.h>
 
-#include <Arch/Arm64/Arm64.h>
-#include <type_traits>
+#include <Arch/Linux/x86_64/X86_64.h>
 
-namespace Arwen::Arm64 {
+namespace Arwen::X86_64 {
 
 using namespace Arwen;
 
 void relational_op(Function &function, std::wstring branch)
 {
-    function.add_text(std::format(
+    function.writer.add_text(std::format(
         LR"(
     cmp     x0,x1
     {}      1f
@@ -34,7 +34,7 @@ void relational_op(Function &function, std::wstring branch)
 
 void relational_eq_op(Function &function, std::wstring branch)
 {
-    function.add_text(std::format(
+    function.writer.add_text(std::format(
         LR"(
     cmp     x0,x1
     {}      1f
@@ -68,14 +68,14 @@ Operators(S)
     //     void generate_unary_AddressOf<Reference>(Function &function, TypeDescription const &)
     // {
     //     auto operand = pop<uint64_t>(function);
-    //     push<void *>(function, function.function + operand);
+    //     push<void *>(function, function.writer.function + operand);
     // }
 
     template<std::integral Operand>
     void generate_unary_BinaryInvert(Function &function, TypeDescription const &, TypeDescription const &)
 {
     pop<Operand>(function);
-    function.add_instruction(L"mvn", L"x0,x0");
+    function.writer.add_instruction(L"mvn", L"x0,x0");
     push<Operand>(function);
 }
 
@@ -83,7 +83,7 @@ template<>
 void generate_unary_Length<Slice>(Function &function, TypeDescription const &)
 {
     pop<Slice>(function);
-    function.add_instruction(L"mov", L"x0,x1"); // a is 0b00000001 (a was true) or 0b00000000 (a was false
+    function.writer.add_instruction(L"mov", L"x0,x1"); // a is 0b00000001 (a was true) or 0b00000000 (a was false
     push<uint64_t>(function);
 }
 
@@ -91,7 +91,7 @@ template<>
 void generate_unary_Length<DynamicArray>(Function &function, TypeDescription const &)
 {
     pop<DynamicArray>(function);
-    function.add_instruction(L"mov", L"x0,x1"); // a is 0b00000001 (a was true) or 0b00000000 (a was false
+    function.writer.add_instruction(L"mov", L"x0,x1"); // a is 0b00000001 (a was true) or 0b00000000 (a was false
     push<uint64_t>(function);
 }
 
@@ -99,7 +99,7 @@ template<>
 void generate_unary_Length<StaticArray>(Function &function, TypeDescription const &)
 {
     pop<StaticArray>(function);
-    function.add_instruction(L"mov", L"x0,x1"); // a is 0b00000001 (a was true) or 0b00000000 (a was false
+    function.writer.add_instruction(L"mov", L"x0,x1"); // a is 0b00000001 (a was true) or 0b00000000 (a was false
     push<uint64_t>(function);
 }
 
@@ -107,16 +107,16 @@ template<>
 void generate_unary_LogicalInvert<bool>(Function &function, TypeDescription const &)
 {
     pop<bool>(function);
-    function.add_instruction(L"eor", L"w0,w0,#0x01"); // a is 0b00000001 (a was true) or 0b00000000 (a was false
+    function.writer.add_instruction(L"eor", L"w0,w0,#0x01"); // a is 0b00000001 (a was true) or 0b00000000 (a was false
     push<bool>(function);
 }
 
 template<std::signed_integral Operand>
-requires (!std::is_same_v<Operand, int64_t>)
+    requires(!std::is_same_v<Operand, int64_t>)
 void generate_unary_Negate(Function &function, TypeDescription const &)
 {
     pop<Operand>(function);
-    function.add_instruction(L"neg", L"w0,w0");
+    function.writer.add_instruction(L"neg", L"w0,w0");
     push<Operand>(function);
 }
 
@@ -124,25 +124,25 @@ template<>
 void generate_unary_Negate<int64_t>(Function &function, TypeDescription const &)
 {
     pop<int64_t>(function);
-    function.add_instruction(L"neg", L"x0,x0");
+    function.writer.add_instruction(L"neg", L"x0,x0");
     push<int64_t>(function);
 }
 
 template<std::integral LHS, std::integral RHS = LHS>
 void generate_Add(Function &function, TypeDescription const &, TypeDescription const &)
 {
-    pop<RHS>(function, 1);
-    pop<LHS>(function, 0);
-    function.add_instruction(L"add", L"x0,x0,x1");
+    pop<RHS>(function, Register::rbx);
+    pop<LHS>(function, Register::rax);
+    function.writer.add_instruction(L"add", L"x0,x0,x1");
     push<LHS>(function);
 }
 
 template<>
 void generate_Add<DynamicArray, DynamicArray>(Function &function, TypeDescription const &lhs_descr, TypeDescription const &rhs_descr)
 {
-    pop<DynamicArray>(function, 19);
-    pop<DynamicArray>(function, 1);
-    function.add_text(
+    pop<DynamicArray>(function, Register::r11);
+    pop<DynamicArray>(function, Register::rbx);
+    function.writer.add_text(
         LR"(
 mov     x0,xzr
 mov     x1,xzr
@@ -164,9 +164,9 @@ ldr     x2,[sp],16)");
 template<>
 void generate_Add<Slice, Slice>(Function &function, TypeDescription const &lhs_descr, TypeDescription const &rhs_descr)
 {
-    pop<DynamicArray>(function, 19);
-    pop<Slice>(function, 1);
-    function.add_text(
+    pop<DynamicArray>(function, Register::r11);
+    pop<Slice>(function, Register::rbx);
+    function.writer.add_text(
         LR"(
 mov     x0,xzr
 mov     x4,xzr
@@ -188,9 +188,9 @@ ldr     x2,[sp],16)");
 template<>
 void generate_Add<Slice, DynamicArray>(Function &function, TypeDescription const &lhs_descr, TypeDescription const &rhs_descr)
 {
-    pop<DynamicArray>(function, 19);
-    pop<Slice>(function, 1);
-    function.add_text(
+    pop<DynamicArray>(function, Register::r11);
+    pop<Slice>(function, Register::rbx);
+    function.writer.add_text(
         LR"(
 mov     x0,xzr
 mov     x1,xzr
@@ -212,9 +212,9 @@ ldr     x2,[sp],16)");
 template<>
 void generate_Add<DynamicArray, Slice>(Function &function, TypeDescription const &lhs_descr, TypeDescription const &rhs_descr)
 {
-    pop<Slice>(function, 19);
-    pop<DynamicArray>(function, 1);
-    function.add_text(
+    pop<Slice>(function, Register::r11);
+    pop<DynamicArray>(function, Register::rbx);
+    function.writer.add_text(
         LR"(
 mov     x0,xzr
 mov     x1,xzr
@@ -236,140 +236,140 @@ ldr     x2,[sp],16)");
 template<std::integral LHS, std::integral RHS>
 void generate_BinaryAnd(Function &function, TypeDescription const &, TypeDescription const &)
 {
-    pop<RHS>(function, 1);
-    pop<LHS>(function, 0);
-    function.add_instruction(L"and", L"x0,x0,x1");
+    pop<RHS>(function, Register::rbx);
+    pop<LHS>(function, Register::rax);
+    function.writer.add_instruction(L"and", L"x0,x0,x1");
     push<LHS>(function);
 }
 
 template<std::integral LHS, std::integral RHS>
 void generate_BinaryOr(Function &function, TypeDescription const &, TypeDescription const &)
 {
-    auto rhs = pop<RHS>(function, 1);
-    auto lhs = pop<LHS>(function, 0);
-    function.add_instruction(L"orr", L"x0,x0,x1");
+    pop<RHS>(function, Register::rbx);
+    pop<LHS>(function, Register::rax);
+    function.writer.add_instruction(L"orr", L"x0,x0,x1");
     push<LHS>(function);
 }
 
 template<std::integral LHS, std::integral RHS>
 void generate_BinaryXor(Function &function, TypeDescription const &, TypeDescription const &)
 {
-    pop<RHS>(function, 1);
-    pop<LHS>(function, 0);
-    function.add_instruction(L"eor", L"x0,x0,x1");
+    pop<RHS>(function, Register::rbx);
+    pop<LHS>(function, Register::rax);
+    function.writer.add_instruction(L"eor", L"x0,x0,x1");
     push<LHS>(function);
 }
 
 template<numeric_or_bool LHS, numeric_or_bool RHS = LHS>
 void generate_Equals(Function &function, TypeDescription const &, TypeDescription const &)
 {
-    pop<RHS>(function, 1);
-    pop<LHS>(function, 0);
+    pop<RHS>(function, Register::rbx);
+    pop<LHS>(function, Register::rax);
     relational_op(function, L"b.eq");
 }
 
 template<numeric LHS, numeric RHS = LHS>
 void generate_Greater(Function &function, TypeDescription const &, TypeDescription const &)
 {
-    pop<RHS>(function, 1);
-    pop<LHS>(function, 0);
+    pop<RHS>(function, Register::rbx);
+    pop<LHS>(function, Register::rax);
     relational_op(function, L"b.gt");
 }
 
 template<numeric LHS, numeric RHS = LHS>
 void generate_GreaterEqual(Function &function, TypeDescription const &, TypeDescription const &)
 {
-    pop<RHS>(function, 1);
-    pop<LHS>(function, 0);
+    pop<RHS>(function, Register::rbx);
+    pop<LHS>(function, Register::rax);
     relational_eq_op(function, L"b.gt");
 }
 
 template<numeric LHS, numeric RHS = LHS>
 void generate_Multiply(Function &function, TypeDescription const &, TypeDescription const &)
 {
-    pop<RHS>(function, 1);
-    pop<LHS>(function, 0);
-    function.add_instruction(L"mul", L"x0,x0,x1");
+    pop<RHS>(function, Register::rbx);
+    pop<LHS>(function, Register::rax);
+    function.writer.add_instruction(L"mul", L"x0,x0,x1");
     push<LHS>(function);
 }
 
 template<numeric_or_bool LHS, numeric_or_bool RHS = LHS>
 void generate_NotEqual(Function &function, TypeDescription const &, TypeDescription const &)
 {
-    pop<RHS>(function, 1);
-    pop<LHS>(function, 0);
+    pop<RHS>(function, Register::rbx);
+    pop<LHS>(function, Register::rax);
     relational_op(function, L"b.ne");
 }
 
 template<numeric LHS, numeric RHS = LHS>
 void generate_Less(Function &function, TypeDescription const &, TypeDescription const &)
 {
-    pop<RHS>(function, 1);
-    pop<LHS>(function, 0);
+    pop<RHS>(function, Register::rbx);
+    pop<LHS>(function, Register::rax);
     relational_op(function, L"b.lt");
 }
 
 template<numeric LHS, numeric RHS = LHS>
 void generate_LessEqual(Function &function, TypeDescription const &, TypeDescription const &)
 {
-    pop<RHS>(function, 1);
-    pop<LHS>(function, 0);
+    pop<RHS>(function, Register::rbx);
+    pop<LHS>(function, Register::rax);
     relational_eq_op(function, L"b.lt");
 }
 
 template<>
 void generate_LogicalAnd<bool, bool>(Function &function, TypeDescription const &, TypeDescription const &)
 {
-    pop<bool>(function, 1);
-    pop<bool>(function, 0);
-    function.add_instruction(L"and", L"w0,w0,w1");
+    pop<bool>(function, Register::rbx);
+    pop<bool>(function, Register::rax);
+    function.writer.add_instruction(L"and", L"w0,w0,w1");
     push<bool>(function);
 }
 
 template<>
 void generate_LogicalOr<bool, bool>(Function &function, TypeDescription const &, TypeDescription const &)
 {
-    pop<bool>(function, 1);
-    pop<bool>(function, 0);
-    function.add_instruction(L"orr", L"w0,w0,w1");
+    pop<bool>(function, Register::rbx);
+    pop<bool>(function, Register::rax);
+    function.writer.add_instruction(L"orr", L"w0,w0,w1");
     push<bool>(function);
 }
 
 template<std::signed_integral LHS, std::signed_integral RHS = LHS>
 void generate_Divide(Function &function, TypeDescription const &, TypeDescription const &)
 {
-    pop<RHS>(function, 1);
-    pop<LHS>(function, 0);
-    function.add_instruction(L"sdiv", L"x0,x0,x1");
+    pop<RHS>(function, Register::rbx);
+    pop<LHS>(function, Register::rax);
+    function.writer.add_instruction(L"sdiv", L"x0,x0,x1");
     push<LHS>(function);
 }
 
 template<std::unsigned_integral LHS, std::unsigned_integral RHS = LHS>
 void generate_Divide(Function &function, TypeDescription const &, TypeDescription const &)
 {
-    pop<RHS>(function, 1);
-    pop<LHS>(function, 0);
-    function.add_instruction(L"udiv", L"x0,x0,x1");
+    pop<RHS>(function, Register::rbx);
+    pop<LHS>(function, Register::rax);
+    function.writer.add_instruction(L"udiv", L"x0,x0,x1");
     push<LHS>(function);
 }
 
 template<std::signed_integral LHS, std::signed_integral RHS>
 void generate_Modulo(Function &function, TypeDescription const &, TypeDescription const &)
 {
-    pop<RHS>(function, 1);
-    pop<LHS>(function, 0);
-    function.add_instruction(L"sdiv", L"x2,x0,x1");
-    function.add_instruction(L"msub", L"x0,x2,x1,x0");
+    pop<RHS>(function, Register::rbx);
+    pop<LHS>(function, Register::rax);
+    function.writer.add_instruction(L"sdiv", L"x2,x0,x1");
+    function.writer.add_instruction(L"msub", L"x0,x2,x1,x0");
     push<LHS>(function);
 }
 
 template<std::unsigned_integral LHS, std::unsigned_integral RHS>
 void generate_Modulo(Function &function, TypeDescription const &, TypeDescription const &)
 {
-    pop<RHS>(function, 1);
-    pop<LHS>(function, 0);
-    function.add_instruction(L"udiv", L"x2,x0,x1");
-    function.add_instruction(L"msub", L"x0,x2,x1,x0");
+    pop<RHS>(function, Register::rbx);
+    pop<LHS>(function, Register::rax);
+    function.writer.add_instruction(L"udiv", L"x2,x0,x1");
+    function.writer.add_instruction(L"msub", L"x0,x2,x1,x0");
     push<LHS>(function);
 }
 
@@ -383,9 +383,9 @@ void generate_Modulo(Function &function, TypeDescription const &, TypeDescriptio
 template<numeric LHS, numeric RHS = LHS>
 void generate_Subtract(Function &function, TypeDescription const &, TypeDescription const &)
 {
-    pop<RHS>(function, 1);
-    pop<LHS>(function, 0);
-    function.add_instruction(L"sub", L"x0,x0,x1");
+    pop<RHS>(function, Register::rbx);
+    pop<LHS>(function, Register::rax);
+    function.writer.add_instruction(L"sub", L"x0,x0,x1");
     push<LHS>(function);
 }
 

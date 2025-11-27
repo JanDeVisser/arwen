@@ -136,23 +136,20 @@ struct Value {
     Value(void *val);
     Value(Atom atom);
 
-    template<typename T>
-    Value(pType const &type, T val)
-        : Value(type, Atom { val })
-    {
-    }
-
-    template<>
     Value(pType const &type, Atom val)
         : type(type)
         , payload(val)
     {
     }
 
-    template<>
     Value(pType const &type, Values values)
         : type(type)
         , payload(values)
+    {
+    }
+
+    Value(pType const &type, auto val)
+        : Value(type, Atom { val })
     {
     }
 
@@ -274,7 +271,7 @@ inline std::wostream &operator<<(std::wostream &os, Arwen::Atom const &atom)
                 os << std::boolalpha << b;
             },
             [&os](Slice const &v) -> void {
-                os << static_cast<char *>(v.ptr);
+                os << static_cast<wchar_t *>(v.ptr);
             },
             [&os](DynamicArray const &v) -> void {
                 UNREACHABLE();

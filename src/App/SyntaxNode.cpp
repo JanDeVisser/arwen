@@ -4,11 +4,10 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <cstddef>
-#include <iostream>
-#include <memory>
-#include <ostream>
+#include <ranges>
+#include <string>
 #include <unistd.h>
+#include <variant>
 
 #include <Util/Defer.h>
 #include <Util/Lexer.h>
@@ -41,222 +40,307 @@ void print_indent(int indent)
     printf("%*.*s", indent, indent, "");
 }
 
-SyntaxNode::SyntaxNode(SyntaxNodeType type, pNamespace ns)
-    : type(type)
-    , ns(ns)
+TokenLocation ASTNode::operator+(ASTNode const &other)
+{
+    assert(*this && other);
+    assert(repo == other.repo);
+    return (*this)->location + other->location;
+}
+
+TokenLocation ASTNode::operator+(TokenLocation const &other)
+{
+    assert(*this);
+    return (*this)->location + other;
+}
+
+void ASTNode::error(std::wstring const &msg) const
+{
+    repo->append((*this)->location, msg);
+}
+
+void ASTNode::error(std::string const &msg) const
+{
+    repo->append((*this)->location, msg);
+}
+
+pType ASTNode::bind_error(std::wstring const &msg) const
+{
+    return repo->bind_error((*this)->location, msg);
+}
+
+pType AbstractSyntaxNode::bind(ASTNode const &n)
+{
+    fatal("Node of type `{}` should have been elided during normalization", SyntaxNodeType_name(n->type()));
+}
+
+ASTNode AbstractSyntaxNode::normalize(ASTNode const &n)
+{
+    return n;
+}
+
+ASTNode AbstractSyntaxNode::stamp(ASTNode const &n)
+{
+    return n;
+}
+
+std::wostream &AbstractSyntaxNode::header(ASTNode const &, std::wostream &os)
+{
+    return os;
+}
+
+void AbstractSyntaxNode::dump_node(ASTNode const &, int)
 {
 }
 
-std::wostream &SyntaxNode::header_line(std::wostream &os)
+ASTNode AbstractSyntaxNode::coerce(ASTNode const &n, pType const &target)
 {
-    os << SyntaxNodeType_name(type) << " (" << location.index << ".." << location.index + location.length << ") ";
-    header(std::wcout);
+    assert(n->bound_type);
+    if (target == n->bound_type) {
+        return n;
+    }
+    return {};
+}
+
+void ASTNodeImpl::init_namespace()
+{
+    ns = Namespace {};
+    if (!id.repo->namespaces.empty()) {
+        ns->parent = id.repo->namespaces.back();
+    }
+    id.repo->push_namespace(id);
+}
+
+std::wostream &ASTNodeImpl::header_line(std::wostream &os)
+{
+    header(os);
+    return os;
+}
+
+std::wostream &ASTNodeImpl::header(std::wostream &os)
+{
+    os << id.id.value() << " " << SyntaxNodeType_name(type()) << " (" << location.index << ".." << location.index + location.length << ") ";
+    std::visit([this](auto &n) { n.header(id, std::wcerr); }, node);
     if (bound_type != nullptr) {
         os << " -> " << bound_type->to_string();
+    }
+    os << " ";
+    switch (status) {
+    case Status::Initialized:
+        os << L"Initialized";
+        break;
+    case Status::Normalized:
+        os << L"Normalized";
+        break;
+    case Status::Bound:
+        os << L"Bound";
+        break;
+    case Status::Undetermined:
+        os << L"Undetermined";
+        break;
+    case Status::Ambiguous:
+        os << L"Ambiguous";
+        break;
+    case Status::BindErrors:
+        os << L"BindErrors";
+        break;
     }
     return os;
 }
 
-void SyntaxNode::dump(int indent)
+void ASTNodeImpl::dump(int indent)
 {
     print_indent(indent);
-    header_line(std::wcout);
-    std::cout << std::endl;
-    if (ns != nullptr) {
+    header_line(std::wcerr);
+    std::cerr << std::endl;
+    if (ns.has_value()) {
         print_indent(indent);
-        std::cout << "{" << std::endl;
+        std::cerr << "{" << std::endl;
         if (ns->parent != nullptr) {
             print_indent(indent + 4);
-            std::wcout << "parent: ";
-            if (ns->parent->node != nullptr) {
-                ns->parent->node->header_line(std::wcout) << std::endl;
+            std::wcerr << "parent: ";
+            if (ns->parent != nullptr) {
+                ns->parent->header_line(std::wcerr) << std::endl;
             } else {
-                std::cout << "[null]\n";
+                std::cerr << "[null]\n";
             }
         }
         for (auto const &[n, t] : ns->types) {
             print_indent(indent + 4);
-            std::wcout << n << ": " << t->to_string() << "\n";
+            std::wcerr << n << ": " << t->to_string() << "\n";
         }
         for (auto const &[n, f] : ns->functions) {
             print_indent(indent + 4);
-            std::wcout << n << ": " << f->bound_type->to_string() << "\n";
+            std::wcerr << n << ": " << f->bound_type->to_string() << "\n";
         }
         for (auto const &[n, v] : ns->variables) {
             print_indent(indent + 4);
-            std::wcout << n << ": " << v->bound_type->to_string() << "\n";
+            std::wcerr << n << ": " << v->bound_type->to_string() << "\n";
         }
         print_indent(indent);
-        std::cout << "}" << std::endl;
+        std::cerr << "}" << std::endl;
     }
-    dump_node(indent);
+    std::visit([this, indent](auto &n) { return n.dump_node(id, indent); }, node);
 }
 
-std::wostream &SyntaxNode::header(std::wostream &os)
+ASTNode ASTNodeImpl::clone()
 {
-    return os;
+    return std::visit([this](auto n) -> ASTNode {
+        return make_node<decltype(n)>(id, n);
+    },
+        node);
 }
 
-void SyntaxNode::dump_node(int indent)
+ASTNode ASTNodeImpl::normalize()
 {
-}
-
-pSyntaxNode SyntaxNode::normalize(Parser &parser)
-{
-    return this->shared_from_this();
-}
-
-pType SyntaxNode::bind(Parser &)
-{
-    fatal("Node of type `{}` should have been elided during normalization", SyntaxNodeType_name(type));
-}
-
-pSyntaxNode SyntaxNode::stamp(Parser &)
-{
-    return this->shared_from_this();
-}
-
-pSyntaxNode SyntaxNode::coerce(pType const &target, Parser &)
-{
-    assert(bound_type != nullptr);
-    if (target == bound_type) {
-        return shared_from_this();
+    // std::wcerr << L"[->N] ";
+    // header(std::wcerr);
+    // std::wcerr << "\n";
+    if (status >= Status::Normalized) {
+        return id;
     }
-    return nullptr;
+    if (ns.has_value()) {
+        id.repo->push_namespace(id);
+    }
+    auto ret = std::visit([this](auto n) {
+        ASTNode ret = n.normalize(id);
+        if (ret && ret.id == id.id) {
+            ret->node.emplace<decltype(n)>(n);
+        }
+        return ret;
+    },
+        node);
+    if (id->ns.has_value()) {
+        id.repo->pop_namespace();
+    }
+    if (ret != nullptr && ret->status < ASTNodeImpl::Status::Normalized) {
+        ret->status = Status::Normalized;
+    }
+    // std::wcerr << L"[N->] ";
+    // ret->header(std::wcerr);
+    // std::wcerr << "\n";
+    return ret;
 }
 
-DeferStatement::DeferStatement(pSyntaxNode stmt)
-    : SyntaxNode(SyntaxNodeType::DeferStatement)
-    , stmt(std::move(stmt))
+ASTNode ASTNodeImpl::stamp()
+{
+    if (ns.has_value()) {
+        id.repo->push_namespace(id);
+    }
+    ASTNode ret = std::visit([this](auto &n) { return n.stamp(id); }, node);
+    if (ns.has_value()) {
+        id.repo->pop_namespace();
+    }
+    return ret;
+}
+
+pType ASTNodeImpl::bind()
+{
+    // std::wcerr << L"[B] ";
+    // header(std::wcerr);
+    // std::wcerr << "\n";
+    assert(status >= Status::Normalized);
+    if (status == Status::Bound) {
+        return bound_type;
+    }
+    if (ns.has_value()) {
+        id.repo->push_namespace(id);
+    }
+    auto ret = std::visit([this](auto &n) { return n.bind(id); }, node);
+    if (ns.has_value()) {
+        id.repo->pop_namespace();
+    }
+    if (ret == nullptr) {
+        dump();
+    }
+    assert(ret != nullptr);
+    if (ret == TypeRegistry::undetermined) {
+        id.repo->unbound_nodes.push_back(id);
+        id.repo->unbound++;
+    } else if (is<BindErrors>(ret)) {
+        status = Status::BindErrors;
+    } else if (is<Undetermined>(ret)) {
+        status = Status::Undetermined;
+    } else if (is<Ambiguous>(ret)) {
+        status = Status::Ambiguous;
+    } else {
+        status = Status::Bound;
+    }
+    bound_type = ret;
+    // std::wcerr << L"[B->] ";
+    // header(std::wcerr);
+    // std::wcerr << "\n";
+    return ret;
+}
+
+ASTNode ASTNodeImpl::coerce(pType const &target)
+{
+    return std::visit([this, &target](auto &n) { return n.coerce(id, target); }, node);
+}
+
+DeferStatement::DeferStatement(ASTNode stmt)
+    : stmt(std::move(stmt))
 {
 }
 
-pSyntaxNode DeferStatement::normalize(Parser &parser)
+ASTNode DeferStatement::normalize(ASTNode const &n)
 {
-    return make_node<DeferStatement>(
-        location,
-        normalize_node(stmt, parser));
+    stmt = stmt->normalize();
+    return n;
 }
 
-pSyntaxNode DeferStatement::stamp(Parser &parser)
+ASTNode DeferStatement::stamp(ASTNode const &n)
 {
-    return make_node<DeferStatement>(
-        location,
-        stamp_node(stmt, parser));
+    stmt = stmt->stamp();
+    return n;
 }
 
-pType DeferStatement::bind(Parser &parser)
+pType DeferStatement::bind(ASTNode const &n)
 {
-    if (auto const stmt_type = bind_node(stmt, parser); stmt_type == TypeRegistry::undetermined) {
+    if (auto const stmt_type = stmt->bind(); stmt_type == TypeRegistry::undetermined) {
         return stmt_type;
     }
     return TypeRegistry::void_;
 }
 
-void DeferStatement::dump_node(int const indent)
+void DeferStatement::dump_node(ASTNode const &n, int const indent)
 {
     stmt->dump(indent + 4);
 }
 
-Dummy::Dummy()
-    : SyntaxNode(SyntaxNodeType::Dummy)
-{
-}
-
-pType Dummy::bind(Parser &parser)
+pType Dummy::bind(ASTNode const &n)
 {
     return TypeRegistry::void_;
 }
 
-pSyntaxNode normalize_node_(pSyntaxNode const &node, Parser &parser)
+void normalize_nodes(ASTNodes &nodes)
 {
-    assert(node != nullptr);
-    if (node->status != SyntaxNode::Status::Initialized) {
-        return node;
-    }
-    if (node->ns != nullptr) {
-        parser.push_namespace(node->ns);
-    }
-    auto ret = node->normalize(parser);
-    if (node->ns != nullptr) {
-        parser.pop_namespace();
-    }
-    if (ret != nullptr && ret->status == SyntaxNode::Status::Initialized) {
-        ret->status = SyntaxNode::Status::Normalized;
-    }
-    return ret;
-}
-
-std::vector<pSyntaxNode> normalize_nodes_(std::vector<pSyntaxNode> const &nodes, Parser &parser)
-{
-    std::vector<pSyntaxNode> normalized;
-    for (auto const &n : nodes) {
-        normalized.emplace_back(normalize_node(n, parser));
-    }
-    return normalized;
-}
-
-pSyntaxNode stamp_node_(pSyntaxNode const &node, Parser &parser)
-{
-    pSyntaxNode ret { nullptr };
-    if (node != nullptr) {
-        if (node->ns != nullptr) {
-            parser.push_namespace(node->ns);
+    std::vector<size_t> deleted;
+    for (size_t ix = 0; ix < nodes.size(); ++ix) {
+        auto normalized = nodes[ix]->normalize();
+        if (normalized == nullptr) {
+            deleted.emplace_back(ix);
+            continue;
         }
-        ret = node->stamp(parser);
-        if (node->ns != nullptr) {
-            parser.pop_namespace();
-        }
+        nodes[ix] = normalized;
     }
-    return ret;
+    for (auto ix : deleted | std::ranges::views::reverse) {
+        nodes.erase(nodes.begin() + ix);
+    }
 }
 
-std::vector<pSyntaxNode> stamp_nodes_(std::vector<pSyntaxNode> const &nodes, Parser &parser)
+ASTNodes stamp_nodes(ASTNodes const &nodes)
 {
-    std::vector<pSyntaxNode> normalized;
+    ASTNodes stamped;
     for (auto const &n : nodes) {
-        normalized.emplace_back(stamp_node(n, parser));
+        stamped.emplace_back(n->stamp());
     }
-    return normalized;
+    return stamped;
 }
 
-pType bind_node(pSyntaxNode const &node, Parser &parser)
+}
+
+std::wostream &operator<<(std::wostream &os, Arwen::ASTNode const &node)
 {
-    assert(node != nullptr && node->status >= SyntaxNode::Status::Normalized);
-    if (node->status == SyntaxNode::Status::Bound) {
-        return node->bound_type;
-    }
-    if (node->ns != nullptr) {
-        parser.push_namespace(node->ns);
-    }
-    auto ret = node->bind(parser);
-    if (node->ns != nullptr) {
-        parser.pop_namespace();
-    }
-    if (ret == nullptr) {
-        node->dump();
-    }
-    assert(ret != nullptr);
-    if (ret == TypeRegistry::undetermined) {
-        parser.unbound_nodes.push_back(node);
-        parser.unbound++;
-    } else if (ret->is<BindErrors>()) {
-        node->status = SyntaxNode::Status::BindErrors;
-    } else if (ret->is<Undetermined>()) {
-        node->status = SyntaxNode::Status::Undetermined;
-    } else if (ret->is<Ambiguous>()) {
-        node->status = SyntaxNode::Status::Ambiguous;
-    } else {
-        node->status = SyntaxNode::Status::Bound;
-    }
-    node->bound_type = ret;
-    return ret;
-}
-
-}
-
-std::wostream &operator<<(std::wostream &os, Arwen::SyntaxNode const &node)
-{
-    os << SyntaxNodeType_name(node.type) << " (" << node.location.index << ".." << node.location.index + node.location.length << ") ";
+    os << SyntaxNodeType_name(node->type()) << " (" << node->location.index << ".." << node->location.index + node->location.length << ") ";
     return os;
 }

@@ -6,7 +6,9 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <memory>
+#include <iostream>
+#include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
 
@@ -97,61 +99,7 @@ Parser::Parser()
 {
 }
 
-pSyntaxNode Parser::parse_file(std::wstring const &text, pNamespace ns)
-{
-    this->text = text;
-    lexer.push_source(text);
-
-    SyntaxNodes statements;
-    if (auto t = parse_statements(statements); !t.matches(TokenKind::EndOfFile)) {
-        append(t, "Expected end of file");
-        return nullptr;
-    }
-    switch (statements.size()) {
-    case 0:
-        return nullptr;
-    case 1:
-        return statements[0];
-    default:
-        return make_node<Block>(
-            statements[0]->location + statements.back()->location,
-            statements,
-            std::make_shared<Namespace>(ns));
-    }
-}
-
-pSyntaxNode Parser::parse_script(std::wstring text)
-{
-    this->text = text;
-    lexer.push_source(text);
-
-    push_new_namespace();
-    Defer       pop_ns { [this]() { pop_namespace(); } };
-    SyntaxNodes statements;
-    level = ParseLevel::Block;
-    if (auto t = parse_statements(statements); !t.matches(TokenKind::EndOfFile)) {
-        append(t, "Expected end of file");
-        return nullptr;
-    }
-    if (!statements.empty()) {
-        SyntaxNodes block;
-        {
-            push_new_namespace();
-            Defer _ { [this]() { pop_namespace(); } };
-            block.push_back(make_node<Block>(
-                statements[0]->location + statements.back()->location,
-                statements,
-                namespaces.back()));
-        }
-        return make_node<Block>(
-            statements[0]->location + statements.back()->location,
-            block,
-            namespaces.back());
-    }
-    return nullptr;
-}
-
-Parser::Token Parser::parse_statements(SyntaxNodes &statements)
+Parser::Token Parser::parse_statements(ASTNodes &statements)
 {
     while (true) {
         auto const t = lexer.peek();
@@ -165,14 +113,14 @@ Parser::Token Parser::parse_statements(SyntaxNodes &statements)
     }
 }
 
-pSyntaxNode Parser::parse_module_level_statement()
+ASTNode Parser::parse_module_level_statement()
 {
     auto t = lexer.peek();
     // std::cerr << TokenKind_name(t.kind) << " " << std::endl;
     switch (t.kind) {
     case TokenKind::EndOfFile:
         append(t, "Unexpected end of file");
-        return nullptr;
+        return {};
     case TokenKind::Identifier:
         lexer.lex();
         if (auto err = lexer.expect_symbol(':'); !err.has_value()) {
@@ -206,17 +154,17 @@ pSyntaxNode Parser::parse_module_level_statement()
     }
     lexer.lex();
     append(t, L"Unexpected token `{}`", text_of(t));
-    return nullptr;
+    return {};
 }
 
-pSyntaxNode Parser::parse_statement()
+ASTNode Parser::parse_statement()
 {
     auto t = lexer.peek();
     // trace("parse_statement() t = {} [{}]", as_utf8(text_of(t)), TokenKind_name(t.kind));
     switch (t.kind) {
     case TokenKind::EndOfFile:
         append(t, "Unexpected end of file");
-        return nullptr;
+        return {};
     case TokenKind::Identifier:
         if (lexer.has_lookback(1) && lexer.lookback(0).matches_symbol(':') && lexer.lookback(1).matches(TokenKind::Identifier)) {
             // This is the type of a variable decl:
@@ -269,7 +217,7 @@ pSyntaxNode Parser::parse_statement()
         default:
             append(t, "Unexpected keyword `{}` parsing statement", as_utf8(text_of(t)));
             lexer.lex();
-            return nullptr;
+            return {};
         }
     } break;
     case TokenKind::Symbol:
@@ -278,20 +226,18 @@ pSyntaxNode Parser::parse_statement()
             return make_node<Dummy>(lexer.lex().location);
         case '{': {
             lexer.lex();
-            SyntaxNodes block;
-            auto        old_level = level;
+            ASTNodes block;
+            auto     old_level = level;
             level = ParseLevel::Block;
             Defer defer { [this, old_level]() { level = old_level; } };
-            push_new_namespace();
-            Defer pop_ns { [this]() { pop_namespace(); } };
             if (auto const end_token = parse_statements(block); !end_token.matches_symbol('}')) {
                 append(t, "Unexpected end of block");
-                return nullptr;
+                return {};
             } else {
                 if (block.empty()) {
                     return make_node<Void>(t.location + end_token.location);
                 }
-                return make_node<Block>(t.location + end_token.location, block, namespaces.back());
+                return make_node<Block>(t.location + end_token.location, block);
             }
         }
         case '=':
@@ -308,7 +254,7 @@ pSyntaxNode Parser::parse_statement()
             }
             append(t, "Unexpected symbol `{:c}`", static_cast<char>(t.symbol_code()));
             lexer.lex();
-            return nullptr;
+            return {};
         }
     case TokenKind::Raw: {
         auto raw = t.raw_text();
@@ -318,13 +264,13 @@ pSyntaxNode Parser::parse_statement()
             return make_node<Insert>(t.location, text_at(raw.start, *raw.end));
         } else {
             append(t.location, "Unclosed `@insert` block");
-            return nullptr;
+            return {};
         }
     }
     default:
         lexer.lex();
         append(t, L"Unexpected token `{}`", text_of(t));
-        return nullptr;
+        return {};
     }
 }
 
@@ -371,11 +317,11 @@ std::wstring_view Parser::text_of(TokenLocation const &location) const
     return L"";
 }
 
-pSyntaxNode Parser::parse_primary()
+ASTNode Parser::parse_primary()
 {
     auto token = lexer.peek();
     // trace("parse_primary() t = {} [{}]", as_utf8(text_of(token)), TokenKind_name(token.kind));
-    pSyntaxNode ret { nullptr };
+    ASTNode ret { nullptr };
     switch (token.kind) {
     case TokenKind::Number: {
         ret = make_node<Number>(token.location, text_of(token), token.number_type());
@@ -386,7 +332,7 @@ pSyntaxNode Parser::parse_primary()
         lexer.lex();
         if (token.quoted_string().quote_type == QuoteType::SingleQuote && token.location.length != 1) {
             append(token, "Single quoted string should contain exactly one character");
-            return nullptr;
+            return {};
         }
         ret = make_node<QuotedString>(token.location, text_of(token), token.quoted_string().quote_type);
         break;
@@ -440,13 +386,13 @@ pSyntaxNode Parser::parse_primary()
             auto  operand = (op.op == Operator::Sizeof) ? parse_type() : parse_expression(bp.right);
             if (!operand) {
                 append(token, "Expected operand following prefix operator '{}'", Operator_name(op.op));
-                return nullptr;
+                return {};
             }
             ret = make_node<UnaryExpression>(op_token.location + operand->location, op.op, operand);
             break;
         }
         append(token, "Unexpected keyword '{}' parsing primary expression", ArwenKeyword_name(token.keyword()));
-        return nullptr;
+        return {};
     case TokenKind::Symbol: {
         if (token.symbol_code() == L'(') {
             lexer.lex();
@@ -456,7 +402,7 @@ pSyntaxNode Parser::parse_primary()
             ret = parse_expression();
             if (auto err = lexer.expect_symbol(')'); !err.has_value()) {
                 append(err.error(), "Expected ')'");
-                return nullptr;
+                return {};
             }
             break;
         }
@@ -467,7 +413,7 @@ pSyntaxNode Parser::parse_primary()
             auto  operand = parse_expression(bp.right);
             if (!operand) {
                 append(token, "Expected operand following prefix operator '{}'", Operator_name(op.op));
-                return nullptr;
+                return {};
             }
             ret = make_node<UnaryExpression>(op_token.location + operand->location, op.op, operand);
             break;
@@ -485,12 +431,12 @@ pSyntaxNode Parser::parse_primary()
 
 // Shamelessly stolen from here:
 // https://matklad.github.io/2020/04/13/simple-but-powerful-pratt-parsing.html
-pSyntaxNode Parser::parse_expression(Precedence min_prec)
+ASTNode Parser::parse_expression(Precedence min_prec)
 {
     auto lhs = parse_primary();
     // trace("parse_expression({}) lhs = {}", min_prec, SyntaxNodeType_name(lhs->type));
     if (lhs == nullptr) {
-        return nullptr;
+        return {};
     }
     while (!lexer.next_matches(TokenKind::EndOfFile) && check_op()) {
         if (auto op_maybe = check_postfix_op(); op_maybe) {
@@ -505,11 +451,11 @@ pSyntaxNode Parser::parse_expression(Precedence min_prec)
                 auto rhs = parse_expression();
                 if (rhs == nullptr) {
                     append(lexer.peek().location, "Expected subscript expression");
-                    return nullptr;
+                    return {};
                 }
                 if (auto err = lexer.expect_symbol(']'); !err.has_value()) {
                     append(err.error(), "Expected ']'");
-                    return nullptr;
+                    return {};
                 }
                 lhs = make_node<BinaryExpression>(lhs->location + rhs->location, lhs, op_maybe->op, rhs);
             } else {
@@ -531,7 +477,7 @@ pSyntaxNode Parser::parse_expression(Precedence min_prec)
                 auto param_list = parse_primary();
                 if (param_list == nullptr) {
                     append(lhs->location, "Could not parse function call argument list");
-                    return nullptr;
+                    return {};
                 }
                 // trace("parse_expression() param_list = {}", SyntaxNodeType_name(param_list->type));
                 lhs = make_node<BinaryExpression>(lhs->location + param_list->location, lhs, Operator::Call, param_list);
@@ -539,7 +485,7 @@ pSyntaxNode Parser::parse_expression(Precedence min_prec)
                 auto token = lexer.lex();
                 auto rhs = (op.op == Operator::Cast) ? parse_type() : parse_expression(bp.right);
                 if (rhs == nullptr) {
-                    return nullptr;
+                    return {};
                 }
                 // trace("parse_expression({}) rhs = {}", min_prec, SyntaxNodeType_name(rhs->type));
                 lhs = make_node<BinaryExpression>(lhs->location + rhs->location, lhs, op.op, rhs);
@@ -631,68 +577,68 @@ std::optional<Parser::OperatorDef> Parser::check_postfix_op()
     return {};
 }
 
-pTypeSpecification Parser::parse_type()
+ASTNode Parser::parse_type()
 {
     auto t = lexer.peek();
     if (lexer.accept_symbol('&')) {
         if (auto type = parse_type(); type != nullptr) {
             return make_node<TypeSpecification>(t.location + type->location, ReferenceDescriptionNode { type });
         }
-        return nullptr;
+        return {};
     }
     if (lexer.accept_symbol('[')) {
         if (lexer.accept_symbol(']')) {
             if (auto type = parse_type(); type != nullptr) {
                 return make_node<TypeSpecification>(t.location + type->location, SliceDescriptionNode { type });
             }
-            return nullptr;
+            return {};
         }
         if (lexer.accept_symbol('0')) {
             if (auto err = lexer.expect_symbol(']'); !err.has_value()) {
                 append(err.error(), "Expected `]` to close `[0`");
-                return nullptr;
+                return {};
             }
             if (auto type = parse_type(); type != nullptr) {
                 return make_node<TypeSpecification>(t.location + type->location, ZeroTerminatedArrayDescriptionNode { type });
             }
-            return nullptr;
+            return {};
         }
         if (lexer.accept_symbol('*')) {
             if (auto err = lexer.expect_symbol(']'); !err.has_value()) {
                 append(err.error(), "Expected `]` to close `[*`");
-                return nullptr;
+                return {};
             }
             if (auto type = parse_type(); type != nullptr) {
                 return make_node<TypeSpecification>(t.location + type->location, DynArrayDescriptionNode { type });
             }
-            return nullptr;
+            return {};
         }
         if (auto res = lexer.expect(TokenKind::Number); !res.has_value()) {
             append(res.error(), "Expected array size, `0`, or `]`");
-            return nullptr;
+            return {};
         } else if (res.value().number_type() == NumberType::Decimal) {
             append(res.error(), "Array size must be integer");
-            return nullptr;
+            return {};
         } else {
             if (auto err = lexer.expect_symbol(']'); !err.has_value()) {
                 append(err.error(), "Expected `]` to close array descriptor");
-                return nullptr;
+                return {};
             }
             auto size = string_to_integer<size_t>(text_of(res.value()));
             assert(size.has_value());
             if (auto type = parse_type(); type != nullptr) {
                 return make_node<TypeSpecification>(t.location + type->location, ArrayDescriptionNode { type, size.value() });
             }
-            return nullptr;
+            return {};
         }
     }
 
     auto name = lexer.accept_identifier();
     if (!name) {
         append(lexer.peek(), "Expected type name");
-        return nullptr;
+        return {};
     }
-    TypeSpecifications arguments;
+    ASTNodes arguments;
     if (lexer.accept_symbol('<')) {
         while (true) {
             if (lexer.accept_symbol('>')) {
@@ -701,7 +647,7 @@ pTypeSpecification Parser::parse_type()
             auto arg = parse_type();
             if (arg == nullptr) {
                 append(lexer.peek(), "Expected template type specification");
-                return nullptr;
+                return {};
             }
             arguments.push_back(arg);
             auto t = lexer.peek();
@@ -710,7 +656,7 @@ pTypeSpecification Parser::parse_type()
             }
             if (auto err = lexer.expect_symbol(','); !err.has_value()) {
                 append(err.error(), "Expected `,` or `>`");
-                return nullptr;
+                return {};
             }
         }
     }
@@ -728,12 +674,12 @@ pTypeSpecification Parser::parse_type()
                 name->location + lexer.last_location,
                 ErrorDescriptionNode { type, error_type });
         }
-        return nullptr;
+        return {};
     }
     return type;
 }
 
-pSyntaxNode Parser::parse_break_continue()
+ASTNode Parser::parse_break_continue()
 {
     auto kw = lexer.lex();
     assert(kw.matches_keyword(ArwenKeyword::Break) || kw.matches_keyword(ArwenKeyword::Continue));
@@ -742,7 +688,7 @@ pSyntaxNode Parser::parse_break_continue()
         auto lbl = lexer.peek();
         if (!lbl.matches(TokenKind::Identifier)) {
             append(lbl, "Expected label name after `:`");
-            return nullptr;
+            return {};
         }
         label = text_of(lbl);
     }
@@ -752,40 +698,40 @@ pSyntaxNode Parser::parse_break_continue()
     return make_node<Continue>(kw.location, label);
 }
 
-pSyntaxNode Parser::parse_embed()
+ASTNode Parser::parse_embed()
 {
     auto kw = lexer.lex();
     auto token = lexer.peek();
     if (auto res = lexer.expect_symbol('('); !res.has_value()) {
         append(res.error());
-        return nullptr;
+        return {};
     }
     auto file_name = lexer.expect(TokenKind::QuotedString);
     if (!file_name.has_value()) {
         append(file_name.error());
-        return nullptr;
+        return {};
     }
     auto fname = text_of(file_name.value());
     fname = fname.substr(0, fname.length() - 1).substr(1);
     if (auto res = lexer.expect_symbol(')'); !res.has_value()) {
         append(lexer.location(), "Expected `)`");
-        return nullptr;
+        return {};
     }
     return make_node<Embed>(kw.location + lexer.location(), fname);
 }
 
-pSyntaxNode Parser::parse_defer()
+ASTNode Parser::parse_defer()
 {
     auto kw = lexer.lex();
     if (auto stmt = parse_statement(); stmt == nullptr) {
         append(kw, "Could not parse defer statement");
-        return nullptr;
+        return {};
     } else {
         return make_node<DeferStatement>(kw.location + stmt->location, stmt);
     }
 }
 
-pSyntaxNode Parser::parse_enum()
+ASTNode Parser::parse_enum()
 {
     auto enum_token = lexer.lex();
     assert(enum_token.matches_keyword(ArwenKeyword::Enum));
@@ -793,44 +739,44 @@ pSyntaxNode Parser::parse_enum()
     auto name = lexer.expect_identifier();
     if (!name.has_value()) {
         append(lexer.last_location, "Expected enum name");
-        return nullptr;
+        return {};
     }
-    pTypeSpecification underlying { nullptr };
+    ASTNode underlying { nullptr };
     if (lexer.accept_symbol(':')) {
         if (underlying = parse_type(); underlying == nullptr) {
             append(lexer.last_location, "Expected underlying type after `:`");
-            return nullptr;
+            return {};
         }
     }
     if (auto res = lexer.expect_symbol('{'); !res.has_value()) {
         append(res.error().location, res.error().message);
-        return nullptr;
+        return {};
     }
-    EnumValues values;
+    ASTNodes values;
     while (!lexer.accept_symbol('}')) {
         auto label = lexer.expect_identifier();
         if (!label.has_value()) {
             append(label.error().location, label.error().message);
-            return nullptr;
+            return {};
         }
-        pTypeSpecification payload { nullptr };
+        ASTNode payload { nullptr };
         if (lexer.accept_symbol('(')) {
             payload = parse_type();
             if (payload == nullptr) {
                 append(lexer.last_location, "Expected enum value payload type");
-                return nullptr;
+                return {};
             }
             if (auto err = lexer.expect_symbol(')'); !err.has_value()) {
                 append(lexer.last_location, "Expected `)` to close enum value payload type");
-                return nullptr;
+                return {};
             }
         }
-        pSyntaxNode value_node { nullptr };
+        ASTNode value_node { nullptr };
         if (lexer.accept_symbol('=')) {
             auto value = lexer.peek();
             if (!value.matches(TokenKind::Number) || value.number_type() == NumberType::Decimal) {
                 append(value.location, "Expected enum value"); // Make better
-                return nullptr;
+                return {};
             }
             lexer.lex();
             value_node = make_node<Number>(value.location, text_of(value), value.number_type());
@@ -842,7 +788,7 @@ pSyntaxNode Parser::parse_enum()
             payload));
         if (!lexer.accept_symbol(',') && !lexer.next_matches('}')) {
             append(lexer.last_location, "Expected `,` or `}`");
-            return nullptr;
+            return {};
         }
     }
     return make_node<Enum>(
@@ -852,7 +798,7 @@ pSyntaxNode Parser::parse_enum()
         values);
 }
 
-pSyntaxNode Parser::parse_for()
+ASTNode Parser::parse_for()
 {
     Label         label;
     TokenLocation location;
@@ -871,30 +817,28 @@ pSyntaxNode Parser::parse_for()
     auto var_name = lexer.peek();
     if (auto res = lexer.expect_identifier(); !res.has_value()) {
         append(res.error(), "Expected `for` range variable name");
-        return nullptr;
+        return {};
     }
     auto token = lexer.peek();
     if (token.matches(TokenKind::Identifier) && text_of(token) == L"in") {
         lexer.lex();
     }
     token = lexer.peek();
-    push_new_namespace();
-    Defer pop_for_ns { [this] { pop_namespace(); } };
-    auto  range = parse_expression();
+    auto range = parse_expression();
     if (range == nullptr) {
         append(token, "Error parsing `for` range");
-        return nullptr;
+        return {};
     }
     token = lexer.peek();
     auto stmt = parse_statement();
     if (stmt == nullptr) {
         append(token, "Error parsing `for` block");
-        return nullptr;
+        return {};
     }
-    return make_node<ForStatement>(location + stmt->location, std::wstring { text_of(var_name) }, range, stmt, namespaces.back());
+    return make_node<ForStatement>(location + stmt->location, std::wstring { text_of(var_name) }, range, stmt);
 }
 
-pSyntaxNode Parser::parse_func()
+ASTNode Parser::parse_func()
 {
     auto func = lexer.lex();
     level = ParseLevel::Function;
@@ -903,12 +847,12 @@ pSyntaxNode Parser::parse_func()
         std::wstring name;
         if (auto res = lexer.expect_identifier(); !res.has_value()) {
             append(res.error(), "Expected function name");
-            return nullptr;
+            return {};
         } else {
             name = text_of(res.value());
         }
 
-        std::vector<pIdentifier> generics;
+        ASTNodes generics;
         if (lexer.accept_symbol('<')) {
             while (true) {
                 if (lexer.accept_symbol('>')) {
@@ -918,7 +862,7 @@ pSyntaxNode Parser::parse_func()
                 TokenLocation start;
                 if (auto res = lexer.expect_identifier(); !res.has_value()) {
                     append(res.error(), "Expected generic name");
-                    return nullptr;
+                    return {};
                 } else {
                     generics.emplace_back(make_node<Identifier>(res.value().location, text_of(res.value())));
                 }
@@ -934,104 +878,98 @@ pSyntaxNode Parser::parse_func()
         if (auto res = lexer.expect_symbol('('); !res.has_value()) {
             append(res.error(), "Expected '(' in function definition");
         }
-        push_new_namespace();
-        {
-            Defer                   _x_ { [this] { namespaces.pop_back(); } };
-            std::vector<pParameter> params;
-            while (true) {
-                if (lexer.accept_symbol(')')) {
-                    break;
-                }
-                std::wstring  param_name;
-                TokenLocation start;
-                if (auto res = lexer.expect_identifier(); !res.has_value()) {
-                    append(res.error(), "Expected parameter name");
-                    return nullptr;
-                } else {
-                    param_name = text_of(res.value());
-                    start = res.value().location;
-                }
-                if (auto res = lexer.expect_symbol(':'); !res.has_value()) {
-                    append(res.error(), "Expected ':' in function parameter declaration");
-                }
-                auto          param_type = parse_type();
-                TokenLocation end;
-                if (param_type == nullptr) {
-                    append(lexer.peek(), "Expected parameter type");
-                    return nullptr;
-                }
-                params.emplace_back(make_node<Parameter>(start + param_type->location, param_name, param_type));
-                if (lexer.accept_symbol(')')) {
-                    break;
-                }
-                if (auto res = lexer.expect_symbol(','); !res.has_value()) {
-                    append(res.error(), "Expected ',' in function signature");
-                }
+        ASTNodes params;
+        while (true) {
+            if (lexer.accept_symbol(')')) {
+                break;
             }
-            auto          return_type = parse_type();
-            TokenLocation return_type_loc;
-            if (return_type == nullptr) {
-                append(lexer.peek(), "Expected return type");
-                return nullptr;
+            std::wstring  param_name;
+            TokenLocation start;
+            if (auto res = lexer.expect_identifier(); !res.has_value()) {
+                append(res.error(), "Expected parameter name");
+                return {};
+            } else {
+                param_name = text_of(res.value());
+                start = res.value().location;
             }
-            auto decl = make_node<FunctionDeclaration>(
-                func.location + return_type->location,
-                name,
-                generics,
-                params,
-                return_type);
-            if (lexer.accept_keyword(ArwenKeyword::ExternLink)) {
-                if (auto res = lexer.expect(TokenKind::QuotedString); !res.has_value() || res.value().quoted_string().quote_type != QuoteType::DoubleQuote) {
-                    append(res.error(), "Expected extern function name");
-                    return nullptr;
-                } else {
-                    auto name = text_of(res.value());
-                    if (name.length() <= 2) {
-                        append(res.value(), "Invalid extern function name");
-                    }
-                    name = name.substr(0, name.size() - 1).substr(1);
-                    return make_node<FunctionDefinition>(
-                        decl->location + res.value().location,
-                        decl->name,
-                        decl,
-                        make_node<ExternLink>(res.value().location, std::wstring { name }),
-                        namespaces.back());
-                }
+            if (auto res = lexer.expect_symbol(':'); !res.has_value()) {
+                append(res.error(), "Expected ':' in function parameter declaration");
             }
-            if (auto impl = parse_statement(); impl != nullptr) {
-                return make_node<FunctionDefinition>(
-                    decl->location + impl->location,
-                    decl->name,
-                    decl,
-                    impl,
-                    namespaces.back());
+            auto          param_type = parse_type();
+            TokenLocation end;
+            if (param_type == nullptr) {
+                append(lexer.peek(), "Expected parameter type");
+                return {};
+            }
+            params.emplace_back(make_node<Parameter>(start + param_type->location, param_name, param_type));
+            if (lexer.accept_symbol(')')) {
+                break;
+            }
+            if (auto res = lexer.expect_symbol(','); !res.has_value()) {
+                append(res.error(), "Expected ',' in function signature");
             }
         }
+        auto          return_type = parse_type();
+        TokenLocation return_type_loc;
+        if (return_type == nullptr) {
+            append(lexer.peek(), "Expected return type");
+            return {};
+        }
+        auto decl = make_node<FunctionDeclaration>(
+            func.location + return_type->location,
+            name,
+            generics,
+            params,
+            return_type);
+        if (lexer.accept_keyword(ArwenKeyword::ExternLink)) {
+            if (auto res = lexer.expect(TokenKind::QuotedString); !res.has_value() || res.value().quoted_string().quote_type != QuoteType::DoubleQuote) {
+                append(res.error(), "Expected extern function name");
+                return {};
+            } else {
+                auto name = text_of(res.value());
+                if (name.length() <= 2) {
+                    append(res.value(), "Invalid extern function name");
+                }
+                name = name.substr(0, name.size() - 1).substr(1);
+                return make_node<FunctionDefinition>(
+                    decl->location + res.value().location,
+                    get<FunctionDeclaration>(decl).name,
+                    decl,
+                    make_node<ExternLink>(res.value().location, std::wstring { name }));
+            }
+        }
+        if (auto impl = parse_statement(); impl != nullptr) {
+            return make_node<FunctionDefinition>(
+                decl->location + impl->location,
+                get<FunctionDeclaration>(decl).name,
+                decl,
+                impl);
+        }
     }
-    return nullptr;
+    return {};
 }
 
-pSyntaxNode Parser::parse_if()
+ASTNode Parser::parse_if()
 {
     auto if_token = lexer.lex();
     assert(if_token.matches_keyword(ArwenKeyword::If));
     auto condition = parse_expression();
     if (condition == nullptr) {
         append(if_token, "Error parsing `if` condition");
-        return nullptr;
+        return {};
     }
     auto if_branch = parse_statement();
     if (if_branch == nullptr) {
         append(if_token, "Error parsing `if` branch");
-        return nullptr;
+        return {};
     }
-    pSyntaxNode else_branch { nullptr };
-    auto        else_kw = lexer.peek();
+    ASTNode else_branch { nullptr };
+    auto    else_kw = lexer.peek();
     if (lexer.accept_keyword(ArwenKeyword::Else)) {
         else_branch = parse_statement();
         if (else_branch == nullptr) {
             append(else_kw, "Error parsing `else` branch");
-            return nullptr;
+            return {};
         }
     }
     return make_node<IfStatement>(
@@ -1039,7 +977,7 @@ pSyntaxNode Parser::parse_if()
         condition, if_branch, else_branch);
 }
 
-pSyntaxNode Parser::parse_import()
+ASTNode Parser::parse_import()
 {
     auto import_token = lexer.lex();
     assert(import_token.matches_keyword(ArwenKeyword::Import));
@@ -1060,29 +998,29 @@ pSyntaxNode Parser::parse_import()
     return make_node<Import>(import_token.location + end_location, path);
 }
 
-pSyntaxNode Parser::parse_include()
+ASTNode Parser::parse_include()
 {
     auto kw = lexer.lex();
     if (auto res = lexer.expect_symbol('('); !res.has_value()) {
         append(res.error(), "Malformed '@include' statement: expected '('");
-        return nullptr;
+        return {};
     }
     auto file_name = lexer.expect(TokenKind::QuotedString);
     if (!file_name.has_value()) {
         append(file_name.error(), "Malformed '@include' statement: no file name");
-        return nullptr;
+        return {};
     }
     auto fname = text_of(file_name.value());
     fname = fname.substr(0, fname.length() - 1).substr(1);
     auto close_paren = lexer.peek();
     if (auto res = lexer.expect_symbol(')'); !res.has_value()) {
         append(res.error(), L"Malformed '@include' statement: expected ')', got '{}'", text_of(res.error().location));
-        return nullptr;
+        return {};
     }
     return make_node<Include>(kw.location + close_paren.location, fname);
 }
 
-pSyntaxNode Parser::parse_loop()
+ASTNode Parser::parse_loop()
 {
     Label         label;
     TokenLocation location;
@@ -1100,53 +1038,58 @@ pSyntaxNode Parser::parse_loop()
     auto stmt = parse_statement();
     if (stmt == nullptr) {
         append(loop_token, "Error parsing `loop` block");
-        return nullptr;
+        return {};
     }
     auto ret = make_node<LoopStatement>(location + stmt->location, label, stmt);
     return ret;
 }
 
-pSyntaxNode Parser::parse_public()
+ASTNode Parser::parse_public()
 {
     auto t = lexer.peek();
     assert(t.matches_keyword(ArwenKeyword::Public));
     lexer.lex();
     auto decl = parse_module_level_statement();
     if (decl == nullptr) {
-        return nullptr;
+        return {};
     }
-    std::wstring name;
-    switch (decl->type) {
-    case SyntaxNodeType::Enum:
-        name = std::dynamic_pointer_cast<Struct>(decl)->name;
-        break;
-    case SyntaxNodeType::FunctionDefinition:
-        name = std::dynamic_pointer_cast<FunctionDefinition>(decl)->name;
-        break;
-    case SyntaxNodeType::PublicDeclaration:
-        append(decl->location, L"Double public declaration");
-        return nullptr;
-    case SyntaxNodeType::Struct:
-        name = std::dynamic_pointer_cast<Struct>(decl)->name;
-        break;
-    case SyntaxNodeType::VariableDeclaration:
-        name = std::dynamic_pointer_cast<VariableDeclaration>(decl)->name;
-        break;
-    default:
-        append(decl->location, "Cannot declare statement of type `{}` public", SyntaxNodeType_name(decl->type));
-        return nullptr;
+    std::optional<std::wstring> name = std::visit(
+        overloads {
+            [](Enum const &n) -> std::optional<std::wstring> {
+                return n.name;
+            },
+            [](FunctionDefinition const &n) -> std::optional<std::wstring> {
+                return n.name;
+            },
+            [this, &decl](PublicDeclaration const &n) -> std::optional<std::wstring> {
+                append(decl->location, L"Double public declaration");
+                return {};
+            },
+            [](Struct const &n) -> std::optional<std::wstring> {
+                return n.name;
+            },
+            [](VariableDeclaration const &n) -> std::optional<std::wstring> {
+                return n.name;
+            },
+            [this, &decl](auto const &) -> std::optional<std::wstring> {
+                append(decl->location, "Cannot declare statement of type `{}` public", SyntaxNodeType_name(decl->type()));
+                return {};
+            } },
+        decl->node);
+    if (!name) {
+        return {};
     }
-    return make_node<PublicDeclaration>(t.location + decl->location, name, decl);
+    return make_node<PublicDeclaration>(t.location + decl->location, *name, decl);
 }
 
-pSyntaxNode Parser::parse_return_error()
+ASTNode Parser::parse_return_error()
 {
     auto kw = lexer.lex();
     assert(kw.matches_keyword(ArwenKeyword::Return) || kw.matches_keyword(ArwenKeyword::Error));
     auto expr = parse_expression();
-    if (expr == nullptr) {
+    if (!expr) {
         append(kw.location, "Error parsing return expression");
-        return nullptr;
+        return {};
     }
     if (kw.matches_keyword(ArwenKeyword::Return)) {
         return make_node<Return>(kw.location + expr->location, expr);
@@ -1154,7 +1097,7 @@ pSyntaxNode Parser::parse_return_error()
     return make_node<Error>(kw.location + expr->location, expr);
 }
 
-pSyntaxNode Parser::parse_struct()
+ASTNode Parser::parse_struct()
 {
     auto struct_token = lexer.lex();
     assert(struct_token.matches_keyword(ArwenKeyword::Struct));
@@ -1162,27 +1105,27 @@ pSyntaxNode Parser::parse_struct()
     auto name = lexer.expect_identifier();
     if (!name.has_value()) {
         append(lexer.last_location, "Expected struct name");
-        return nullptr;
+        return {};
     }
     if (auto res = lexer.expect_symbol('{'); !res.has_value()) {
         append(res.error().location, res.error().message);
-        return nullptr;
+        return {};
     }
-    StructMembers members;
+    ASTNodes members;
     while (!lexer.accept_symbol('}')) {
         auto label = lexer.expect_identifier();
         if (!label.has_value()) {
             append(label.error().location, label.error().message);
-            return nullptr;
+            return {};
         }
         if (auto err = lexer.expect_symbol(':'); !err.has_value()) {
             append(err.error().location, "Expected `:`");
-            return nullptr;
+            return {};
         }
         auto type = parse_type();
         if (type == nullptr) {
             append(lexer.last_location, "Expected struct member type");
-            return nullptr;
+            return {};
         }
         members.emplace_back(make_node<StructMember>(
             label.value().location + lexer.last_location,
@@ -1190,7 +1133,7 @@ pSyntaxNode Parser::parse_struct()
             type));
         if (!lexer.accept_symbol(',') && !lexer.next_matches('}')) {
             append(lexer.last_location, "Expected `,` or `}`");
-            return nullptr;
+            return {};
         }
     }
     return make_node<Struct>(
@@ -1199,38 +1142,38 @@ pSyntaxNode Parser::parse_struct()
         members);
 }
 
-pSyntaxNode Parser::parse_var_decl()
+ASTNode Parser::parse_var_decl()
 {
     assert(lexer.has_lookback(1)
         && lexer.lookback(0).matches_symbol(':')
         && lexer.lookback(1).matches(TokenKind::Identifier));
-    bool               is_const = lexer.has_lookback(2) && lexer.lookback(2).matches_keyword(ArwenKeyword::Const);
-    auto               name = lexer.lookback(1);
-    Token              token = lexer.peek();
-    pTypeSpecification type_name { nullptr };
-    auto               location = lexer.lookback(is_const ? 2 : 1).location;
-    auto               end_location = token.location;
+    bool    is_const = lexer.has_lookback(2) && lexer.lookback(2).matches_keyword(ArwenKeyword::Const);
+    auto    name = lexer.lookback(1);
+    Token   token = lexer.peek();
+    ASTNode type_name {};
+    auto    location = lexer.lookback(is_const ? 2 : 1).location;
+    auto    end_location = token.location;
     if (token.matches(TokenKind::Identifier)) {
         type_name = parse_type();
         if (type_name == nullptr) {
             append(lexer.peek(), "Expected variable type specification");
-            return nullptr;
+            return {};
         }
         end_location = type_name->location;
     }
     token = lexer.peek();
-    pSyntaxNode initializer = nullptr;
+    ASTNode initializer = nullptr;
     if (token.matches_symbol('=')) {
         lexer.lex();
         initializer = parse_expression();
         if (initializer == nullptr) {
             append(token.location, "Error parsing initialization expression");
-            return nullptr;
+            return {};
         }
         end_location = initializer->location;
     } else if (!type_name) {
         append(token, "Expected variable initialization expression");
-        return nullptr;
+        return {};
     } else {
         end_location = token.location;
     }
@@ -1243,7 +1186,7 @@ pSyntaxNode Parser::parse_var_decl()
     return ret;
 }
 
-pSyntaxNode Parser::parse_while()
+ASTNode Parser::parse_while()
 {
     Label         label;
     TokenLocation location;
@@ -1261,18 +1204,18 @@ pSyntaxNode Parser::parse_while()
     auto condition = parse_expression();
     if (condition == nullptr) {
         append(while_token, "Error parsing `while` condition");
-        return nullptr;
+        return {};
     }
     auto stmt = parse_statement();
     if (stmt == nullptr) {
         append(while_token, "Error parsing `while` block");
-        return nullptr;
+        return {};
     }
     auto ret = make_node<WhileStatement>(location + stmt->location, label, condition, stmt);
     return ret;
 }
 
-pSyntaxNode Parser::parse_yield()
+ASTNode Parser::parse_yield()
 {
     auto kw = lexer.lex();
     assert(kw.matches_keyword(ArwenKeyword::Yield));
@@ -1280,14 +1223,14 @@ pSyntaxNode Parser::parse_yield()
     if (lexer.accept_symbol(':')) {
         if (auto res = lexer.expect_identifier(); !res.has_value()) {
             append(res.value(), "Expected label name after `:`");
-            return nullptr;
+            return {};
         } else {
             label = text_of(res.value());
         }
     }
     if (auto stmt = parse_statement(); stmt == nullptr) {
         append(kw, "Could not parse yield expression");
-        return nullptr;
+        return {};
     } else {
         return make_node<Yield>(kw.location, label, stmt);
     }
@@ -1295,91 +1238,100 @@ pSyntaxNode Parser::parse_yield()
 
 pType Parser::type_of(std::wstring const &name) const
 {
-    return namespaces.back()->type_of(name);
+    assert(!namespaces.empty() && namespaces.back()->ns);
+    return namespaces.back()->ns->type_of(name);
 }
 
 bool Parser::has_function(std::wstring const &name, pType const &type) const
 {
-    return namespaces.back()->find_function(name, type) != nullptr;
+    assert(!namespaces.empty() && namespaces.back()->ns);
+    return namespaces.back()->ns->find_function(name, type) != nullptr;
 }
 
-pFunctionDefinition Parser::find_function(std::wstring const &name, pType const &type) const
+ASTNode Parser::find_function(std::wstring const &name, pType const &type) const
 {
-    assert(type->is<FunctionType>());
-    return namespaces.back()->find_function(name, type);
+    assert(is<FunctionType>(type));
+    assert(!namespaces.empty() && namespaces.back()->ns);
+    return namespaces.back()->ns->find_function(name, type);
 }
 
-pFunctionDefinition Parser::find_function_by_arg_list(std::wstring const &name, pType const &type) const
+ASTNode Parser::find_function_by_arg_list(std::wstring const &name, pType const &type) const
 {
-    assert(type->is<TypeList>());
-    return namespaces.back()->find_function_by_arg_list(name, type);
+    assert(is<TypeList>(type));
+    assert(!namespaces.empty() && namespaces.back()->ns);
+    return namespaces.back()->ns->find_function_by_arg_list(name, type);
 }
 
-std::vector<pFunctionDefinition> Parser::find_overloads(std::wstring const &name, TypeSpecifications const &type_args) const
+ASTNodes Parser::find_overloads(std::wstring const &name, ASTNodes const &type_args) const
 {
-    return namespaces.back()->find_overloads(name, type_args);
+    assert(!namespaces.empty() && namespaces.back()->ns);
+    return namespaces.back()->ns->find_overloads(name, type_args);
 }
 
-void Parser::register_variable(std::wstring name, pSyntaxNode node)
+void Parser::register_variable(std::wstring name, ASTNode node)
 {
-    assert(!namespaces.empty());
-    namespaces.back()->register_variable(std::move(name), std::move(node));
+    assert(!namespaces.empty() && namespaces.back()->ns);
+    namespaces.back()->ns->register_variable(std::move(name), std::move(node));
 }
 
 bool Parser::has_variable(std::wstring const &name) const
 {
-    assert(!namespaces.empty());
-    return namespaces.back()->has_variable(name);
+    assert(!namespaces.empty() && namespaces.back()->ns);
+    return namespaces.back()->ns->has_variable(name);
 }
 
-void Parser::register_function(std::wstring name, pFunctionDefinition fnc)
+void Parser::register_function(std::wstring name, ASTNode fnc)
 {
-    assert(!namespaces.empty());
-    namespaces.back()->register_function(std::move(name), std::move(fnc));
+    assert(!namespaces.empty() && namespaces.back()->ns);
+    namespaces.back()->ns->register_function(std::move(name), std::move(fnc));
 }
 
-void Parser::unregister_function(std::wstring name, pFunctionDefinition fnc)
+void Parser::unregister_function(std::wstring name, ASTNode fnc)
 {
-    assert(!namespaces.empty());
-    namespaces.back()->unregister_function(std::move(name), std::move(fnc));
+    assert(!namespaces.empty() && namespaces.back()->ns);
+    namespaces.back()->ns->unregister_function(std::move(name), std::move(fnc));
 }
 
 pType Parser::find_type(std::wstring const &name) const
 {
-    assert(!namespaces.empty());
-    return namespaces.back()->find_type(name);
+    assert(!namespaces.empty() && namespaces.back()->ns);
+    return namespaces.back()->ns->find_type(name);
 }
 
 void Parser::register_type(std::wstring name, pType type)
 {
-    assert(!namespaces.empty());
-    namespaces.back()->register_type(std::move(name), std::move(type));
+    assert(!namespaces.empty() && namespaces.back()->ns);
+    namespaces.back()->ns->register_type(std::move(name), std::move(type));
 }
 
-void Parser::push_namespace(pNamespace const &ns)
+void Parser::clear_namespaces()
 {
-    assert(ns != nullptr);
-    namespaces.emplace_back(ns);
+    namespaces.clear();
 }
 
-pNamespace const &Parser::push_new_namespace(pNamespace const &parent)
+void Parser::push_namespace(ASTNode const &ns)
 {
-    if (namespaces.empty()) {
-        namespaces.emplace_back(std::make_shared<Namespace>(parent));
-        for (auto const &t : TypeRegistry::the().types) {
-            namespaces.back()->register_type(t->name, t);
-        }
-    } else {
-        auto p { (parent == nullptr) ? namespaces.back() : parent };
-        namespaces.emplace_back(std::make_shared<Namespace>(p));
+    assert(ns->ns);
+    if (!namespaces.empty() && ns->ns->parent == nullptr) {
+        ns->ns->parent = namespaces.back();
     }
-    return namespaces.back();
+    namespaces.push_back(ns);
+    // std::wcerr << L"[S+]";
+    // for (auto &n : namespaces | std::ranges::views::reverse) {
+    //     std::wcerr << " <- " << n.id.value();
+    // }
+    // std::wcerr << "\n";
 }
 
 void Parser::pop_namespace()
 {
     assert(!namespaces.empty());
     namespaces.pop_back();
+    // std::wcerr << L"[S-]";
+    // for (auto &n : namespaces | std::ranges::views::reverse) {
+    //     std::wcerr << " <- " << n.id.value();
+    // }
+    // std::wcerr << "\n";
 }
 
 void Parser::append(LexerErrorMessage const &lexer_error)
@@ -1427,9 +1379,16 @@ void Parser::append(TokenLocation location, char const *message)
     append(std::move(location), MUST_EVAL(to_wstring(message)));
 }
 
-pType Parser::bind_error(TokenLocation location, std::wstring msg)
+pType Parser::bind_error(TokenLocation location, std::wstring const &msg)
 {
     append(location, msg);
     return make_error(location, msg);
 }
+
+pType Parser::bind_error(TokenLocation location, std::string const &msg)
+{
+    append(location, msg);
+    return make_error(location, MUST_EVAL(to_wstring(msg)));
+}
+
 }

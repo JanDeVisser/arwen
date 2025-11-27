@@ -49,7 +49,7 @@ Process &Process::on_stderr_read(OnRead const &on_read)
 
 CError Process::start()
 {
-    std::println("[CMD] {} {}", m_command, join(m_arguments, ' '));
+    info("[CMD] {} {}", m_command, join(m_arguments, ' '));
     signal(SIGCHLD, sigchld);
     size_t sz = m_arguments.size();
     size_t bufsz = m_command.length() + 1;

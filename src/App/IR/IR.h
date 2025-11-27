@@ -7,10 +7,15 @@
 #pragma once
 
 #include <cstdint>
+#include <ostream>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include <Util/Logging.h>
+#include <Util/Ptr.h>
 
+#include <App/Parser.h>
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
 
@@ -52,6 +57,28 @@ struct VarPath {
     pType        type;
     intptr_t     offset;
 };
+
+struct Function;
+struct Module;
+struct Program;
+
+template<class N>
+concept ir_node = std::is_same_v<N, IR::Module>
+    || std::is_same_v<N, IR::Function>
+    || std::is_same_v<N, IR::Program>;
+
+struct IRNode;
+
+struct IRNodes {
+    std::vector<IRNode>  nodes;
+    Ptr<IRNode, IRNodes> program { nullptr };
+    size_t               size() const;
+    bool                 empty() const;
+    IRNode const        &operator[](size_t ix) const;
+    IRNode              &operator[](size_t ix);
+};
+
+using pIR = Ptr<IRNode, IRNodes>;
 
 struct Operation {
     enum class Type {
@@ -138,42 +165,79 @@ template<typename Op>
     return std::get<Op>(operation.op);
 }
 
-struct Function;
-struct Module;
-struct Program;
-
-using pFunction = std::shared_ptr<Function>;
-using pModule = std::shared_ptr<Module>;
-using pProgram = std::shared_ptr<Program>;
+using Operations = std::vector<Operation>;
+using Declarations = std::vector<IRVariableDeclaration>;
 
 struct Function {
-    std::wstring                       name;
-    pSyntaxNode                        syntax_node;
-    pModule                            module { nullptr };
-    std::vector<IRVariableDeclaration> parameters;
-    pType                              return_type;
-    std::vector<Operation>             operations;
+    pIR          module { nullptr };
+    Declarations parameters;
+    pType        return_type { nullptr };
+
+    std::wostream &list(pIR const &ir, std::wostream &os) const;
 };
 
 struct Program {
-    std::wstring                       name;
-    pSyntaxNode                        syntax_node;
-    std::vector<IRVariableDeclaration> variables;
-    std::map<std::wstring, pFunction>  functions {};
-    std::map<std::wstring, pModule>    modules {};
-    std::vector<Operation>             operations;
+    std::map<std::wstring, pIR> functions {};
+    std::map<std::wstring, pIR> modules {};
+
+    std::wostream &list(pIR const &ir, std::wostream &os) const;
 };
 
 struct Module {
-    std::wstring                       name;
-    pSyntaxNode                        syntax_node;
-    pProgram                           program { nullptr };
-    std::vector<IRVariableDeclaration> variables;
-    std::map<std::wstring, pFunction>  functions {};
-    std::vector<Operation>             operations;
+    pIR                         program { nullptr };
+    std::map<std::wstring, pIR> functions {};
+
+    std::wostream &list(pIR const &ir, std::wostream &os) const;
 };
 
-using IRNode = std::variant<std::monostate, pFunction, pModule, pProgram>;
+struct IRNode {
+    using IRNodeVariant = std::variant<struct Function, struct Module, struct Program>;
+
+    std::wstring  name;
+    ASTNode       syntax_node;
+    pIR           id;
+    Operations    operations;
+    Declarations  variables;
+    IRNodeVariant node;
+
+    template<ir_node N>
+    static IRNode make(std::wstring name, ASTNode ast)
+    {
+        IRNode ret { std::move(name), std::move(ast) };
+        ret.node = N {};
+        return ret;
+    }
+};
+
+template<class N>
+N *get_if(pIR const &node)
+{
+    assert(node);
+    return std::get_if<N>(&node->node);
+}
+
+template<class N>
+N &get(pIR const &node)
+{
+    assert(node);
+    return std::get<N>(node->node);
+}
+
+template<class N>
+bool is(pIR const &node)
+{
+    assert(node);
+    return std::holds_alternative<N>(node->node);
+}
+
+template<ir_node N>
+pIR make_node(IRNodes &ir, std::wstring name, ASTNode ast)
+{
+    ir.nodes.push_back(IRNode::make<N>(std::move(name), std::move(ast)));
+    pIR ret { &ir };
+    ret->id = ret;
+    return ret;
+}
 
 struct Context {
     struct LoopDescriptor {
@@ -182,8 +246,8 @@ struct Context {
         uint64_t     loop_end;
     };
     struct BlockDescriptor {
-        uint64_t                                      scope_end_label;
-        std::vector<std::pair<pSyntaxNode, uint64_t>> defer_stmts {};
+        uint64_t                                  scope_end_label;
+        std::vector<std::pair<ASTNode, uint64_t>> defer_stmts {};
     };
     struct FunctionDescriptor {
         uint64_t end_label;
@@ -191,10 +255,10 @@ struct Context {
     };
     using UnwindStackEntry = std::variant<std::monostate, FunctionDescriptor, LoopDescriptor, BlockDescriptor>;
 
-    IRNode           ir_node;
+    pIR              ir_node;
     UnwindStackEntry unwind;
 
-    Context(IRNode ir_node, UnwindStackEntry unwind)
+    Context(pIR ir_node, UnwindStackEntry unwind)
         : ir_node(std::move(ir_node))
         , unwind(std::move(unwind))
     {
@@ -202,12 +266,15 @@ struct Context {
 };
 
 struct Generator {
+    IRNodes             &ir;
     std::vector<Context> ctxs;
-    void                 generate(pSyntaxNode const &node);
+    void                 generate(ASTNode const &node);
 };
 
-IRNode generate_ir(pSyntaxNode const &node);
-void   list(IRNode const &ir);
+IRNodes       &generate_ir(ASTNode const &node, IRNodes &ir);
+std::wostream &list_node(pIR const &ir, std::wostream &os);
+std::wostream &list(IRNodes const &ir, std::wostream &os);
+bool           save(IRNodes const &ir);
 
 }
 

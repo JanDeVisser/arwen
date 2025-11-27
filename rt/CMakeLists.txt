@@ -3,11 +3,15 @@ include_directories(.)
 
 enable_language(ASM-ATT)
 
+if (IS_ARM64)
+
 add_library(
         arwenstart
         STATIC
         arch/${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}/start.s
-)
+      )
+
+endif()
 
 add_library(
         trampoline
@@ -17,11 +21,11 @@ add_library(
 
 add_library(
         arwenrt
-        SHARED
+        SHARED STATIC
         dynarr.c
         puts.c
         utf8.c
-        arch/${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}/strlen.s
+        # arch/${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}/strlen.s
         # arch/${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}/puti.s
         # arch/${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}/to_string.s
         #        arch/${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}/alloc.s
@@ -37,7 +41,18 @@ add_library(
 
 set_target_properties(arwenrt PROPERTIES LINKER_LANGUAGE C)
 
+if(IS_ARM64)
+
 install(TARGETS arwenrt arwenstart trampoline
         ARCHIVE DESTINATION lib
         RUNTIME DESTINATION bin
         LIBRARY DESTINATION lib)
+
+else()
+
+install(TARGETS arwenrt trampoline
+        ARCHIVE DESTINATION lib
+        RUNTIME DESTINATION bin
+        LIBRARY DESTINATION lib)
+
+endif()

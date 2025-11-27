@@ -4,18 +4,12 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <cctype>
-#include <cstdint>
 #include <filesystem>
-#include <ios>
 #include <iostream>
 #include <locale.h>
 #include <optional>
-#include <ostream>
 #include <string>
 #include <string_view>
-#include <variant>
-#include <wchar.h>
 
 #include <Util/IO.h>
 #include <Util/Lexer.h>
@@ -33,10 +27,22 @@
 #include <App/IR/IR.h>
 
 #include <Interp/Interpreter.h>
+#include <system_error>
+#include <type_traits>
+#include <utility>
+#include <variant>
+#include <vector>
 
+#ifdef IS_ARM64
 #include <Arch/Arm64/Arm64.h>
+#endif
+#ifdef IS_X86_64
+#include <Arch/Linux/x86_64/X86_64.h>
+#endif
 
 namespace Arwen {
+
+extern int debugger_main();
 
 using namespace Util;
 using namespace Interpreter;
@@ -44,383 +50,294 @@ using namespace IR;
 
 using Interp = Arwen::Interpreter::Interpreter;
 
-std::optional<std::wstring> get_command_string()
+std::optional<std::wstring> load_file(fs::path const &file)
 {
-    std::cout << "*> " << std::flush;
-    std::wstring ret;
-    std::getline(std::wcin, ret);
-    if (std::wcin.eof()) {
+    if (!fs::exists(file)) {
+        log_error("File `{}` does not exist", file.string());
         return {};
+    }
+    auto contents_maybe = read_file_by_name<wchar_t>(file.string());
+    if (!contents_maybe.has_value()) {
+        log_error("Could not read file `{}`: {}", file.string(), contents_maybe.error().description);
+        return {};
+    }
+    return contents_maybe.value();
+};
+
+std::optional<std::wstring> load_file(std::wstring_view fname)
+{
+    return load_file(fs::path { fname });
+}
+
+std::optional<std::wstring> load_directory(fs::path directory)
+{
+    std::wstring ret;
+    for (auto const &entry : fs::directory_iterator(directory)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".arw") {
+            if (auto contents_maybe = load_file(entry.path()); !contents_maybe) {
+                return {};
+            } else {
+                ret += contents_maybe.value();
+            }
+        }
     }
     return ret;
 }
 
-void dump_scopes(Interp &interpreter)
+std::optional<std::wstring> load_files(std::vector<fs::path> const &files)
 {
-    std::cout << "Scopes: " << interpreter.scopes.size() << " top: 0x" << std::hex << interpreter.stack.top << std::dec << std::endl;
-    if (interpreter.stack.top == 0) {
-        std::cout << std::endl;
-        return;
-    }
-    auto scopes { 0 };
-    for (auto ix = 0; ix < interpreter.scopes.size(); ++ix) {
-        auto &scope { interpreter.scopes[ix] };
-        auto  next_bp = (ix < interpreter.scopes.size() - 1) ? interpreter.scopes[ix + 1].bp : interpreter.stack.top;
-        if (scopes == 0) {
-            std::cout << std::right << std::setw(2) << std::setfill(' ') << scope.bp;
-        }
-        std::cout << '.';
-        ++scopes;
-        if (next_bp > scope.bp) {
-            std::cout << std::right << std::setw(4 - scopes) << std::setfill(' ') << " ";
-            for (auto stix = scope.bp; stix < next_bp; stix += 8) {
-                if (stix == scope.bp) {
-                    std::cout << "   ";
-                } else {
-                    std::cout << "          ";
-                }
-                for (auto bix { 0 }; bix < 8 && stix + bix < next_bp; ++bix) {
-                    std::cout << " 0x" << std::hex << std::setw(2) << std::setfill('0') << (interpreter.stack.stack[stix + bix] & 0xFF);
-                }
-                std::cout << " ";
-                for (auto bix { 0 }; bix < 8 && stix + bix < next_bp; ++bix) {
-                    if (isprint(interpreter.stack.stack[stix + bix])) {
-                        std::cout << " " << interpreter.stack.stack[stix + bix];
-                    } else {
-                        std::cout << " .";
-                    }
-                }
-                std::cout << "  ";
-                for (auto &var : scope.variables) {
-                    if (var.second.address == stix) {
-                        std::wcout << var.first;
-                    }
-                }
-                std::cout << std::endl;
+    std::wstring ret;
+    for (auto const &file : files) {
+        if (fs::is_regular_file(file)) {
+            if (auto contents_maybe = load_file(file); !contents_maybe) {
+                return {};
+            } else {
+                ret += contents_maybe.value();
             }
-            scopes = 0;
-        } else if (ix == interpreter.scopes.size() - 1) {
-            std::cout << std::endl;
         }
     }
-    std::cout << std::endl;
+    return ret;
 }
 
-std::optional<std::wstring> load_std_lib()
-{
-    auto std_arw { arwen_dir() / "share" / "std.arw" };
-    if (auto contents_maybe = read_file_by_name<wchar_t>(std_arw.string()); !contents_maybe.has_value()) {
-        std::wcerr << L"Could not read standard library `" << std_arw << L"`" << std::endl;
-        return {};
-    } else {
-        return contents_maybe.value();
-    }
-}
+struct Builder {
+    using Source = std::variant<fs::path, std::vector<fs::path>>;
 
-int debugger_main(int argc, char const **argv)
-{
-    struct Context {
-        std::wstring file_name;
-        std::wstring contents;
-        Parser       parser;
-        pSyntaxNode  syntax;
-        pSyntaxNode  normalized;
-        IR::IRNode   ir { std::monostate {} };
-        Value        exit_code;
+    fs::path     arw_dir;
+    Source       source;
+    std::string  program_name;
+    Parser       parser {};
+    std::wstring source_text;
+    bool         verbose { false };
+    IR::IRNodes  ir {};
 
-        void reset()
-        {
-            file_name = L"";
-            contents = L"";
-            syntax = nullptr;
-            normalized = nullptr;
-            ir = std::monostate {};
-        }
-    };
-    Context ctx;
+    static std::error_code error;
 
-    auto load_file = [&ctx](std::wstring_view fname) -> bool {
-        ctx.contents = L"";
-        ctx.file_name = L"";
-        if (auto contents_maybe = read_file_by_name<wchar_t>(as_utf8(fname)); !contents_maybe.has_value()) {
-            std::wcerr << L"Could not read file `" << fname << '`' << std::endl;
+    bool build()
+    {
+        if (!parse()) {
+            std::cerr << "Syntactic parsing failed\n";
             return false;
-        } else {
-            ctx.contents = contents_maybe.value();
-            ctx.file_name = fname;
+        }
+        if (has_option("stop-after-parse")) {
             return true;
         }
-    };
-
-    auto parse_file = [&ctx](bool verbose = true) -> bool {
-        if (verbose) {
-            std::wcout << "STAGE 1 - Parsing" << std::endl;
-        }
-        ctx.parser.program = parse<Arwen::Program>(ctx.parser, as_utf8(ctx.file_name), load_std_lib().value_or(L""));
-        ctx.parser.push_namespace(ctx.parser.program->ns);
-        auto mod = parse<Arwen::Module>(ctx.parser, as_utf8(ctx.file_name), ctx.contents);
-        for (auto const &err : ctx.parser.errors) {
-            std::wcerr << err.location.line + 1 << ':' << err.location.column + 1 << " " << err.message << std::endl;
-        }
-        if (!mod) {
-            std::cerr << "Syntax error(s) found" << std::endl;
+        if (!normalize() || !bind()) {
+            log_error("Semantic analysis failed");
             return false;
         }
-        ctx.parser.program->modules[mod->name] = mod;
-        ctx.parser.errors.clear();
-        ctx.syntax = ctx.parser.program;
-
-        if (verbose) {
-            std::wcout << "STAGE 2 - Folding" << std::endl;
+        if (has_option("stop-after-analysis")) {
+            return true;
         }
-        ctx.parser.namespaces.clear();
-        ctx.parser.push_namespace(ctx.parser.program->ns);
-        ctx.normalized = normalize_node(ctx.syntax, ctx.parser);
-        if (!ctx.normalized) {
-            std::cerr << "Internal error(s) encountered" << std::endl;
-            ctx.reset();
+        if (!generate_ir()) {
+            log_error("Intermediate representation generation failed");
             return false;
         }
-        for (auto const &err : ctx.parser.errors) {
-            std::wcerr << err.location.line << ':' << err.location.column << " " << err.message << std::endl;
+        if (has_option("list")) {
+            save(ir);
+        }
+        if (!generate_code()) {
+            log_error("Code generation failed");
             return false;
-        }
-
-        if (verbose) {
-            std::wcout << "STAGE 3 - Binding. Pass ";
-        }
-        ctx.parser.pass = 0;
-        ctx.parser.unbound = std::numeric_limits<int>::max();
-        int prev_pass;
-        do {
-            if (verbose) {
-                std::wcout << ctx.parser.pass << " ";
-                std::flush(std::wcout);
-            }
-            prev_pass = ctx.parser.unbound;
-            ctx.parser.unbound = 0;
-            ctx.parser.unbound_nodes.clear();
-            auto bound_type = bind_node(ctx.normalized, ctx.parser);
-            if (!bound_type) {
-                if (verbose) {
-                    std::wcout << std::endl;
-                }
-                std::cerr << "Internal error(s) encountered" << std::endl;
-                ctx.reset();
-                return false;
-            }
-            if (!ctx.parser.errors.empty()) {
-                if (verbose) {
-                    std::wcout << std::endl;
-                }
-                for (auto const &err : ctx.parser.errors) {
-                    std::wcerr << err.location.line << ':' << err.location.column << " " << err.message << std::endl;
-                }
-                return false;
-            }
-            ++ctx.parser.pass;
-        } while (ctx.parser.unbound > 0 && ctx.parser.unbound < prev_pass);
-        if (verbose) {
-            std::cout << std::endl;
         }
         return true;
-    };
+    }
 
-    auto trace_program = [&ctx]() {
-        enum class DebuggerState {
-            Run,
-            Step,
-        };
-
-        DebuggerState state { DebuggerState::Step };
-        auto          cb = [&state](Interp::CallbackType cb_type, Interp &interpreter, Interp::CallbackPayload const &payload) -> bool {
-            switch (cb_type) {
-            case Interp::CallbackType::BeforeOperation:
-                std::wcout << std::get<Operation>(payload) << std::endl;
-                if (state == DebuggerState::Step) {
-                    while (true) {
-                        std::cout << "==> " << std::flush;
-                        std::wstring ret;
-                        std::getline(std::wcin, ret);
-                        if (ret == L"s") {
-                            break;
-                        } else if (ret == L"c") {
-                            state = DebuggerState::Run;
-                            break;
+    bool parse()
+    {
+        auto std_lib = load_std_lib();
+        if (!std_lib) {
+            return false;
+        }
+        auto program = Arwen::parse<Arwen::Program>(parser, program_name, *std_lib);
+        if (!program) {
+            log_error("Error(s) parsing builtins");
+            return false;
+        }
+        if (auto source_text_maybe = std::visit(
+                overloads {
+                    [this](fs::path const &p) -> std::optional<std::wstring> {
+                        if (fs::is_directory(p)) {
+                            return load_directory(p);
+                        } else if (fs::is_regular_file(p)) {
+                            return load_file(p);
+                        } else {
+                            log_error("File `{}` is not a regular file or directory", p.string());
+                            return {};
                         }
-                    }
+                    },
+                    [this](std::vector<fs::path> const &paths) -> std::optional<std::wstring> {
+                        return load_files(paths);
+                    } },
+                source);
+            !source_text_maybe) {
+            return false;
+        } else {
+            source_text = *source_text_maybe;
+            auto mod = Arwen::parse<Arwen::Module>(parser, as_utf8(program_name), source_text);
+            if (!parser.errors.empty()) {
+                log_error("Syntax error(s) found:");
+                for (auto const &err : parser.errors) {
+                    log_error(L"{}:{} {}", err.location.line + 1, err.location.column + 1, err.message);
                 }
-                // dump_scopes(interpreter);
-                break;
-            case Interp::CallbackType::AfterOperation:
-                dump_scopes(interpreter);
-                break;
-            case Interp::CallbackType::StartModule:
-                std::wcout << "Initializing module " << std::get<IR::pModule>(payload)->name << std::endl;
-                break;
-            case Interp::CallbackType::EndModule:
-                std::wcout << "Module " << std::get<IR::pModule>(payload)->name << " initialized" << std::endl;
-                break;
-            case Interp::CallbackType::StartFunction:
-                std::wcout << "Entering function " << std::get<pFunction>(payload)->name << std::endl;
-                break;
-            case Interp::CallbackType::EndFunction:
-                std::wcout << "Leaving function " << std::get<pFunction>(payload)->name << std::endl;
-                break;
-            case Interp::CallbackType::OnScopeStart:
-                break;
-            case Interp::CallbackType::AfterScopeStart:
-                std::wcout << "Scope created" << std::endl;
-                dump_scopes(interpreter);
-                break;
-            case Interp::CallbackType::OnScopeDrop:
-                break;
-            case Interp::CallbackType::AfterScopeDrop: {
-                dump_scopes(interpreter);
-            } break;
+                return false;
             }
+            info("Syntactic parsing succeeded", parser.pass);
             return true;
-        };
-        Interp interpreter;
-        interpreter.callback = cb;
-        auto ret = interpreter.execute(ctx.ir);
-        std::wcout << ret << "\n";
-        ctx.exit_code = ret;
-    };
+        }
+    }
 
+    bool normalize()
+    {
+        auto normalized = parser.program->normalize();
+        if (!parser.errors.empty()) {
+            log_error("Error(s) found during first phase of sematic analysis:");
+            for (auto const &err : parser.errors) {
+                log_error(L"{}:{} {}", err.location.line + 1, err.location.column + 1, err.message);
+            }
+            return false;
+        }
+        assert(normalized);
+        parser.program = normalized;
+        info("First phase of sematic analysis succeeded");
+        return true;
+    }
+
+    bool bind()
+    {
+        parser.pass = 0;
+        parser.unbound = std::numeric_limits<int>::max();
+        int prev_pass;
+        do {
+            prev_pass = parser.unbound;
+            parser.unbound = 0;
+            parser.unbound_nodes.clear();
+            auto bound_type = parser.program->bind();
+            if (!bound_type) {
+                log_error("Internal error(s) encountered during semantic analysis");
+                return false;
+            }
+            if (!parser.errors.empty()) {
+                log_error("Error(s) found during second phase of semantic analysis:");
+                for (auto const &err : parser.errors) {
+                    log_error(L"{}:{} {}", err.location.line + 1, err.location.column + 1, err.message);
+                }
+                return false;
+            }
+            ++parser.pass;
+        } while (parser.unbound > 0 && parser.unbound < prev_pass);
+        info("Second phase of semantic analysis succeeded after {} pass(es)", parser.pass);
+        return true;
+    }
+
+    bool generate_ir()
+    {
+        IR::generate_ir(parser.program, ir);
+        return true;
+    }
+
+    bool generate_code()
+    {
+#ifdef IS_ARM64
+        MUST(Arm64::generate_arm64(ir));
+        return true;
+#endif
+#ifdef IS_X86_64
+        return X86_64::generate_x86_64(ir);
+#endif
+    }
+
+private:
+    Builder()
+        : Builder(fs::current_path())
+    {
+    }
+
+    Builder(fs::path root)
+        : arw_dir(arwen_dir())
+        , source(std::move(root))
+        , program_name(root.stem().string())
+        , verbose(log_config.level == LogLevel::Trace)
+    {
+    }
+
+    Builder(std::vector<fs::path> source)
+        : arw_dir(arwen_dir())
+        , source(std::move(source))
+        , program_name(({ auto const &__s = std::get<1>(this->source); assert(!__s.empty()); __s[0].stem().string(); }))
+        , verbose(log_config.level == LogLevel::Trace)
+    {
+    }
+
+    std::optional<std::wstring> load_std_lib()
+    {
+        return load_file(fs::path { arwen_dir() / "share" / "std.arw" });
+    }
+
+    template<typename T>
+        requires std::is_same_v<T, fs::path> || std::is_same_v<T, std::vector<fs::path>>
+    friend std::optional<Builder> make_builder(T);
+};
+
+template<typename T>
+    requires std::is_same_v<T, fs::path> || std::is_same_v<T, std::vector<fs::path>>
+std::optional<Builder> make_builder(T source)
+{
+    return Builder { source };
+}
+
+void usage()
+{
+    std::cout << "arwen - arwen language compiler  https://www.arwen-lang.org\n\n";
+    std::cout << "Usage:\n";
+    std::cout << "   arwen --help - This text\n";
+    std::cout << "   arwen [OPTIONS] build\n";
+    std::cout << "   arwen [OPTIONS] compile <file> ...\n";
+    std::cout << "   arwen [OPTIONS] run <file> ... [-- <arg> ...]\n";
+    std::cout << "   arwen [OPTIONS] eval <file> ... [-- <arg> ...]\n";
+    std::cout << "   arwen [OPTIONS] debug - Start debugger\n\n";
+    std::cout << "Options:\n";
+    std::cout << "  --keep-assembly       Do not delete assembly files after compiling\n";
+    std::cout << "  --keep-objects        Do not delete object files after linking\n";
+    std::cout << "  --list                Write intermediate representation to .arwen/<program>.ir\n";
+    std::cout << "  --stop-after-analysis Stop after semantic analysis\n";
+    std::cout << "  --stop-after-parse    Stop after syntactic parsing\n";
+    std::cout << "  --trace               Print debug tracing information\n";
+    std::cout << "  --verbose             Provide progress information\n";
+    std::cout << "\n";
+    exit(1);
+}
+
+int main(int argc, char const **argv)
+{
     setlocale(LC_ALL, "en_US.UTF-8");
-    set_logging_config(LoggingConfig { has_option("trace") ? LogLevel::Trace : LogLevel::Info });
     auto arg_ix = parse_options(argc, argv);
-    auto quit { false };
-    do {
-        auto         from_argv { arg_ix < argc };
-        std::wstring cmdline {};
-        for (; arg_ix < argc; ++arg_ix) {
-            cmdline += as_wstring(argv[arg_ix]);
-            cmdline += ' ';
-        }
-        if (cmdline.empty()) {
-            auto cmdline_maybe = get_command_string();
-            if (!cmdline_maybe.has_value()) {
-                break;
-            }
-            cmdline = *cmdline_maybe;
-        }
-        if (auto stripped = strip(std::wstring_view { cmdline }); !stripped.empty()) {
-            auto parts = split(stripped, ' ');
-            if (parts[0] == L"quit") {
-                quit = true;
-            } else if (parts[0] == L"load") {
-                if (parts.size() != 2) {
-                    std::cerr << "Error: filename missing\n";
-                } else {
-                    load_file(parts[1]);
-                }
-            } else if (parts[0] == L"parse") {
-                if (ctx.contents.empty()) {
-                    std::cerr << "Error: no file loaded\n";
-                } else {
-                    parse_file();
-                }
-            } else if (parts[0] == L"build") {
-                if (parts.size() != 2) {
-                    std::cerr << "Error: filename missing\n";
-                } else {
-                    load_file(parts[1]);
-                    parse_file();
-                    if (ctx.normalized == nullptr || ctx.normalized->status != SyntaxNode::Status::Bound) {
-                        std::cerr << "Error: parse failed\n";
-                    } else {
-                        ctx.ir = IR::generate_ir(ctx.normalized);
-                    }
-                }
-            } else if (parts[0] == L"cat") {
-                std::wcout << ctx.contents << std::endl;
-            } else if (parts[0] == L"print") {
-                if (parts.size() != 2) {
-                    std::cerr << "Error: name of tree to print missing\n";
-                } else {
-                    if (parts[1] == L"syntax") {
-                        if (ctx.syntax == nullptr) {
-                            std::cerr << "Error: no syntax tree available\n";
-                        } else {
-                            ctx.syntax->dump();
-                        }
-                    } else if (parts[1] == L"normalized") {
-                        if (ctx.normalized == nullptr) {
-                            std::cerr << "Error: no normalized tree available\n";
-                        } else {
-                            ctx.normalized->dump();
-                        }
-                    }
-                }
-            } else if (parts[0] == L"generate") {
-                if (ctx.normalized == nullptr || ctx.normalized->status != SyntaxNode::Status::Bound) {
-                    std::cerr << "Error: no bound tree available\n";
-                } else {
-                    ctx.ir = IR::generate_ir(ctx.normalized);
-                }
-            } else if (parts[0] == L"list") {
-                if (std::holds_alternative<std::monostate>(ctx.ir)) {
-                    std::cerr << "Error: no IR available\n";
-                } else {
-                    IR::list(ctx.ir);
-                }
-            } else if (parts[0] == L"run") {
-                if (ctx.syntax == nullptr) {
-                    if (parts.size() < 2) {
-                        std::cerr << "Error: filename missing\n";
-                    } else {
-                        load_file(parts[1]);
-                        parse_file(false);
-                        if (ctx.normalized == nullptr || ctx.normalized->status != SyntaxNode::Status::Bound) {
-                            std::cerr << "Error: parse failed\n";
-                        } else {
-                            ctx.ir = IR::generate_ir(ctx.normalized);
-                        }
-                    }
-                }
-                if (std::holds_alternative<IR::pProgram>(ctx.ir)) {
-                    auto ret = Arwen::Interpreter::execute_ir(ctx.ir);
-                    if (from_argv) {
-                        return as<int32_t>(ret);
-                    }
-                    std::wcout << ret << "\n";
-                    ctx.exit_code = ret;
-                } else {
-                    std::cerr << "Error: no IR available\n";
-                }
-            } else if (parts[0] == L"trace") {
-                if (std::holds_alternative<IR::pProgram>(ctx.ir)) {
-                    trace_program();
-                } else {
-                    std::cerr << "Error: no IR available\n";
-                }
-            } else if (parts[0] == L"compile") {
-                if (parts.size() != 2) {
-                    std::cerr << "Error: filename missing\n";
-                } else {
-                    load_file(parts[1]);
-                    parse_file();
-                    if (ctx.normalized == nullptr || ctx.normalized->status != SyntaxNode::Status::Bound) {
-                        std::cerr << "Error: parse failed\n";
-                    } else {
-                        ctx.ir = IR::generate_ir(ctx.normalized);
-                        if (std::holds_alternative<IR::pProgram>(ctx.ir)) {
-                            MUST(Arm64::generate_arm64(std::get<IR::pProgram>(ctx.ir)));
-                            if (from_argv) {
-                                return 0;
-                            }
-                        } else {
-                            std::cerr << "Error: no IR available\n";
-                        }
-                    }
-                }
-            } else {
-                std::cout << "?\n";
+    set_logging_config(LoggingConfig { has_option("trace") ? LogLevel::Trace : (has_option("verbose") ? LogLevel::Info : LogLevel::Error) });
+    trace("Tracing is ON");
+    info("Verbose mode is ON");
+    if (arg_ix == argc || has_option("help") || has_option("usage")) {
+        usage();
+    }
+    if (strcmp(argv[arg_ix], "build") == 0) {
+        if (auto builder_maybe = make_builder(fs::current_path()); builder_maybe) {
+            if (!builder_maybe->build()) {
+                return 1;
             }
         }
-    } while (!quit);
+    } else if (strcmp(argv[arg_ix], "compile") == 0 && argc - arg_ix > 1) {
+        std::vector<fs::path> files;
+        for (size_t ix = arg_ix + 1; ix < argc; ++ix) {
+            files.emplace_back(argv[ix]);
+        }
+        if (auto builder_maybe = make_builder(files); builder_maybe) {
+            if (!builder_maybe->build()) {
+                return 1;
+            }
+        }
+    } else if (strcmp(argv[arg_ix], "debug") == 0 && argc - arg_ix == 1) {
+        return debugger_main();
+    } else {
+        usage();
+    }
     return 0;
 }
 
@@ -428,5 +345,5 @@ int debugger_main(int argc, char const **argv)
 
 int main(int argc, char const **argv)
 {
-    return Arwen::debugger_main(argc, argv);
+    return Arwen::main(argc, argv);
 }

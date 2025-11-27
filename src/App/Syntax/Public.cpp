@@ -9,35 +9,37 @@
 
 #include <Util/Utf8.h>
 
+#include <App/Parser.h>
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
 
 namespace Arwen {
 
-PublicDeclaration::PublicDeclaration(std::wstring name, pSyntaxNode declaration)
-    : SyntaxNode(SyntaxNodeType::PublicDeclaration)
-    , name(std::move(name))
+PublicDeclaration::PublicDeclaration(std::wstring name, ASTNode declaration)
+    : name(std::move(name))
     , declaration(std::move(declaration))
 {
     assert(this->declaration != nullptr);
 }
 
-pSyntaxNode PublicDeclaration::normalize(Parser &parser)
+ASTNode PublicDeclaration::normalize(ASTNode const &n)
 {
-    return make_node<PublicDeclaration>(location, name, normalize_node(declaration, parser));
+    declaration = declaration->normalize();
+    return n;
 }
 
-pSyntaxNode PublicDeclaration::stamp(Parser &parser)
+ASTNode PublicDeclaration::stamp(ASTNode const &n)
 {
-    return make_node<PublicDeclaration>(location, name, stamp_node(declaration, parser));
+    declaration = declaration->stamp();
+    return n;
 }
 
-pType PublicDeclaration::bind(Parser &parser)
+pType PublicDeclaration::bind(ASTNode const &n)
 {
-    return bind_node(declaration, parser);
+    return declaration->bind();
 }
 
-void PublicDeclaration::dump_node(int indent)
+void PublicDeclaration::dump_node(ASTNode const &, int indent)
 {
     declaration->dump(indent + 4);
 }

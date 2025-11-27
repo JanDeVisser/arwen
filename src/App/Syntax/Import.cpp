@@ -4,25 +4,26 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <App/Operator.h>
-#include <App/Parser.h>
+#include <cstddef>
+
 #include <Util/IO.h>
 #include <Util/Logging.h>
 #include <Util/Utf8.h>
-#include <cstddef>
-#include <memory>
+
+#include <App/Operator.h>
+#include <App/Parser.h>
+#include <App/SyntaxNode.h>
 
 namespace Arwen {
 
 using namespace Util;
 
 Import::Import(std::wstring name)
-    : SyntaxNode(SyntaxNodeType::Import)
-    , name(std::move(name))
+    : name(std::move(name))
 {
 }
 
-pSyntaxNode Import::normalize(Parser &parser)
+ASTNode Import::normalize(ASTNode const &n)
 {
     auto fname = name;
     for (auto ix = 0; ix < fname.length(); ++ix) {
@@ -34,27 +35,18 @@ pSyntaxNode Import::normalize(Parser &parser)
     }
     if (auto contents_maybe = read_file_by_name<wchar_t>(as_utf8(fname)); contents_maybe.has_value()) {
         auto const &contents = contents_maybe.value();
-        auto        module = parse<Module>(parser, as_utf8(name), std::move(contents));
+        auto        module = parse<Module>(*(n.repo), as_utf8(name), std::move(contents));
         if (module) {
-            module = std::dynamic_pointer_cast<Module>(normalize_node(module, parser));
-            if (module) {
-                module->location = location;
-            }
-            parser.program->modules[name] = module;
-            return module;
+	    module->location = n->location;
+            return module->normalize();
         }
     } else {
-        parser.append(location, L"Could not open import file `{}`", fname);
+        n.error(L"Could not open import file `{}`", fname);
     }
     return nullptr;
 }
 
-pType Import::bind(Parser &parser)
-{
-    return parser.bind_error(location, L"`@import` statement should have been elided");
-}
-
-std::wostream &Import::header(std::wostream &os)
+std::wostream &Import::header(ASTNode const &, std::wostream &os)
 {
     return os << name;
 }

@@ -10,50 +10,49 @@
 
 namespace Arwen {
 
-IfStatement::IfStatement(pSyntaxNode condition, pSyntaxNode if_branch, pSyntaxNode else_branch)
-    : SyntaxNode(SyntaxNodeType::IfStatement)
-    , condition(condition)
+IfStatement::IfStatement(ASTNode condition, ASTNode if_branch, ASTNode else_branch)
+    : condition(condition)
     , if_branch(if_branch)
     , else_branch(else_branch)
 {
     assert(condition != nullptr && if_branch != nullptr);
 }
 
-pSyntaxNode IfStatement::normalize(Parser &parser)
+ASTNode IfStatement::normalize(ASTNode const &n)
 {
-    return make_node<IfStatement>(
-        location,
-        normalize_node(condition, parser),
-        normalize_node(if_branch, parser),
-        (else_branch != nullptr) ? normalize_node(else_branch, parser) : nullptr);
+    condition = condition->normalize();
+    if_branch = if_branch->normalize();
+    if (else_branch) {
+        else_branch = else_branch->normalize();
+    }
+    return n;
 }
 
-pSyntaxNode IfStatement::stamp(Parser &parser)
+ASTNode IfStatement::stamp(ASTNode const &n)
 {
-    return make_node<IfStatement>(
-        location,
-        condition->stamp(parser),
-        if_branch->stamp(parser),
-        (else_branch != nullptr) ? else_branch->stamp(parser) : nullptr);
+    condition = condition->stamp();
+    if_branch = if_branch->stamp();
+    if (else_branch) {
+        else_branch = else_branch->stamp();
+    }
+    return n;
 }
 
-pType IfStatement::bind(Parser &parser)
+pType IfStatement::bind(ASTNode const &n)
 {
-    if (auto cond_type = bind_node(condition, parser);
-        cond_type->is<Undetermined>() || cond_type->is<BindErrors>()) {
+    if (auto cond_type = condition->bind(); is<Undetermined>(cond_type) || is<BindErrors>(cond_type)) {
         return cond_type;
-    } else if (!cond_type->is<BoolType>()) {
-        return parser.bind_error(
-            location,
+    } else if (!is<BoolType>(cond_type)) {
+        return n.bind_error(
             L"`while` loop condition is a `{}`, not a boolean",
             cond_type->name);
     }
-    auto if_type = bind_node(if_branch, parser);
-    auto else_type = (else_branch != nullptr) ? bind_node(else_branch, parser) : nullptr;
+    auto if_type = if_branch->bind();
+    auto else_type = (else_branch != nullptr) ? else_branch->bind() : nullptr;
     return (else_type == nullptr || else_type == if_type) ? if_type : TypeRegistry::the().ambiguous;
 }
 
-void IfStatement::dump_node(int indent)
+void IfStatement::dump_node(ASTNode const &n, int indent)
 {
     condition->dump(indent + 4);
     if_branch->dump(indent + 4);

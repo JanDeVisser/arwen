@@ -10,7 +10,6 @@
 #include <cstdint>
 #include <format>
 #include <map>
-#include <memory>
 #include <string>
 #include <variant>
 #include <vector>
@@ -19,6 +18,7 @@
 
 #include <Util/Align.h>
 #include <Util/Logging.h>
+#include <Util/Ptr.h>
 #include <Util/Utf8.h>
 
 #include <App/Operator.h>
@@ -52,13 +52,14 @@ namespace Arwen {
 
 enum class TypeKind {
 #undef S
+
 #define S(K) K,
     TypeKinds(S)
 #undef S
 };
 
-using pType = std::shared_ptr<const struct Type>;
-// using pConstType = std::shared_ptr<const struct Type>;
+using pType = Ptr<struct Type, struct TypeRegistry>;
+using pTypes = std::vector<pType>;
 
 using Slice = slice_t;
 using DynamicArray = dynarr_t;
@@ -436,7 +437,8 @@ using TypeDescription = std::variant<
 #undef S
         std::monostate>;
 
-struct Type : std::enable_shared_from_this<Type> {
+struct Type {
+    pType                         id { nullptr };
     std::wstring                  name;
     TypeDescription               description;
     std::map<std::wstring, pType> arguments {};
@@ -446,12 +448,6 @@ struct Type : std::enable_shared_from_this<Type> {
         : name(std::move(n))
         , description(std::move(descr))
     {
-    }
-
-    template<typename DescrType>
-    bool is() const
-    {
-        return std::holds_alternative<DescrType>(description);
     }
 
     bool is(TypeKind kind) const
@@ -508,7 +504,7 @@ struct Type : std::enable_shared_from_this<Type> {
 
     pType value_type() const
     {
-        auto val_type { shared_from_this() };
+        auto val_type { id };
         if (val_type->kind() == TypeKind::ReferenceType) {
             val_type = std::get<ReferenceType>(val_type->description).referencing;
         }
@@ -519,22 +515,26 @@ struct Type : std::enable_shared_from_this<Type> {
 };
 
 struct TypeRegistry {
-    std::vector<pType> types;
+    std::vector<Type> types;
 
     static TypeRegistry &the();
-    pType                generic_parameter(std::wstring name);
-    pType                referencing(pType type);
-    pType                pointer_to(pType type);
-    pType                alias_for(pType type);
-    pType                slice_of(pType type);
-    pType                zero_terminated_array_of(pType type);
-    pType                array_of(pType type, size_t size);
-    pType                dyn_array_of(pType type);
-    pType                optional_of(pType type);
-    pType                error_of(pType success, pType error);
-    pType                function_of(std::vector<pType> const &parameters, pType result);
-    pType                typelist_of(std::vector<pType> const &typelist);
-    pType                struct_of(StructType::Fields const &fields);
+
+    size_t      size() const { return types.size(); }
+    bool        empty() const { return types.empty(); }
+    Type const &operator[](size_t ix) const { return types[ix]; }
+    pType       generic_parameter(std::wstring name);
+    pType       referencing(pType type);
+    pType       pointer_to(pType type);
+    pType       alias_for(pType type);
+    pType       slice_of(pType type);
+    pType       zero_terminated_array_of(pType type);
+    pType       array_of(pType type, size_t size);
+    pType       dyn_array_of(pType type);
+    pType       optional_of(pType type);
+    pType       error_of(pType success, pType error);
+    pType       function_of(std::vector<pType> const &parameters, pType result);
+    pType       typelist_of(std::vector<pType> const &typelist);
+    pType       struct_of(StructType::Fields const &fields);
 
     static pType u8;
     static pType u16;
@@ -561,12 +561,34 @@ private:
     static TypeRegistry s_registry;
 };
 
+template<class N>
+N *get_if(pType const &type)
+{
+    assert(type);
+    return std::get_if<N>(&type->description);
+}
+
+template<class N>
+N &get(pType const &type)
+{
+    assert(type);
+    return std::get<N>(type->description);
+}
+
+template<class N>
+bool is(pType const &type)
+{
+    assert(type);
+    return std::holds_alternative<N>(type->description);
+}
+
 template<typename DescrType>
 pType make_type(std::wstring n, DescrType descr)
 {
     // std::wcout << "Registering type " << n << ' ' << descr.to_string() << std::endl;
-    auto ret = std::make_shared<Type const>(std::move(n), std::move(descr));
-    TypeRegistry::the().types.push_back(ret);
+    TypeRegistry::the().types.emplace_back(std::move(n), std::move(descr));
+    pType ret { &TypeRegistry::the() };
+    TypeRegistry::the().types.back().id = ret;
     return ret;
 }
 

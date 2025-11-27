@@ -5,7 +5,6 @@
  */
 
 #include <iostream>
-#include <memory>
 
 #include <App/Parser.h>
 #include <App/SyntaxNode.h>
@@ -13,85 +12,75 @@
 
 namespace Arwen {
 
-StructMember::StructMember(std::wstring label, pTypeSpecification type)
-    : SyntaxNode(SyntaxNodeType::StructMember)
-    , label(std::move(label))
+StructMember::StructMember(std::wstring label, ASTNode type)
+    : label(std::move(label))
     , member_type(std::move(type))
 {
     assert(this->member_type != nullptr);
 }
 
-pSyntaxNode StructMember::normalize(Parser &parser)
+ASTNode StructMember::normalize(ASTNode const &n)
 {
-    return make_node<StructMember>(
-        location,
-        label,
-        normalize_node(member_type, parser));
+    member_type = member_type->normalize();
+    return n;
 }
 
-pSyntaxNode StructMember::stamp(Parser &parser)
+ASTNode StructMember::stamp(ASTNode const &n)
 {
-    return make_node<StructMember>(
-        location,
-        label,
-        stamp_node(member_type, parser));
+    member_type = member_type->stamp();
+    return n;
 }
 
-pType StructMember::bind(Parser &parser)
+pType StructMember::bind(ASTNode const &n)
 {
-    return bind_node(member_type, parser);
+    return member_type->bind();
 }
 
-std::wostream &StructMember::header(std::wostream &os)
+std::wostream &StructMember::header(ASTNode const &, std::wostream &os)
 {
-    return os << label << ' ' << member_type->to_string();
+    return os << label << ' ' << get<TypeSpecification>(member_type).to_string();
 }
 
-Struct::Struct(std::wstring name, StructMembers members)
-    : SyntaxNode(SyntaxNodeType::Struct)
-    , name(std::move(name))
+Struct::Struct(std::wstring name, ASTNodes members)
+    : name(std::move(name))
     , members(std::move(members))
 {
 }
 
-pSyntaxNode Struct::normalize(Parser &parser)
+ASTNode Struct::normalize(ASTNode const &n)
 {
-    return make_node<Struct>(
-        location,
-        name,
-        normalize_nodes(members, parser));
+    normalize_nodes(members);
+    return n;
 }
 
-pSyntaxNode Struct::stamp(Parser &parser)
+ASTNode Struct::stamp(ASTNode const &n)
 {
-    return make_node<Struct>(
-        location,
-        name,
-        stamp_nodes(members, parser));
+    members = stamp_nodes(members);
+    return n;
 }
 
-pType Struct::bind(Parser &parser)
+pType Struct::bind(ASTNode const &n)
 {
     StructType::Fields fields;
     for (auto const &m : members) {
-        bind_node(m, parser);
-        if (m->status != SyntaxNode::Status::Bound) {
+        m->bind();
+        if (m->status != ASTNodeImpl::Status::Bound) {
             return m->bound_type;
         }
-        fields.emplace_back(m->label, m->bound_type);
+        fields.emplace_back(get<StructMember>(m).label, m->bound_type);
     }
-    parser.register_type(name, TypeRegistry::the().struct_of(fields));
+    n.repo->register_type(name, TypeRegistry::the().struct_of(fields));
     return TypeRegistry::void_;
 }
 
-void Struct::dump_node(int indent)
+void Struct::dump_node(ASTNode const &, int indent)
 {
     for (auto const &m : members) {
         m->dump(indent + 4);
     }
 }
 
-std::wostream &Struct::header(std::wostream &os)
+std::wostream &Struct::header(ASTNode const &, std::wostream &os)
 {
     return os << name;
 }

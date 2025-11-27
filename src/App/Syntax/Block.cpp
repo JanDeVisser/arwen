@@ -9,62 +9,42 @@
 #include <App/Parser.h>
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
-#include <cstddef>
-#include <memory>
 
 namespace Arwen {
 
-Block::Block(SyntaxNodes statements, pNamespace const &ns)
-    : SyntaxNode(SyntaxNodeType::Block, ns)
-    , statements(std::move(statements))
+Block::Block(ASTNodes statements)
+    : statements(std::move(statements))
 {
-    if (this->ns == nullptr) {
-        assert(this->ns != nullptr);
-    }
 }
 
-pSyntaxNode Block::normalize(Parser &parser)
+ASTNode Block::normalize(ASTNode const &n)
 {
-    assert(ns != nullptr);
-    SyntaxNodes normalized;
+    const_cast<ASTNode &>(n)->init_namespace();
+    normalize_nodes(statements);
+    return n;
+}
+
+ASTNode Block::stamp(ASTNode const &n)
+{
+    ASTNodes stamped;
     for (auto const &stmt : statements) {
-        auto new_stmt = normalize_node(stmt, parser);
+        auto new_stmt = stmt->stamp();
         if (new_stmt == nullptr) {
-            parser.append(location, "Folding statement failed");
+            n.repo->append(n->location, "Stamping statement failed");
             return nullptr;
         }
-        if (new_stmt->ns != nullptr) {
-            new_stmt->ns->parent = ns;
-        }
-        normalized.emplace_back(new_stmt);
+        stamped.emplace_back(new_stmt);
     }
-    return make_node<Block>(location, normalized, ns);
+    statements = stamped;
+    return n;
 }
 
-pSyntaxNode Block::stamp(Parser &parser)
+pType Block::bind(ASTNode const &n)
 {
-    assert(ns != nullptr);
-    parser.pop_namespace();
-    parser.push_new_namespace(parser.namespaces.back());
-    SyntaxNodes normalized;
-    for (auto const &stmt : statements) {
-        auto new_stmt = stmt->stamp(parser);
-        if (new_stmt == nullptr) {
-            parser.append(location, "Stamping statement failed");
-            return nullptr;
-        }
-        normalized.emplace_back(new_stmt);
-    }
-    return make_node<Block>(location, normalized, parser.namespaces.back());
-}
-
-pType Block::bind(Parser &parser)
-{
-    assert(ns != nullptr);
     pType type = TypeRegistry::void_;
     pType undetermined { nullptr };
     for (auto &statement : statements) {
-        type = bind_node(statement, parser);
+        type = statement->bind();
         if (type == TypeRegistry::undetermined) {
             undetermined = TypeRegistry::undetermined;
         }
@@ -75,7 +55,7 @@ pType Block::bind(Parser &parser)
     return type;
 }
 
-void Block::dump_node(int indent)
+void Block::dump_node(ASTNode const &n, int indent)
 {
     for (auto const &stmt : statements) {
         stmt->dump(indent + 4);

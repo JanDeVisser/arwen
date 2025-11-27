@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <memory>
+#include <ostream>
 #include <ranges>
 #include <string>
 
@@ -17,106 +17,93 @@
 namespace Arwen {
 
 ExternLink::ExternLink(std::wstring link_name)
-    : SyntaxNode(SyntaxNodeType::ExternLink)
-    , link_name(std::move(link_name))
+    : link_name(std::move(link_name))
 {
 }
 
-pSyntaxNode ExternLink::stamp(Parser &)
-{
-    return make_node<ExternLink>(location, link_name);
-}
-
-pType ExternLink::bind(Parser &parser)
+pType ExternLink::bind(ASTNode const &n)
 {
     return TypeRegistry::void_;
 }
 
-std::wostream &ExternLink::header(std::wostream &os)
+std::wostream &ExternLink::header(ASTNode const &, std::wostream &os)
 {
     return os << link_name;
 }
 
-FunctionDeclaration::FunctionDeclaration(std::wstring name, Identifiers generics, std::vector<pParameter> parameters, pTypeSpecification return_type)
-    : SyntaxNode(SyntaxNodeType::FunctionDeclaration)
-    , name(std::move(name))
+FunctionDeclaration::FunctionDeclaration(std::wstring name, ASTNodes generics, ASTNodes parameters, ASTNode return_type)
+    : name(std::move(name))
     , generics(std::move(generics))
     , parameters(std::move(parameters))
     , return_type(std::move(return_type))
 {
 }
 
-pSyntaxNode FunctionDeclaration::normalize(Parser &parser)
+ASTNode FunctionDeclaration::normalize(ASTNode const &n)
 {
-    return make_node<FunctionDeclaration>(
-        location,
-        name,
-        normalize_nodes(generics, parser),
-        normalize_nodes(parameters, parser),
-        normalize_node(return_type, parser));
+    normalize_nodes(generics);
+    normalize_nodes(parameters);
+    return_type = return_type->normalize();
+    return n;
 }
 
-pSyntaxNode FunctionDeclaration::stamp(Parser &parser)
+ASTNode FunctionDeclaration::stamp(ASTNode const &n)
 {
-    return make_node<FunctionDeclaration>(
-        location,
-        name,
-        stamp_nodes(generics, parser),
-        stamp_nodes(parameters, parser),
-        stamp_node(return_type, parser));
+    generics = stamp_nodes(generics);
+    parameters = stamp_nodes(parameters);
+    return_type = return_type->stamp();
+    return n;
 }
 
-pType FunctionDeclaration::bind(Parser &parser)
+pType FunctionDeclaration::bind(ASTNode const &n)
 {
     std::vector<pType> parameter_types;
     for (auto const &param : parameters) {
-        auto param_type = bind_node(param, parser);
-        if (param->status != Status::Bound) {
+        auto param_type = param->bind();
+        if (param->status != ASTNodeImpl::Status::Bound) {
             return param_type;
         }
         parameter_types.push_back(param_type);
     }
-    auto result_type = bind_node(return_type, parser);
-    if (return_type->status != Status::Bound) {
+    auto result_type = return_type->bind();
+    if (return_type->status != ASTNodeImpl::Status::Bound) {
         return result_type;
     }
     return TypeRegistry::the().function_of(parameter_types, result_type);
 }
 
-static pType bind_declaration(pFunctionDeclaration const &declaration, pNamespace const &ns, Parser &parser)
+static pType bind_declaration(ASTNode const &declaration, ASTNode const &definition)
 {
-    for (auto const &generic_param : declaration->generics) {
-        if (auto const &generic = ns->find_type(generic_param->identifier); generic != nullptr) {
-            assert(generic->is<GenericParameter>());
+    assert(definition->ns.has_value());
+    for (auto const &generic_param : get<FunctionDeclaration>(declaration).generics) {
+        auto generic_id = get<Identifier>(generic_param);
+        if (auto const &generic = definition->ns->find_type(generic_id.identifier); generic != nullptr) {
+            assert(is<GenericParameter>(generic));
             continue;
         }
-        ns->register_type(generic_param->identifier, TypeRegistry::the().generic_parameter(generic_param->identifier));
+        definition->ns->register_type(generic_id.identifier, TypeRegistry::the().generic_parameter(generic_id.identifier));
     }
-    {
-        parser.push_namespace(ns);
-        Defer pop_namespace { [&parser] { parser.pop_namespace(); } };
-        if (auto t = bind_node(declaration, parser); declaration->status != SyntaxNode::Status::Bound) {
-            return t;
-        }
+    if (auto t = declaration->bind(); declaration->status != ASTNodeImpl::Status::Bound) {
+        return t;
     }
     return declaration->bound_type;
 }
 
-std::wostream &FunctionDeclaration::header(std::wostream &os)
+std::wostream &FunctionDeclaration::header(ASTNode const &, std::wostream &os)
 {
     os << name;
     if (!generics.empty()) {
         wchar_t sep { '<' };
         for (auto const &gen : generics) {
-            os << sep << gen->identifier;
+            os << sep << get<Identifier>(gen).identifier;
             sep = ',';
         }
         os << '>';
     }
-    return os << ": " << return_type->to_string();
+    return os << ": " << get<TypeSpecification>(return_type).to_string();
 }
 
-void FunctionDeclaration::dump_node(int const indent)
+void FunctionDeclaration::dump_node(ASTNode const &, int const indent)
 {
     for (auto const &gen : generics) {
         gen->dump(indent + 4);
@@ -126,205 +113,198 @@ void FunctionDeclaration::dump_node(int const indent)
     }
 }
 
-FunctionDefinition::FunctionDefinition(std::wstring name, pFunctionDeclaration declaration, pSyntaxNode implementation, pNamespace ns)
-    : SyntaxNode(SyntaxNodeType::FunctionDefinition, std::move(ns))
-    , name(std::move(name))
+FunctionDefinition::FunctionDefinition(std::wstring name, ASTNode declaration, ASTNode implementation)
+    : name(std::move(name))
     , declaration(std::move(declaration))
     , implementation(std::move(implementation))
 {
     assert(this->declaration != nullptr);
 }
 
-pSyntaxNode FunctionDefinition::normalize(Parser &parser)
+FunctionDefinition::FunctionDefinition(std::wstring name)
+    : name(std::move(name))
 {
-    auto const ret = make_node<FunctionDefinition>(
-        location,
-        name,
-        normalize_node(declaration, parser),
-        normalize_node(implementation, parser),
-        ns);
-    ns->parent->register_function(name, ret);
-    return ret;
 }
 
-pSyntaxNode FunctionDefinition::stamp(Parser &parser)
+ASTNode FunctionDefinition::normalize(ASTNode const &n)
 {
-    parser.pop_namespace();
-    parser.push_new_namespace(parser.namespaces.back());
-    return make_node<FunctionDefinition>(
-        location,
-        name,
-        stamp_node(declaration, parser),
-        stamp_node(implementation, parser),
-        parser.namespaces.back());
+    n->init_namespace();
+    n->ns->parent->ns->register_function(name, n);
+    declaration = declaration->normalize();
+    implementation = implementation->normalize();
+    return n;
 }
 
-pType FunctionDefinition::bind(Parser &parser)
+ASTNode FunctionDefinition::stamp(ASTNode const &n)
 {
-    pType t = bind_declaration(declaration, ns, parser);
-    if (declaration->status != Status::Bound) {
+    declaration = declaration->stamp();
+    implementation = implementation->stamp();
+    return n;
+}
+
+pType FunctionDefinition::bind(ASTNode const &n)
+{
+    pType t = bind_declaration(declaration, n);
+    if (declaration->status != ASTNodeImpl::Status::Bound) {
         return t;
     }
-    assert(t->is<FunctionType>());
-    if (auto const &found = ns->parent->find_function(name, t); found != nullptr && found != shared_from_this()) {
-        return parser.bind_error(location, L"Duplicate overload for function `{}` with type `{}`", name, t->to_string());
+    assert(is<FunctionType>(t));
+    if (auto const &found = n->ns->parent->ns->find_function(name, t); found != nullptr && found != n) {
+        return n.bind_error(L"Duplicate overload for function `{}` with type `{}`", name, t->to_string());
     }
-    if (!declaration->generics.empty()) {
+    if (!get<FunctionDeclaration>(declaration).generics.empty()) {
         return TypeRegistry::void_;
     }
-    parser.push_namespace(ns);
-    Defer _ { [&parser] { parser.pop_namespace(); } };
-    for (auto const &param : declaration->parameters) {
-        if (!parser.has_variable(param->name)) {
-            parser.register_variable(param->name, param);
+    for (auto const &param : get<FunctionDeclaration>(declaration).parameters) {
+        auto parameter = get<Parameter>(param);
+        if (!n.repo->has_variable(parameter.name)) {
+            n.repo->register_variable(parameter.name, param);
         }
     }
-    if (auto impl_type = bind_node(implementation, parser); implementation->status != Status::Bound) {
+    if (auto impl_type = implementation->bind(); implementation->status != ASTNodeImpl::Status::Bound) {
         return impl_type;
     }
     return TypeRegistry::void_;
 }
 
-void FunctionDefinition::dump_node(int indent)
+void FunctionDefinition::dump_node(ASTNode const &, int indent)
 {
     declaration->dump(indent + 4);
     implementation->dump(indent + 4);
 }
 
-pFunctionDefinition FunctionDefinition::instantiate(Parser &parser, std::vector<pType> const &generic_args) const
+ASTNode FunctionDefinition::instantiate(ASTNode const &n, std::vector<pType> const &generic_args) const
 {
-    if (generic_args.size() != declaration->generics.size()) {
-        parser.append(location, "Incompatible number of generic arguments");
+    auto decl = get<FunctionDeclaration>(declaration);
+    if (generic_args.size() != decl.generics.size()) {
+        n.error("Incompatible number of generic arguments");
         return nullptr;
     }
     std::map<std::wstring, pType> generic_args_map;
-    for (auto const &[param, arg] : std::ranges::views::zip(declaration->generics, generic_args)) {
-        generic_args_map[param->identifier] = arg;
+    for (auto const &[param, arg] : std::ranges::views::zip(decl.generics, generic_args)) {
+        auto param_id = get<Identifier>(param);
+        generic_args_map[param_id.identifier] = arg;
     }
-    return instantiate(parser, generic_args_map);
+    return instantiate(n, generic_args_map);
 }
 
-pFunctionDefinition FunctionDefinition::instantiate(Parser &parser, std::map<std::wstring, pType> const &generic_args) const
+ASTNode FunctionDefinition::instantiate(ASTNode const &n, std::map<std::wstring, pType> const &generic_args) const
 {
-    assert(!declaration->generics.empty() && declaration->generics.size() == generic_args.size());
-    pFunctionDefinition new_func;
+    auto const &decl = get<FunctionDeclaration>(declaration);
+    assert(!decl.generics.empty() && decl.generics.size() == generic_args.size());
+    ASTNode new_func = make_node<FunctionDefinition>(n, decl.name);
+    new_func->init_namespace();
     {
-        pNamespace new_ns = parser.push_new_namespace(ns);
-        Defer      pop_ns { [&parser]() { parser.pop_namespace(); } };
+        Defer _ { [&n]() { n.repo->pop_namespace(); } };
         for (auto const &[name, type] : generic_args) {
-            new_ns->register_type(name, TypeRegistry::the().alias_for(type));
+            new_func->ns->register_type(name, TypeRegistry::the().alias_for(type));
         }
 
-        auto new_decl = make_node<FunctionDeclaration>(
-            declaration->location,
-            declaration->name,
-            Identifiers {},
-            stamp_nodes(declaration->parameters, parser),
-            stamp_node(declaration->return_type, parser));
-
-        auto new_impl = stamp_node(implementation, parser);
-        assert(new_impl != nullptr);
-
-        new_func = normalize_node(
-            make_node<FunctionDefinition>(
-                location,
-                new_decl->name,
-                new_decl,
-                new_impl,
-                new_ns),
-            parser);
+        auto &def = get<FunctionDefinition>(new_func);
+        def.declaration = make_node<FunctionDeclaration>(
+            declaration,
+            decl.name,
+            ASTNodes {},
+            stamp_nodes(decl.parameters),
+            decl.return_type->stamp());
+        def.implementation = implementation->stamp();
     }
-    bind_node(new_func, parser);
+    new_func->bind();
     // assert(new_func->declaration->bound_type != nullptr && !new_func->declaration->bound_type->is<Undetermined>());
     // std::wcout << "\ninstantiated " << name << ":\n";
     // new_func->dump();
     return new_func;
 }
 
-Parameter::Parameter(std::wstring name, pTypeSpecification type_name)
-    : SyntaxNode(SyntaxNodeType::Parameter)
-    , name(std::move(name))
+Parameter::Parameter(std::wstring name, ASTNode type_name)
+    : name(std::move(name))
     , type_name(std::move(type_name))
 {
 }
 
-pSyntaxNode Parameter::normalize(Parser &parser)
+ASTNode Parameter::normalize(ASTNode const &n)
 {
-    return make_node<Parameter>(location, name, normalize_node(type_name, parser));
+    type_name = type_name->normalize();
+    return n;
 }
 
-pType Parameter::bind(Parser &parser)
+pType Parameter::bind(ASTNode const &n)
 {
-    return bind_node(type_name, parser);
+    return type_name->bind();
 }
 
-pSyntaxNode Parameter::stamp(Parser &parser)
+ASTNode Parameter::stamp(ASTNode const &n)
 {
-    return make_node<Parameter>(location, name, stamp_node(type_name, parser));
+    return make_node<Parameter>(n, name, type_name->stamp());
 }
 
-std::wostream &Parameter::header(std::wostream &os)
+std::wostream &Parameter::header(ASTNode const &, std::wostream &os)
 {
-    return os << name << ": " << type_name->to_string();
+    return os << name << ": " << get<TypeSpecification>(type_name).to_string();
 }
 
-Call::Call(pSyntaxNode callable, pExpressionList args)
-    : SyntaxNode(SyntaxNodeType::Call)
-    , callable(std::move(callable))
+Call::Call(ASTNode callable, ASTNode args)
+    : callable(std::move(callable))
     , arguments(std::move(args))
 {
-    if (this->callable->type != SyntaxNodeType::Identifier && this->callable->type != SyntaxNodeType::StampedIdentifier) {
+    if (!is<Identifier>(this->callable) && !is<StampedIdentifier>(this->callable)) {
         NYI("Callable must be a function name");
     }
     assert(this->arguments != nullptr);
 }
 
-std::wostream &Call::header(std::wostream &os)
+std::wostream &Call::header(ASTNode const &, std::wostream &os)
 {
-    if (auto const &id = std::dynamic_pointer_cast<Identifier>(this->callable); id != nullptr) {
-        return os << id->identifier;
-    }
-    if (auto const &id = std::dynamic_pointer_cast<StampedIdentifier>(this->callable); id != nullptr) {
-        return os << id->identifier;
-    }
-    fatal("Invalid callable type");
+    return std::visit(overloads {
+                          [&os](is_identifier auto const &id) -> std::wostream & {
+                              return os << id.identifier;
+                          },
+
+                          [&os](auto const &) -> std::wostream & {
+                              fatal("Invalid callable type");
+                          },
+                      },
+        callable->node);
 }
 
-void Call::dump_node(int ident)
+void Call::dump_node(ASTNode const &, int ident)
 {
     callable->dump(ident + 4);
     arguments->dump(ident + 4);
 }
 
-pSyntaxNode Call::stamp(Parser &parser)
+ASTNode Call::stamp(ASTNode const &n)
 {
-    return make_node<Call>(location, stamp_node(callable, parser), stamp_node(arguments, parser));
+    callable = callable->stamp();
+    arguments = arguments->stamp();
+    return n;
 }
 
-pType Call::bind(Parser &parser)
+pType Call::bind(ASTNode const &n)
 {
     if (function != nullptr) {
-        if (function->status == Status::Initialized) {
-            function = normalize_node(function, parser);
+        if (function->status == ASTNodeImpl::Status::Initialized) {
+            function = function->normalize();
         }
-        bind_node(function, parser);
-        if (function->status != Status::Bound) {
+        function->bind();
+        if (function->status != ASTNodeImpl::Status::Bound) {
             return function->bound_type;
         }
-        auto const &[_, result] = std::get<FunctionType>(function->declaration->bound_type->description);
+        auto const &f = get<FunctionDefinition>(function);
+        auto const &[_, result] = get<FunctionType>(f.declaration->bound_type);
         return result;
     }
 
-    auto arg_types = bind_node(arguments, parser);
-    if (!arg_types->is<TypeList>()) {
+    auto arg_types = arguments->bind();
+    if (!is<TypeList>(arg_types)) {
         return arg_types;
     }
-    auto const        &type_descr = std::get<TypeList>(arg_types->description);
-    std::wstring       name;
-    TypeSpecifications type_args {};
-    if (auto const &id = std::dynamic_pointer_cast<Identifier>(this->callable); id != nullptr) {
+    auto const  &type_descr = std::get<TypeList>(arg_types->description);
+    std::wstring name;
+    ASTNodes     type_args {};
+    if (auto const *id = get_if<Identifier>(this->callable); id != nullptr) {
         name = id->identifier;
-    } else if (auto const &stamped_id = std::dynamic_pointer_cast<StampedIdentifier>(this->callable); stamped_id != nullptr) {
+    } else if (auto const &stamped_id = get_if<StampedIdentifier>(this->callable); stamped_id != nullptr) {
         name = stamped_id->identifier;
         type_args = stamped_id->arguments;
     }
@@ -334,19 +314,22 @@ pType Call::bind(Parser &parser)
     // }
     //
 
-    auto match_non_generic_function = [this, &type_descr, &parser, &name, &arg_types](pFunctionDefinition const &func_def) -> pType {
-        if (func_def->declaration->generics.empty()) {
-            if (func_def->declaration->bound_type == nullptr || func_def->declaration->bound_type->is<Undetermined>()) {
-                if (auto const &decl_type = bind_declaration(func_def->declaration, parser.namespaces.back(), parser); !decl_type->is<FunctionType>()) {
+    auto const &args = get<ExpressionList>(arguments);
+    auto        match_non_generic_function = [&](ASTNode const &func_def) -> pType {
+        auto const &def = get<FunctionDefinition>(func_def);
+        auto const &decl = get<FunctionDeclaration>(def.declaration);
+        if (decl.generics.empty()) {
+            if (def.declaration->bound_type == nullptr || is<Undetermined>(def.declaration->bound_type)) {
+                if (auto const &decl_type = bind_declaration(def.declaration, func_def); !is<FunctionType>(decl_type)) {
                     return TypeRegistry::void_;
                 }
             }
-            auto const &func_type_descr = std::get<FunctionType>(func_def->declaration->bound_type->description);
+            auto const &func_type_descr = get<FunctionType>(def.declaration->bound_type);
             for (auto [arg, param] : std::views::zip(type_descr.types, func_type_descr.parameters)) {
                 if (arg == param) {
                     continue;
                 }
-                if (arg->kind() == TypeKind::ReferenceType) {
+                if (is<ReferenceType>(arg)) {
                     auto arg_descr { std::get<ReferenceType>(arg->description) };
                     if (arg_descr.referencing == param) {
                         continue;
@@ -358,39 +341,39 @@ pType Call::bind(Parser &parser)
                 function = func_def;
                 return TypeRegistry::void_;
             }
-            return parser.bind_error(
-                location,
-                std::format(L"Ambiguous function `{}{}`", name, arg_types->to_string()));
+            return func_def.bind_error(L"Ambiguous function `{}{}`", name, arg_types->to_string());
         }
         return TypeRegistry::void_;
     };
 
-    auto match_generic_function = [this, &parser, &name, &type_args, &arg_types](pFunctionDefinition const &func_def) -> pType {
-        if (!func_def->declaration->generics.empty()) {
-            if (func_def->declaration->bound_type == nullptr || func_def->declaration->bound_type->is<Undetermined>()) {
-                if (auto const &decl_type = bind_declaration(func_def->declaration, parser.namespaces.back(), parser); !decl_type->is<FunctionType>()) {
+    auto match_generic_function = [&](ASTNode const &func_def) -> pType {
+        auto const &def = get<FunctionDefinition>(func_def);
+        auto const &decl = get<FunctionDeclaration>(def.declaration);
+        if (!decl.generics.empty()) {
+            if (def.declaration->bound_type == nullptr || is<Undetermined>(def.declaration->bound_type)) {
+                if (auto const &decl_type = bind_declaration(def.declaration, func_def); !is<FunctionType>(decl_type)) {
                     return TypeRegistry::void_;
                 }
             }
             std::map<std::wstring, pType> generic_args;
-            for (auto const &[param_name, arg_type] : std::ranges::views::zip(func_def->declaration->generics, type_args)) {
-                generic_args[param_name->identifier] = arg_type->resolve(parser);
+            for (auto const &[param_name, arg_type] : std::ranges::views::zip(decl.generics, type_args)) {
+                generic_args[std::wstring(identifier(param_name))] = get<TypeSpecification>(arg_type).resolve(func_def);
             }
-            for (auto const &[param, arg] : std::ranges::views::zip(func_def->declaration->parameters, arguments->expressions)) {
+            for (auto const &[param, arg] : std::ranges::views::zip(decl.parameters, args.expressions)) {
                 auto const &param_type = param->bound_type;
                 auto const &arg_type = arg->bound_type;
                 for (auto const inferred = arg_type->infer_generic_arguments(param_type); auto const &[name, arg_type] : inferred) {
                     if (generic_args.contains(name) && generic_args[name] != arg_type) {
-                        return parser.bind_error(
-                            location,
-                            std::format(L"Ambiguous values inferred for generic parameter  `{}`: `{}` and `{}`", name, arg_types->to_string(), generic_args[name]->to_string()));
+                        return n.bind_error(
+                            L"Ambiguous values inferred for generic parameter  `{}`: `{}` and `{}`",
+                            name, arg_types->to_string(), generic_args[name]->to_string());
                     }
                     generic_args[name] = arg_type;
                 }
             }
             auto all_inferred { true };
-            for (auto const &generic_param : func_def->declaration->generics) {
-                if (!generic_args.contains(generic_param->identifier)) {
+            for (auto const &generic_param : decl.generics) {
+                if (!generic_args.contains(std::wstring(identifier(generic_param)))) {
                     all_inferred = false;
                     break;
                 }
@@ -399,78 +382,81 @@ pType Call::bind(Parser &parser)
                 return TypeRegistry::void_;
             }
             if (function == nullptr) {
-                function = func_def->instantiate(parser, generic_args);
+                function = get<FunctionDefinition>(func_def).instantiate(func_def, generic_args);
                 return TypeRegistry::void_;
             } else {
-                return parser.bind_error(
-                    location,
-                    std::format(L"Ambiguous function `{}{}`", name, arg_types->to_string()));
+                return n.bind_error(L"Ambiguous function `{}{}`", name, arg_types->to_string());
             }
         }
         return TypeRegistry::void_;
     };
 
-    std::vector<pFunctionDefinition> bound_overloads;
+    ASTNodes bound_overloads;
     {
-        auto const overloads = parser.find_overloads(name, type_args);
+        auto const overloads = n.repo->find_overloads(name, type_args);
         for (auto func_def : overloads) {
-            if (func_def->status == Status::Initialized) {
-                func_def = normalize_node(func_def, parser);
+            if (func_def->status == ASTNodeImpl::Status::Initialized) {
+                func_def = func_def->normalize();
             }
-            bind_node(func_def, parser);
+            func_def->bind();
             bound_overloads.push_back(func_def);
         }
     }
     if (type_args.empty()) {
         for (auto const &func_def : bound_overloads) {
-            if (func_def->declaration->parameters.size() != arguments->expressions.size()) {
+            auto const &def = get<FunctionDefinition>(func_def);
+            auto const &decl = get<FunctionDeclaration>(def.declaration);
+            if (decl.parameters.size() != args.expressions.size()) {
                 continue;
             }
-            if (auto const ret = match_non_generic_function(func_def); ret->is<BindErrors>()) {
+            if (auto const ret = match_non_generic_function(func_def); is<BindErrors>(ret)) {
                 return ret;
             }
         }
         if (function == nullptr) {
             for (auto const &func_def : bound_overloads) {
-                if (func_def->declaration->parameters.size() != arguments->expressions.size()) {
+                auto const &def = get<FunctionDefinition>(func_def);
+                auto const &decl = get<FunctionDeclaration>(def.declaration);
+                if (decl.parameters.size() != args.expressions.size()) {
                     continue;
                 }
-                if (auto const ret = match_generic_function(func_def); ret->is<BindErrors>()) {
+                if (auto const ret = match_generic_function(func_def); is<BindErrors>(ret)) {
                     return ret;
                 }
             }
         }
     } else {
         for (auto const &func_def : bound_overloads) {
-            if (func_def->declaration->parameters.size() != arguments->expressions.size()) {
+            auto const &def = get<FunctionDefinition>(func_def);
+            auto const &decl = get<FunctionDeclaration>(def.declaration);
+            if (decl.parameters.size() != args.expressions.size()) {
                 continue;
             }
-            if (auto const ret = match_generic_function(func_def); ret->is<BindErrors>()) {
+            if (auto const ret = match_generic_function(func_def); is<BindErrors>(ret)) {
                 return ret;
             }
         }
     }
     if (function != nullptr) {
-        if (function->bound_type == nullptr || function->bound_type->is<Undetermined>()) {
-            bind_node(function, parser);
+        auto const &func = get<FunctionDefinition>(function);
+        if (function->bound_type == nullptr || is<Undetermined>(function->bound_type)) {
+            function->bind();
         }
-        if (function->bound_type->is<Undetermined>()) {
+        if (is<Undetermined>(function->bound_type)) {
             return function->bound_type;
         }
-        if (auto const impl_type = bind_node(function->implementation, parser); impl_type == nullptr || impl_type->is<Undetermined>()) {
+        if (auto const impl_type = func.implementation->bind(); impl_type == nullptr || is<Undetermined>(impl_type)) {
             return TypeRegistry::undetermined;
-        } else if (impl_type->is<BindErrors>()) {
+        } else if (is<BindErrors>(impl_type)) {
             return impl_type;
         }
-        auto const &func_type_descr = std::get<FunctionType>(function->declaration->bound_type->description);
+        auto const &func_type_descr = get<FunctionType>(func.declaration->bound_type);
         return func_type_descr.result;
     }
-    if (parser.pass == 0) {
+    if (n.repo->pass == 0) {
         return TypeRegistry::undetermined;
     }
-    return parser.bind_error(
-        location,
-        std::format(L"Unresolved function `{}{}`", name, arg_types->to_string()));
+    return n.bind_error(L"Unresolved function `{}{}`", name, arg_types->to_string());
 }
 
 }
