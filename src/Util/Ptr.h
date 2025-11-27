@@ -83,7 +83,7 @@ public:
 
     bool operator==(Ptr const &other) const
     {
-        return (repo != other.repo) || (id == other.id);
+        return (repo == other.repo) && (id == other.id);
     }
 
     bool operator==(std::nullptr_t const &) const
@@ -104,6 +104,20 @@ public:
     bool operator!=(auto const &other) const
     {
         return !(*this == other);
+    }
+
+    bool operator<(Ptr const &other) const
+    {
+        if (repo != other.repo) {
+            return repo < other.repo;
+        }
+        if (!id.has_value()) {
+            return false;
+        }
+        if (!other.id.has_value()) {
+            return true;
+        }
+        return id.value() < other.id.value();
     }
 
     Repo                 *repo;
