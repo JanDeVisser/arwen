@@ -9,37 +9,56 @@
 
 .align 4
 
+// param_regs = rdi, rsi, rdx, rcx, r8, r9
+// scratch_regs = r10, r11, r12, r13, r14, r15
+// regs_to_be_saved = rbx, r12, r13, r14, r15
+// alu_regs = rax, rbx, rcx, rdx
+
 _trampoline:
 trampoline:
-//        stp     fp, lr, [sp, #-16]! // Set up SP, FP, LR
-//        mov     fp, sp
-//        mov     x12, x0             // Get *Trampoline
-//
-//        ldr     x0, [x12, 8]        // Load general purpose registers
-//        ldr     x1, [x12, 16]
-//        ldr     x2, [x12, 24]
-//        ldr     x3, [x12, 32]
-//        ldr     x4, [x12, 40]
-//        ldr     x5, [x12, 48]
-//        ldr     x6, [x12, 56]
-//        ldr     x7, [x12, 64]
-//
-//        ldr     d0, [x12, 72]       // Load FP registers
-//        ldr     d1, [x12, 80]
-//        ldr     d2, [x12, 88]
-//        ldr     d3, [x12, 96]
-//        ldr     d4, [x12, 104]
-//        ldr     d5, [x12, 112]
-//        ldr     d6, [x12, 120]
-//        ldr     d7, [x12, 128]
-//
-//        str     x12, [sp, #-16]!    // Save x12 (caller saved)
-//        ldr     x16, [x12]          // Load function pointer in x16
-//        blr     x16                 // Call function pointer
-//        ldr     x12, [sp], #16      // Restore x12
-//        str     x0, [x12, 136]      // Store x0 to int_return_value
-//        str     d0, [x12, 144]      // Store d0 to float_return_value
-//        mov     x0, xzr             // Return all good
-//        mov     sp, fp              // Restore SP, FP, and LR
-//        ldp     fp, lr, [sp], 16
+	// Set up stack
+	pushq	%rbp
+	movq	%rsp, %rbp
+	
+	// Get *X86_64Trampoline	
+	movq 	%rdi, %r10
+
+	// Load param registers
+        movq    8(%r10), %rdi
+	movq    16(%r10), %rsi
+	movq    24(%r10), %rdx
+	movq    32(%r10), %rcx
+	movq    40(%r10), %r8
+	movq    48(%r10), %r9
+
+	// Load FP registers
+        //movq      56(%r10), xmm0
+        //movq      64(%r10), xmm1
+        //movq      72(%r10), xmm2
+        //movq      80(%r10), xmm3
+        //movq      88(%r10), xmm4
+       // movq      96(%r10), xmm5
+        //movq      104(%r10), xmm6
+        //movq      112(%r10), xmm7
+
+	// Save r10 which holds the trampoline. r10 is caller saved
+        pushq   %r10
+        //movq    %r11, (%r10)          // Load function pointer in r11
+
+	// Call function pointer
+	call    *0(%r10)
+
+	// Restore r10
+        popq    %r10
+
+	// Store return value
+        movq    %rax, 120(%r10)
+        //str     %xmm0, 128(%r10)
+
+	// Return all good
+        xorq    %rax,%rax
+
+	// Restore SP and BP
+        movq    %rbp,%rsp 
+        popq    %rbp
         ret

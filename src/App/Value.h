@@ -261,11 +261,14 @@ Value evaluate(Operator op, Value const &operand);
 
 }
 
-inline std::wostream &operator<<(std::wostream &os, Arwen::Atom const &atom)
+namespace std {
+
+using namespace Util;
+using namespace Arwen;
+
+inline wostream &operator<<(wostream &os, Atom const &atom)
 {
-    using namespace Util;
-    using namespace Arwen;
-    std::visit(
+    visit(
         overloads {
             [&os](bool const &b) -> void {
                 os << std::boolalpha << b;
@@ -287,12 +290,11 @@ inline std::wostream &operator<<(std::wostream &os, Arwen::Atom const &atom)
     return os;
 }
 
-inline std::wostream &operator<<(std::wostream &os, Arwen::Value const &value)
+inline wostream &operator<<(wostream &os, Value const &value)
 {
     using namespace Util;
     using namespace Arwen;
-    os << "[" << value.type->to_string() << "] ";
-    std::visit(
+    visit(
         overloads {
             [&os](std::monostate const &) -> void {
             },
@@ -312,4 +314,43 @@ inline std::wostream &operator<<(std::wostream &os, Arwen::Value const &value)
         },
         value.payload);
     return os;
+}
+
+template<>
+struct formatter<Value, wchar_t> {
+    bool with_type { false };
+
+    template<class ParseContext>
+    constexpr ParseContext::iterator parse(ParseContext &ctx)
+    {
+        auto it = ctx.begin();
+        if (it == ctx.end() || *it == '}')
+            return it;
+
+        switch (*it) {
+        case 't':
+            with_type = true;
+            break;
+        default:
+            throw std::format_error("Invalid format args for Value");
+        }
+        ++it;
+        if (it != ctx.end() && *it != '}') {
+            throw std::format_error("Invalid format args for Value");
+        }
+        return it;
+    }
+
+    template<class FmtContext>
+    FmtContext::iterator format(Value const &val, FmtContext &ctx) const
+    {
+        std::wostringstream out;
+        out << val;
+        if (with_type) {
+            out << L" [" << val.type << ']';
+        }
+        return std::ranges::copy(std::move(out).str(), ctx.out()).out;
+    }
+};
+
 }

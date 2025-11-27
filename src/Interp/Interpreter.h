@@ -29,9 +29,9 @@ using ValueAddress = intptr_t;
 
 struct Interpreter;
 
-void  execute_op(IR::Operation const &op, Interpreter &interpreter);
+void  execute_op(IR::Operation const &op, pIR const &ir, Interpreter &interpreter);
 Value execute_node(Interpreter &interpreter, pIR const &ir, IR::Function const &function);
-Value execute_node(Interpreter &interpreter, pIR const ir, IR::Program const &program);
+Value execute_node(Interpreter &interpreter, pIR const &ir, IR::Program const &program);
 Value execute_node(Interpreter &interpreter, pIR const &ir, IR::Module const &module);
 Value execute_ir(IRNodes const &ir);
 

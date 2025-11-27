@@ -132,6 +132,7 @@ Value Interpreter::move_out(pType const &type, uint8_t reg)
     auto num_regs { alignat(type->size_of(), 8) / 8 };
     assert(reg + num_regs - 1 < 19);
     auto ret = make_from_buffer(type, registers.data() + reg);
+    trace(L"move_out() => {:t}", ret);
     return ret;
 }
 
@@ -143,6 +144,7 @@ void Interpreter::execute_operations(pIR const &ir)
     // }
     // std::cerr << "\n";
 
+    trace(L"Executing {}", ir->name);
     if (!labels.contains(ir)) {
         uint64_t ip = 0;
         auto    &l { labels[ir] };
@@ -155,7 +157,7 @@ void Interpreter::execute_operations(pIR const &ir)
         }
     }
     while (call_stack.back().ip < ir->operations.size()) {
-        execute_op(ir->operations[call_stack.back().ip], *this);
+        execute_op(ir->operations[call_stack.back().ip], ir, *this);
     }
 }
 

@@ -36,7 +36,7 @@ uint64_t ip_for_label(Interpreter &interpreter, uint64_t label)
 }
 
 template<typename OpImpl>
-void execute_op(Interpreter &interpreter, OpImpl const &impl)
+void execute_op(pIR const &ir, Interpreter &interpreter, OpImpl const &impl)
 {
     if constexpr (std::is_same_v<OpImpl, std::monostate>) {
         trace("execute_op(std::monostate)");
@@ -47,7 +47,7 @@ void execute_op(Interpreter &interpreter, OpImpl const &impl)
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::AssignFromRef const &impl)
+void execute_op<>(pIR const &, Interpreter &interpreter, Operation::AssignFromRef const &impl)
 {
     auto const var_ref = pop<uint64_t>(interpreter.stack);
     auto const val_ref = pop<uint64_t>(interpreter.stack);
@@ -57,7 +57,7 @@ void execute_op<>(Interpreter &interpreter, Operation::AssignFromRef const &impl
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::AssignValue const &impl)
+void execute_op<>(pIR const &, Interpreter &interpreter, Operation::AssignValue const &impl)
 {
     auto const var_ref = pop<uint64_t>(interpreter.stack);
     interpreter.stack.copy_and_pop(var_ref, impl.payload->size_of());
@@ -66,14 +66,14 @@ void execute_op<>(Interpreter &interpreter, Operation::AssignValue const &impl)
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::BinaryOperator const &impl)
+void execute_op<>(pIR const &, Interpreter &interpreter, Operation::BinaryOperator const &impl)
 {
     interpreter.stack.evaluate(impl.payload.lhs, impl.payload.op, impl.payload.rhs);
     interpreter.call_stack.back().ip++;
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::Break const &impl)
+void execute_op<>(pIR const &, Interpreter &interpreter, Operation::Break const &impl)
 {
     uint64_t depth { impl.payload.scope_end != 0 ? impl.payload.depth : 0 };
     uint64_t ip { ip_for_label(interpreter, impl.payload.label) };
@@ -83,7 +83,7 @@ void execute_op<>(Interpreter &interpreter, Operation::Break const &impl)
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::Call const &impl)
+void execute_op<>(pIR const &, Interpreter &interpreter, Operation::Call const &impl)
 {
     auto find_func = [&impl](Scope &s) -> pIR {
         return std::visit(
@@ -139,13 +139,13 @@ void execute_op<>(Interpreter &interpreter, Operation::Call const &impl)
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::DeclVar const &impl)
+void execute_op<>(pIR const &, Interpreter &interpreter, Operation::DeclVar const &impl)
 {
     interpreter.call_stack.back().ip++;
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::Dereference const &impl)
+void execute_op<>(pIR const &, Interpreter &interpreter, Operation::Dereference const &impl)
 {
     auto const ref = pop<uint64_t>(interpreter.stack);
     interpreter.stack.push_copy(ref, impl.payload->size_of());
@@ -153,14 +153,14 @@ void execute_op<>(Interpreter &interpreter, Operation::Dereference const &impl)
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::Discard const &impl)
+void execute_op<>(pIR const &, Interpreter &interpreter, Operation::Discard const &impl)
 {
     interpreter.stack.discard(alignat(impl.payload->size_of(), 8));
     interpreter.call_stack.back().ip++;
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::Jump const &impl)
+void execute_op<>(pIR const &, Interpreter &interpreter, Operation::Jump const &impl)
 {
     auto &ctx { interpreter.call_stack.back() };
     assert(interpreter.labels.contains(ctx.ir));
@@ -169,7 +169,7 @@ void execute_op<>(Interpreter &interpreter, Operation::Jump const &impl)
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::JumpF const &impl)
+void execute_op<>(pIR const &, Interpreter &interpreter, Operation::JumpF const &impl)
 {
     if (!pop<bool>(interpreter.stack)) {
         auto &ctx { interpreter.call_stack.back() };
@@ -182,7 +182,7 @@ void execute_op<>(Interpreter &interpreter, Operation::JumpF const &impl)
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::JumpT const &impl)
+void execute_op<>(pIR const &, Interpreter &interpreter, Operation::JumpT const &impl)
 {
     if (pop<bool>(interpreter.stack)) {
         auto &ctx { interpreter.call_stack.back() };
@@ -195,13 +195,13 @@ void execute_op<>(Interpreter &interpreter, Operation::JumpT const &impl)
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::Label const &)
+void execute_op<>(pIR const &, Interpreter &interpreter, Operation::Label const &)
 {
     interpreter.call_stack.back().ip++;
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::NativeCall const &impl)
+void execute_op<>(pIR const &, Interpreter &interpreter, Operation::NativeCall const &impl)
 {
     intptr_t           depth { 0 };
     std::vector<pType> types;
@@ -221,38 +221,38 @@ void execute_op<>(Interpreter &interpreter, Operation::NativeCall const &impl)
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::Pop const &impl)
+void execute_op<>(pIR const &, Interpreter &interpreter, Operation::Pop const &impl)
 {
     Value return_value { interpreter.pop(impl.payload) };
-    interpreter.move_in(return_value);
+    interpreter.move_in(return_value, 0);
     interpreter.call_stack.back().ip++;
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::PushConstant const &impl)
+void execute_op<>(pIR const &, Interpreter &interpreter, Operation::PushConstant const &impl)
 {
     push<Value>(interpreter.stack, impl.payload);
     interpreter.call_stack.back().ip++;
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::PushValue const &impl)
+void execute_op<>(pIR const &, Interpreter &interpreter, Operation::PushValue const &impl)
 {
     interpreter.stack.push_copy(interpreter.current_scope().variables[impl.payload.name].address + impl.payload.offset, impl.payload.type->size_of());
     interpreter.call_stack.back().ip++;
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::PushVarAddress const &impl)
+void execute_op<>(pIR const &, Interpreter &interpreter, Operation::PushVarAddress const &impl)
 {
     push<uint64_t>(interpreter.stack, interpreter.current_scope().variables[impl.payload.name].address + impl.payload.offset);
     interpreter.call_stack.back().ip++;
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::ScopeBegin const &impl)
+void execute_op<>(pIR const &ir, Interpreter &interpreter, Operation::ScopeBegin const &impl)
 {
-    interpreter.new_scope(pIR {}, impl.payload);
+    interpreter.new_scope(ir, impl.payload);
     uint64_t zero { 0 };
     interpreter.move_in(&zero, sizeof(uint64_t), 17);
     interpreter.move_in(&zero, sizeof(uint64_t), 18);
@@ -260,7 +260,7 @@ void execute_op<>(Interpreter &interpreter, Operation::ScopeBegin const &impl)
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::ScopeEnd const &impl)
+void execute_op<>(pIR const &, Interpreter &interpreter, Operation::ScopeEnd const &impl)
 {
     interpreter.drop_scope();
     uint64_t depth { interpreter.move_out(18) };
@@ -275,13 +275,13 @@ void execute_op<>(Interpreter &interpreter, Operation::ScopeEnd const &impl)
 }
 
 template<>
-void execute_op<>(Interpreter &interpreter, Operation::UnaryOperator const &impl)
+void execute_op<>(pIR const &, Interpreter &interpreter, Operation::UnaryOperator const &impl)
 {
     interpreter.stack.evaluate_unary(impl.payload.operand, impl.payload.op);
     interpreter.call_stack.back().ip++;
 }
 
-void execute_op(Operation const &op, Interpreter &interpreter)
+void execute_op(Operation const &op, pIR const &ir, Interpreter &interpreter)
 {
     trace("Executing {} ip {}", op.type_name(), interpreter.call_stack.back().ip);
     if (interpreter.callback != nullptr
@@ -289,8 +289,8 @@ void execute_op(Operation const &op, Interpreter &interpreter)
         return;
     }
     std::visit(
-        [&interpreter]<typename Op>(Op const &payload) -> void {
-            return execute_op<Op>(interpreter, payload);
+        [&interpreter, &ir]<typename Op>(Op const &payload) -> void {
+            return execute_op<Op>(ir, interpreter, payload);
         },
         op.op);
     if (interpreter.callback != nullptr

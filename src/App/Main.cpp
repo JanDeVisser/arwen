@@ -110,9 +110,7 @@ struct Builder {
     bool         verbose { false };
     IR::IRNodes  ir {};
 
-    static std::error_code error;
-
-    bool build()
+    bool gen_ir()
     {
         if (!parse()) {
             std::cerr << "Syntactic parsing failed\n";
@@ -135,11 +133,27 @@ struct Builder {
         if (has_option("list")) {
             save(ir);
         }
+        return true;
+    }
+
+    bool build()
+    {
+        if (!gen_ir()) {
+            return false;
+        }
         if (!generate_code()) {
             log_error("Code generation failed");
             return false;
         }
         return true;
+    }
+
+    Value eval()
+    {
+        if (!gen_ir()) {
+            return false;
+        }
+        return execute_ir(ir);
     }
 
     bool parse()
@@ -332,6 +346,16 @@ int main(int argc, char const **argv)
             if (!builder_maybe->build()) {
                 return 1;
             }
+        }
+    } else if (strcmp(argv[arg_ix], "eval") == 0 && argc - arg_ix > 1) {
+        std::vector<fs::path> files;
+        for (size_t ix = arg_ix + 1; ix < argc; ++ix) {
+            files.emplace_back(argv[ix]);
+        }
+
+        if (auto builder_maybe = make_builder(files); builder_maybe) {
+            auto retval = builder_maybe->eval();
+            std::wcout << retval << "\n";
         }
     } else if (strcmp(argv[arg_ix], "debug") == 0 && argc - arg_ix == 1) {
         return debugger_main();
