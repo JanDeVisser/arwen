@@ -4,14 +4,12 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <bitset>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <format>
 #include <fstream>
-#include <print>
 #include <ranges>
 #include <sstream>
 #include <string>
@@ -31,136 +29,22 @@
 
 #include <App/IR/IR.h>
 
+#include <Arch/AssemblyWriter.h>
 #include <Arch/Linux/x86_64/X86_64.h>
 
 namespace Arwen::X86_64 {
 
 namespace fs = std::filesystem;
 
-#define REGISTERS(S) \
-    S(rax, L"rax")   \
-    S(rbx, L"rbx")   \
-    S(rcx, L"rcx")   \
-    S(rdx, L"rdx")   \
-    S(rsi, L"rsi")   \
-    S(rdi, L"rdi")   \
-    S(rsp, L"rsp")   \
-    S(rbp, L"rbp")   \
-    S(r8, L"r8")     \
-    S(r9, L"r9")     \
-    S(r10, L"r10")   \
-    S(r11, L"r11")   \
-    S(r12, L"r12")   \
-    S(r13, L"r13")   \
-    S(r14, L"r14")   \
-    S(r15, L"r15")
-
-enum class Register {
 #undef S
-#define S(R, N) R,
-    REGISTERS(S)
+#define S(R, N64, N32, N16) Register Register::R { Reg::R };
+REGISTERS(S)
 #undef S
-};
 
-static std::wstring_view register_name(Register reg)
-{
-    switch (reg) {
-#undef S
-#define S(R, N)       \
-    case Register::R: \
-        return N;
-        REGISTERS(S)
-#undef S
-    default:
-        UNREACHABLE();
-    }
-}
-
-void Function::add_instruction(std::wstring_view const mnemonic, std::wstring_view const param)
-{
-    *active += std::format(L"\t{}\t{}\n", mnemonic, param);
-}
-
-void Function::add_instruction(std::wstring_view const mnemonic)
-{
-    *active += std::format(L"\t{}\n", mnemonic);
-}
-
-void Function::add_text(std::wstring_view const &text)
-{
-    if (text.empty()) {
-        return;
-    }
-    auto t = strip(text);
-    for (auto line : split(t, '\n')) {
-        if (line.empty()) {
-            *active += '\n';
-            continue;
-        }
-        line = strip(line);
-        if (line[0] == ';') {
-            *active += std::format(L"\t{}\n", line);
-            continue;
-        }
-        if ((line[0] == '.') || line.ends_with(L":")) {
-            *active += std::format(L"{}\n", line);
-            continue;
-        }
-        for (auto const &p : split(strip(line), ' ')) {
-            if (p.empty()) {
-                continue;
-            }
-            *active += std::format(L"\t{}", p);
-        }
-        *active += '\n';
-    }
-}
-
-void Function::add_label(std::wstring_view const label)
-{
-    *active += std::format(L"\n{}:\n", label);
-}
-
-void Function::add_directive(std::wstring_view const directive, std::wstring_view const args)
-{
-    *active += std::format(L"{}\t{}\n", directive, args);
-}
-
-void Function::add_comment(std::wstring_view const comment)
-{
-    if (comment.empty()) {
-        return;
-    }
-    *active += '\n';
-    for (auto const line : split(strip(comment), '\n')) {
-        *active += std::format(L"\t; {}\n", strip(line));
-    }
-}
-
-bool Function::empty() const
-{
-    return code.empty();
-}
-
-bool Function::has_text() const
-{
-    return !empty();
-}
-
-void Function::activate_prolog()
-{
-    active = &prolog;
-}
-
-void Function::activate_code()
-{
-    active = &code;
-}
-
-void Function::activate_epilog()
-{
-    active = &epilog;
-}
+std::array<Register, 6> param_regs = { Register::rdi, Register::rsi, Register::rdx, Register::rcx, Register::r8, Register::r9 };
+std::array<Register, 6> scratch_regs = { Register::r10, Register::r11, Register::r12, Register::r13, Register::r14, Register::r15 };
+std::array<Register, 5> regs_to_be_saved = { Register::rbx, Register::r12, Register::r13, Register::r14, Register::r15 };
+std::array<Register, 4> alu_regs = { Register::rax, Register::rbx, Register::rcx, Register::rdx };
 
 void Function::analyze(std::vector<IR::Operation> const &operations)
 {
@@ -194,88 +78,73 @@ void Function::analyze(std::vector<IR::Operation> const &operations)
     }
 }
 
-void Function::emit_return()
-{
-    add_instruction(L"mov", L"sp,fp");
-    add_instruction(L"ldp", L"fp,lr,[sp],16");
-    add_instruction(L"ret");
-}
-
-void push_to_stack(Function &function, size_t size, int from_reg)
+void push_to_stack(Function &function, size_t size, Register from_reg)
 {
     if (size == 0) {
         return;
     }
     auto num_regs { words_needed(size) };
-    function.add_instruction(L"sub", L"sp,sp,{}", alignat(num_regs * 8, 16));
 
     for (int ix = 0; ix < num_regs; ++ix) {
-        if (ix < num_regs - 1) {
-            function.add_instruction(L"stp", L"x{},x{},[sp,{}]", from_reg + ix, from_reg + ix + 1, ix * 8);
-            ++ix;
-        } else {
-            function.add_instruction(L"str", L"x{},[sp,{}]", from_reg + ix, ix * 8);
-        }
+        function.writer.add_instruction(L"pushq", L"%{}", from_reg + ix);
     }
 }
 
-void pop_from_stack(Function &function, size_t size, int to_reg)
+void pop_from_stack(Function &function, size_t size, Registers const &to_regs)
 {
-    if (size == 0) {
+    if (to_regs.empty()) {
         return;
     }
-    auto num_regs { words_needed(size) };
-    for (int ix = 0; ix < num_regs; ++ix) {
-        if (ix < num_regs - 1) {
-            function.add_instruction(L"ldp", L"x{},x{},[sp,{}]", to_reg + ix, to_reg + ix + 1, ix * 8);
-            ++ix;
-        } else {
-            function.add_instruction(L"ldr", L"x{},[sp,{}]", to_reg + ix, ix * 8);
-        }
+    assert(to_regs.size() == words_needed(size));
+    for (auto reg : to_regs) {
+        function.writer.add_instruction(L"popq", L"%{}", reg);
     }
-    function.add_instruction(L"add", L"sp,sp,{}", alignat(num_regs * 8, 16));
 }
 
-int move_into_stack(Function &function, size_t size, int from_reg, uint64_t to_pos)
+int move_into_stack(Function &function, size_t size, Registers const &regs, uint64_t to_pos)
 {
     if (size == 0) {
         return 0;
     }
-    auto num_regs { words_needed(size) };
-    for (int ix = 0; ix < num_regs; ++ix) {
-        if (ix < num_regs - 1) {
-            function.add_instruction(L"stp", L"x{},x{},[fp,-{}]",
-                from_reg + ix, from_reg + ix + 1, to_pos - ix * 8);
-            ++ix;
-        } else {
-            function.add_instruction(L"str", L"x{},[fp,-{}]",
-                from_reg + ix, to_pos - ix * 8);
-        }
+    assert(regs.size() == words_needed(size));
+    auto ix = 0;
+    for (auto reg : regs) {
+        function.writer.add_instruction(L"movq", L"{}(%rbp),{}", to_pos + ix * 8, reg);
     }
-    return from_reg + num_regs;
+    return regs.size();
 }
 
 void Function::skeleton()
 {
-    activate_prolog();
-    add_label(name);
-    add_label(std::format(L"_{}", name));
-    add_instruction(L"stp", L"fp,lr,[sp,#-16]!");
-    add_instruction(L"mov", L"fp,sp");
-    if (stack_depth > 0) {
-        add_instruction(L"sub", L"sp,sp,#{}", stack_depth);
+    writer.activate_prolog();
+    writer.add_label(name);
+    writer.add_label(std::format(L"_{}", name));
+    if (!naked) {
+        writer.add_instruction(L"pushq", L"%rbp");
+        writer.add_instruction(L"movq", L"%rsp,%rbp");
+        if (stack_depth > 0) {
+            writer.add_instruction(L"subq", L"${}, %rsp", stack_depth);
+        }
+        writer.add_instruction(L"movq", L"$0,-{}(%rbp)", Function::scope_depth_index);
+        writer.add_instruction(L"movq", L"$0,-{}(%rbp)", Function::function_return_pointer_index);
+        writer.add_instruction(L"movq", L"$0,-{}(%rbp)", Function::return_value_index);
     }
     if (function) {
-        int reg { 0 };
+        int reg_ix = 0;
         for (auto const &[name, type] : get<IR::Function>(function).parameters) {
-            reg = move_into_stack(*this, type->size_of(), reg, variables[name]);
+            auto num_regs { words_needed(type->size_of()) };
+            for (int ix = 0; ix < num_regs; ++ix) {
+                writer.add_instruction(L"movq", L"-{}(%rbp),%{}", variables[name] + ix * 8, param_regs[reg_ix++]);
+            }
         }
     }
-
-    activate_epilog();
-    emit_return();
-
-    activate_code();
+    writer.activate_epilog();
+    if (!naked) {
+        writer.add_instruction(L"movq", L"%rbp,%rsp");
+        writer.add_instruction(L"popq", L"%rbp");
+    }
+    writer.add_instruction(L"ret");
+    writer.activate_code();
 }
 
 void debug_stack(Function &function, std::string prefix)
@@ -295,72 +164,53 @@ void debug_stack(Function &function, std::string prefix)
     // std::cout << c << std::endl;
 }
 
-RegisterAllocation Function::push_reg(pType const &type)
+ValueStackEntry Function::push_reg(pType const &type)
 {
     return push_reg(type->size_of());
 }
 
-RegisterAllocation Function::push_reg(size_t size)
+ValueStackEntry Function::push_reg(size_t size)
 {
-    auto               num { words_needed(size) };
-    RegisterAllocation ret { -1, num };
+    auto      num { words_needed(size) };
+    Registers ret {};
 
-    auto check_reg = [this, &num](int reg) -> bool {
-        bool available { true };
-        for (auto ix = reg; ix < reg + num; ++ix) {
-            if (regs[ix]) {
-                available = { false };
-                break;
-            }
-        }
-        if (available) {
-            for (auto ix = reg; ix < reg + num; ++ix) {
-                regs[ix] = true;
-            }
-        }
-        return available;
-    };
-
-    for (int reg = 9; reg + num < 16; ++reg) {
-        if (check_reg(reg)) {
-            ret.reg = reg;
-            break;
-        }
-    }
-    if (ret.reg == -1) {
-        for (int reg = 22; reg + num < 29; ++reg) {
-            if (check_reg(reg)) {
-                ret.reg = reg;
-                for (int ix = reg; ix < reg + num; ++ix) {
-                    save_regs[ix] = true;
-                }
+    for (auto r : scratch_regs) {
+        if (!regs[r]) {
+            ret.push_back(r);
+            save_regs[r] = true;
+            if (ret.size() >= num) {
                 break;
             }
         }
     }
-    stack.push_back(ret);
-    debug_stack(*this, std::format("push_reg({}) {}/{}", size, ret.reg, ret.num_regs));
-    return ret;
+    if (ret.size() == num) {
+        for (auto r : ret) {
+            save_regs[r] = true;
+        }
+        stack.emplace_back(ret);
+        return ret;
+    }
+    stack.emplace_back(StackAllocation { size });
+    return stack.back();
 }
 
-RegisterAllocation Function::pop_reg(pType const &type)
+ValueStackEntry Function::pop_reg(pType const &type)
 {
     return pop_reg(type->size_of());
 }
 
-RegisterAllocation Function::pop_reg(size_t size)
+ValueStackEntry Function::pop_reg(size_t size)
 {
     assert(!stack.empty());
-    assert(std::holds_alternative<RegisterAllocation>(stack.back()));
-
-    auto ret { std::get<RegisterAllocation>(stack.back()) };
-    if (ret.reg != -1) {
-        for (auto ix = ret.reg; ix < ret.reg + ret.num_regs; ++ix) {
-            regs[ix] = false;
+    ValueStackEntry const ret = stack.back();
+    if (std::holds_alternative<Registers>(ret)) {
+        auto registers { std::get<Registers>(ret) };
+        for (auto r : registers) {
+            regs[r] = false;
         }
     }
     stack.pop_back();
-    debug_stack(*this, std::format("pop_reg({}) {}/{}", size, ret.reg, ret.num_regs));
+    // debug_stack(*this, std::format("pop_reg({}) {}/{}", size, ret.reg, ret.num_regs));
     return ret;
 }
 
@@ -378,99 +228,147 @@ void Function::push(size_t size)
     if (size == 0) {
         return;
     }
-    if (auto dest = push_reg(size); dest.reg > 0) {
-        for (auto i = 0; i < dest.num_regs; ++i) {
-            add_instruction(L"mov", L"x{},x{}", dest.reg + i, i);
-        }
-    } else {
-        auto num { dest.num_regs };
-        while (num > 0) {
-            if (num > 1) {
-                add_instruction(L"stp", L"x{},x{},[sp,#16]!", dest.num_regs - num, dest.num_regs - num + 1);
-                num -= 2;
-            } else {
-                add_instruction(L"str", L"x{},[sp,#16]!", dest.num_regs - num);
-                --num;
-            }
-        }
-    }
+    auto w = words_needed(size);
+    assert(w <= 4);
+    std::visit(
+        overloads {
+            [this](Registers const &dest) -> void {
+                auto ix = 0;
+                for (auto r : dest) {
+                    writer.add_instruction(L"movq", L"%{},%{}", alu_regs[ix], r);
+                    ++ix;
+                }
+            },
+            [this, w](StackAllocation const &alloc) -> void {
+                assert(w == words_needed(alloc.size));
+                auto ix = w;
+                while (ix > 0) {
+                    writer.add_instruction(L"pushq", L"%{}", alu_regs[ix]);
+                    --ix;
+                }
+            },
+            [](auto) {
+                UNREACHABLE();
+            } },
+        push_reg(size));
 }
 
 // Pops the value currently at the top of the value stack to x0..
-int Function::pop(pType const &type, int target)
+void Function::pop(pType const &type)
 {
-    if (type == TypeRegistry::void_) {
-        return 0;
+    if (type != TypeRegistry::void_) {
+        pop(type->size_of());
     }
-    return pop(type->size_of(), target);
 }
 
-int Function::pop(size_t size, int target)
+void Function::pop(size_t size)
+{
+    if (size > 0) {
+        pop(size,
+            Registers {
+                std::from_range,
+                alu_regs | std::ranges::views::take(words_needed(size)) });
+    }
+}
+
+void Function::pop(pType const &type, Register target)
+{
+    if (type != TypeRegistry::void_) {
+        pop(type->size_of(), Registers { target });
+    }
+}
+
+void Function::pop(size_t size, Register target)
+{
+    if (size > 0) {
+        pop(size, Registers { target });
+    }
+}
+
+void Function::pop(pType const &type, Registers const &targets)
+{
+    if (type != TypeRegistry::void_) {
+        pop(type->size_of(), targets);
+    }
+}
+
+void Function::pop(size_t size, Registers const &targets)
 {
     if (size == 0) {
-        return 0;
+        return;
     }
     assert(!stack.empty());
+    auto w = words_needed(size);
+    assert(targets.size() == w);
+    ValueStackEntry alloc = pop_reg(size);
     std::visit(
         overloads {
-            [this, &size, &target](RegisterAllocation const &) {
-                if (auto src = pop_reg(size); src.reg > 0) {
-                    for (auto i = 0; i < src.num_regs; ++i) {
-                        add_instruction(L"mov", L"x{},x{}", target + i, src.reg + i);
-                    }
-                } else {
-                    auto num { src.num_regs };
-                    while (num > 0) {
-                        if (num > 1) {
-                            add_instruction(L"ldp", L"x{},x{},[sp],#16", target + src.num_regs - num, target + src.num_regs - num + 1);
-                            num -= 2;
-                        } else {
-                            add_instruction(L"str", L"x{},[sp],#16", target + src.num_regs - num);
-                            --num;
-                        }
-                    }
+            [this, &size, &targets](Registers const &srcs) {
+                assert(srcs.size() == targets.size());
+                for (auto [src, target] : std::ranges::views::zip(srcs, targets)) {
+                    save_regs[target] = true;
+                    writer.add_instruction(L"movq", L"%{},%{}", src, target);
                 }
             },
-            [this, &size, &target](VarPointer const &) {
-                deref(size, target);
+            [this, &targets](StackAllocation const &alloc) {
+                for (auto reg : targets) {
+                    save_regs[reg] = true;
+                    writer.add_instruction(L"popq", L"%{}", reg);
+                }
+            },
+            [this, &size, &targets](VarPointer const &) {
+                deref(size, targets);
             } },
-        stack.back());
-    return target + words_needed(size);
+        alloc);
 }
 
 // Pops the variable reference off the value stack and moves the value
 // into x0...
-VarPointer Function::deref(pType const &type, int target)
+VarPointer Function::deref(pType const &type, Registers const &targets)
 {
     if (type == TypeRegistry::void_) {
         return 0;
     }
-    return deref(type->size_of(), target);
+    return deref(type->size_of(), targets);
 }
 
-VarPointer Function::deref(size_t size, int target)
+VarPointer Function::deref(pType const &type)
+{
+    if (type == TypeRegistry::void_) {
+        return 0;
+    }
+    return deref(type->size_of());
+}
+
+VarPointer Function::deref(size_t size)
+{
+    if (size > 0) {
+        return deref(size,
+            Registers {
+                std::from_range,
+                alu_regs | std::ranges::views::take(words_needed(size)) });
+    }
+    return 0;
+}
+
+VarPointer Function::deref(size_t size, Registers const &targets)
 {
     if (size == 0) {
         return 0;
     }
+    assert(words_needed(size) == targets.size());
     assert(!stack.empty());
     assert(std::holds_alternative<VarPointer>(stack.back()));
     auto ptr { std::get<VarPointer>(stack.back()) };
     auto ret { ptr };
     stack.pop_back();
-    debug_stack(*this, std::format("deref({}, {}) VarPointer {}", size, target, ptr));
+    // debug_stack(*this, std::format("deref({}, {}) VarPointer {}", size, target, ptr));
     auto num_regs { words_needed(size) };
     auto num { num_regs };
     while (num > 0) {
-        if (num > 1) {
-            add_instruction(L"ldp", L"x{},x{},[fp,-{}]", target + num_regs - num, target + num_regs - num + 1, ptr);
-            num -= 2;
-            ptr += 2;
-        } else {
-            add_instruction(L"ldr", L"x{},[fp,-{}]", target + num_regs - num, ptr);
-            --num;
-            ++ptr;
-        }
+        writer.add_instruction(L"movq", L"-{}(%rbp%),%{}", ptr, targets[num_regs - num - 1]);
+        ptr -= 8;
+        ++num;
     }
     return ret;
 }
@@ -499,22 +397,16 @@ VarPointer Function::assign(size_t size)
     stack.pop_back();
     debug_stack(*this, std::format("assign({}) VarPointer {}", size, ptr));
 
-    // Pop the top of the value stack into x0...
-    pop(size);
+    // Pop the top of the value stack into rax...
+    pop(size, Registers {});
 
-    // Move x0... into the variable:
+    // Move rax... into the variable:
     auto num_regs { words_needed(size) };
     auto num { num_regs };
     while (num > 0) {
-        if (num > 1) {
-            add_instruction(L"stp", L"x{},x{},[fp,-{}]", num_regs - num, num_regs - num + 1, ptr);
-            num -= 2;
-            ptr += 2;
-        } else {
-            add_instruction(L"str", L"x{},[fp,-{}]", num_regs - num, ptr);
-            --num;
-            ++ptr;
-        }
+        writer.add_instruction(L"movq", L"%{}, -{}(%rbp)", alu_regs[num_regs - num], ptr);
+        --num;
+        ptr += 8;
     }
     return ret;
 }
@@ -590,34 +482,39 @@ void generate_op(Function &function, IR::Operation::Break const &impl)
 {
     if (impl.payload.label != impl.payload.scope_end) {
         function.save_regs[19] = function.save_regs[20] = true;
-        function.add_instruction(L"mov", L"x19,{}", impl.payload.depth);
-        function.add_instruction(L"adr", L"x20,lbl_{}", impl.payload.label);
-        function.add_instruction(L"b", L"lbl_{}", impl.payload.scope_end);
+        function.writer.add_instruction(L"movq", L"${},%r15", impl.payload.depth);
+        function.writer.add_instruction(L"leaq", L"lbl_{},%r14", impl.payload.label);
+        function.writer.add_instruction(L"jmp", L"lbl_{}", impl.payload.scope_end);
     }
 }
 
 void generate_call(Function &function, IR::Operation::CallOp const &call)
 {
-    std::vector<RegisterAllocation> allocations;
-    int                             reg { 0 };
+    std::vector<Registers> allocations;
+    int                    reg_ix = 0;
     for (auto const &[_, param_type] : call.parameters) {
-        allocations.emplace_back(reg, words_needed(param_type->size_of()));
-        reg += words_needed(param_type->size_of());
+        auto num_regs = words_needed(param_type->size_of());
+        assert(reg_ix + num_regs <= param_regs.size());
+        allocations.emplace_back(
+            Registers {
+                std::from_range,
+                std::ranges::subrange(param_regs.begin() + reg_ix, param_regs.begin() + (reg_ix + num_regs)) });
+        reg_ix += num_regs;
     }
-    for (auto [dest, type] : std::views::zip(
-                                 allocations,
-                                 call.parameters
-                                     | std::ranges::views::transform([](auto const &decl) {
-                                           return decl.type;
-                                       }))
+    for (auto const &[dest, type] : std::views::zip(
+                                        allocations,
+                                        call.parameters
+                                            | std::ranges::views::transform([](auto const &decl) {
+                                                  return decl.type;
+                                              }))
             | std::views::reverse) {
-        function.pop(type, dest.reg);
+        function.pop(type, dest);
     }
     std::wstring name { call.name };
     if (auto colon = call.name.rfind(L':'); colon != std::wstring::npos) {
         name.erase(0, colon + 1);
     }
-    function.add_instruction(L"bl", std::format(L"_{}", name));
+    function.writer.add_instruction(L"call", std::format(L"{}", name));
     function.push(call.return_type);
 }
 
@@ -640,8 +537,9 @@ void generate_op(Function &function, IR::Operation::Discard const &impl)
         return;
     }
     while (!function.stack.empty()) {
-        if (auto reg = function.pop_reg(impl.payload); reg.reg < 0) {
-            function.add_instruction(L"add", L"sp,{}", alignat(reg.num_regs * 8, 16));
+        auto entry = function.pop_reg(impl.payload);
+        if (auto *ptr = std::get_if<StackAllocation>(&entry); ptr != nullptr) {
+            function.writer.add_instruction(L"add", L"%rsp,{}", words_needed(ptr->size * 8));
         }
     }
 }
@@ -649,31 +547,29 @@ void generate_op(Function &function, IR::Operation::Discard const &impl)
 template<>
 void generate_op(Function &function, IR::Operation::Jump const &impl)
 {
-    function.add_instruction(L"b", std::format(L"lbl_{}", impl.payload));
+    function.writer.add_instruction(L"jmp", std::format(L"lbl_{}", impl.payload));
 }
 
 template<>
 void generate_op(Function &function, IR::Operation::JumpF const &impl)
 {
     pop<bool>(function);
-    function.add_instruction(L"mov", L"x1,xzr");
-    function.add_instruction(L"cmp", L"x0,x1");
-    function.add_instruction(L"b.eq", std::format(L"lbl_{}", impl.payload));
+    function.writer.add_instruction(L"test", L"%rax");
+    function.writer.add_instruction(L"je", std::format(L"lbl_{}", impl.payload));
 }
 
 template<>
 void generate_op(Function &function, IR::Operation::JumpT const &impl)
 {
     pop<bool>(function);
-    function.add_instruction(L"mov", L"x1,xzr");
-    function.add_instruction(L"cmp", L"x0,x1");
-    function.add_instruction(L"b.ne", std::format(L"lbl_{}", impl.payload));
+    function.writer.add_instruction(L"test", L"%rax");
+    function.writer.add_instruction(L"jne", std::format(L"lbl_{}", impl.payload));
 }
 
 template<>
 void generate_op(Function &function, IR::Operation::Label const &impl)
 {
-    function.add_label(std::format(L"lbl_{}", impl.payload));
+    function.writer.add_label(std::format(L"lbl_{}", impl.payload));
 }
 
 void generate_op(Function &function, IR::Operation::NativeCall const &impl)
@@ -683,12 +579,12 @@ void generate_op(Function &function, IR::Operation::NativeCall const &impl)
 
 void generate_op(Function &function, IR::Operation::Pop const &impl)
 {
-    function.save_regs[21] = true;
     function.pop(impl.payload->size_of());
-    function.add_instruction(L"mov", L"x21,x0");
+    function.writer.add_instruction(L"movq", L"%rax,-{}(%rbp)", Function::return_value_index);
     while (!function.stack.empty()) {
-        if (auto reg = function.pop_reg(impl.payload); reg.reg < 0) {
-            function.add_instruction(L"add", L"sp,{}", alignat(reg.num_regs * 8, 16));
+        auto entry = function.pop_reg(impl.payload);
+        if (auto *ptr = std::get_if<StackAllocation>(&entry); ptr != nullptr) {
+            function.writer.add_instruction(L"add", L"%rsp,{}", words_needed(ptr->size * 8));
         }
     }
 }
@@ -702,55 +598,78 @@ void generate_op(Function &function, IR::Operation::PushConstant const &impl)
     std::visit(
         overloads {
             [&function, &impl](IntType const &int_type) -> void {
-                if (auto reg { function.push_reg(impl.payload.type) }; reg.reg > 0) {
-                    switch (int_type.width_bits) {
-                    case 8:
-                        function.add_instruction(L"mov", L"w{},#{}", reg.reg, static_cast<int>((int_type.is_signed) ? as<int8_t>(impl.payload) : as<uint8_t>(impl.payload)));
-                        break;
-                    case 16:
-                        function.add_instruction(L"mov", L"w{},#{}", reg.reg, (int_type.is_signed) ? as<int16_t>(impl.payload) : as<uint16_t>(impl.payload));
-                        break;
-                    case 32:
-                        function.add_instruction(L"mov", L"w{},#{}", reg.reg, (int_type.is_signed) ? as<int32_t>(impl.payload) : as<uint32_t>(impl.payload));
-                        break;
-                    case 64:
-                        function.add_instruction(L"mov", L"x{},#{}", reg.reg, (int_type.is_signed) ? as<int64_t>(impl.payload) : as<uint64_t>(impl.payload));
-                        break;
-                    }
-                } else {
-                    switch (int_type.width_bits) {
-                    case 8:
-                        function.add_instruction(L"mov", L"w0,#{}", (int_type.is_signed) ? as<int8_t>(impl.payload) : as<uint8_t>(impl.payload));
-                        break;
-                    case 16:
-                        function.add_instruction(L"mov", L"w0,#{}", (int_type.is_signed) ? as<int16_t>(impl.payload) : as<uint16_t>(impl.payload));
-                        break;
-                    case 32:
-                        function.add_instruction(L"mov", L"w0,#{}", (int_type.is_signed) ? as<int32_t>(impl.payload) : as<uint32_t>(impl.payload));
-                        break;
-                    case 64:
-                        function.add_instruction(L"mov", L"x0,#{}", (int_type.is_signed) ? as<int64_t>(impl.payload) : as<uint64_t>(impl.payload));
-                        break;
-                    }
-                    function.add_instruction(L"str", L"x0,[sp,#-16]!", reg.reg);
-                }
+                auto entry = function.push_reg(impl.payload.type);
+                std::visit(
+                    overloads {
+                        [&function, int_type, &impl](Registers const &regs) {
+                            auto reg = regs[0];
+                            switch (int_type.width_bits) {
+                            case 8:
+                                function.writer.add_instruction(L"movq", L"${},%{}",
+                                    static_cast<int>((int_type.is_signed) ? as<int8_t>(impl.payload) : as<uint8_t>(impl.payload)), reg);
+                                break;
+                            case 16:
+                                function.writer.add_instruction(L"movq", L"${},%{}",
+                                    (int_type.is_signed) ? as<int16_t>(impl.payload) : as<uint16_t>(impl.payload), reg);
+                                break;
+                            case 32:
+                                function.writer.add_instruction(L"movq", L"${},%{}",
+                                    (int_type.is_signed) ? as<int32_t>(impl.payload) : as<uint32_t>(impl.payload), reg);
+                                break;
+                            case 64:
+                                function.writer.add_instruction(L"movq", L"${},%{}",
+                                    (int_type.is_signed) ? as<int64_t>(impl.payload) : as<uint64_t>(impl.payload), reg);
+                                break;
+                            }
+                        },
+                        [&function, int_type, &impl](StackAllocation const &alloc) {
+                            switch (int_type.width_bits) {
+                            case 8:
+                                function.writer.add_instruction(L"pushb", L"${}",
+                                    static_cast<int>((int_type.is_signed) ? as<int8_t>(impl.payload) : as<uint8_t>(impl.payload)));
+                                break;
+                            case 16:
+                                function.writer.add_instruction(L"pushw", L"${}",
+                                    (int_type.is_signed) ? as<int16_t>(impl.payload) : as<uint16_t>(impl.payload));
+                                break;
+                            case 32:
+                                function.writer.add_instruction(L"pushl", L"${}",
+                                    (int_type.is_signed) ? as<int32_t>(impl.payload) : as<uint32_t>(impl.payload));
+                                break;
+                            case 64:
+                                function.writer.add_instruction(L"movq", L"${},%rax",
+                                    (int_type.is_signed) ? as<int64_t>(impl.payload) : as<uint64_t>(impl.payload));
+                                function.writer.add_instruction(L"pushq", L"%rax");
+                                break;
+                            }
+                        },
+                        [](auto) {
+                            UNREACHABLE();
+                        } },
+                    entry);
             },
             [&function, &impl](SliceType const &slice_type) -> void {
                 assert(slice_type.slice_of == TypeRegistry::u32);
                 auto slice = as<Slice>(impl.payload);
                 auto str_id = function.object.add_string(std::wstring_view { static_cast<wchar_t *>(slice.ptr), static_cast<size_t>(slice.size) });
-                auto reg { function.push_reg(slice_type.size_of()) };
-                if (reg.reg > 0) {
-                    function.add_instruction(L"adr", L"x{},str_{}", reg.reg, str_id);
-                    function.add_instruction(L"mov", L"x{},#{}", reg.reg + 1, slice.size);
-                } else {
-                    function.add_instruction(L"adr", L"x0,str_{}", str_id);
-                    function.add_instruction(L"mov", L"x1,#{}", slice.size);
-                    function.add_instruction(L"stp", L"x{},x{},[sp,#-16]!", reg.reg, reg.reg + 1);
-                }
+                std::visit(
+                    overloads {
+                        [&function, str_id, slice](Registers const &regs) {
+                            assert(!regs.empty());
+                            function.writer.add_instruction(L"leaq", L"str_{}(%rip),%{}", str_id, regs[0]);
+                            function.writer.add_instruction(L"movq", L"${},%{}", slice.size, regs[1]);
+                        },
+                        [&function, str_id, slice](StackAllocation const &alloc) {
+                            function.writer.add_instruction(L"pushq", L"str_{}(%rip)", str_id);
+                            function.writer.add_instruction(L"pushq", L"${}", slice.size);
+                        },
+                        [](auto) {
+                            UNREACHABLE();
+                        } },
+                    function.push_reg(slice_type.size_of()));
             },
             [&function, &impl](auto const &) -> void {
-                function.add_comment(std::format(L"PushConstant {}", impl.payload.type->to_string()));
+                function.writer.add_comment(std::format(L"PushConstant {}", impl.payload.type->to_string()));
             } },
         impl.payload.type->description);
 }
@@ -765,25 +684,27 @@ void generate_op(Function &function, IR::Operation::PushVarAddress const &impl)
 template<>
 void generate_op(Function &function, IR::Operation::ScopeBegin const &)
 {
-    function.save_regs[19] = function.save_regs[20] = true;
-    function.add_instruction(L"mov", L"x19,xzr");
-    function.add_instruction(L"mov", L"x20,xzr");
+    function.writer.add_instruction(L"inc", L"-{}(%rbp)", Function::scope_depth_index);
 }
 
 template<>
 void generate_op(Function &function, IR::Operation::ScopeEnd const &impl)
 {
     if (impl.payload.has_defers) {
-        function.add_text(std::format(
-            LR"(cmp x19,xzr
-    b.ne 1f
-    cmp  x20,xzr
-    b.eq 2f
-    br   x20
+        function.writer.add_text(std::format(
+            LR"(test -{}%(rbp)
+    jne  1f
+    test -{}(%rbp)
+    je   2f
+    jmp  -{}:(%rbp)
 1:
-    sub  x19,x19,1
-    b    lbl_{}
+    dec  -{}(%rbp)
+    jmp  lbl_{}
 2:)",
+            Function::scope_depth_index,
+            Function::function_return_pointer_index,
+            Function::function_return_pointer_index,
+            Function::scope_depth_index,
             impl.payload.enclosing_end));
     }
 }
@@ -799,54 +720,49 @@ void Function::generate(std::vector<IR::Operation> const &operations)
     analyze(operations);
     object.add_directive(L".global", name);
     skeleton();
-    regs.reset();
-    save_regs.reset();
+    regs.fill(false);
+    save_regs.fill(false);
     for (auto const &op : operations) {
         std::visit(
             [this](auto const &impl) -> void {
-                add_comment(as_wstring(typeid(decltype(impl)).name()));
-                // std::cerr << typeid(decltype(impl)).name() << std::endl;
+                writer.add_comment(as_wstring(typeid(decltype(impl)).name()));
+                trace("Generating x86_64 code for op {}", typeid(decltype(impl)).name());
                 generate_op(*this, impl);
             },
             op.op);
     }
     std::wstring pop_saved_regs;
-    activate_prolog();
-    for (int ix = 19; ix < 29; ++ix) {
-        if (save_regs[ix]) {
-            if (save_regs[ix + 1]) {
-                add_instruction(L"stp", L"x{},x{},[sp,-16]!", ix, ix + 1);
-                pop_saved_regs = std::format(L"ldp x{},x{},[sp],16\n{}", ix, ix + 1, pop_saved_regs);
-                ++ix;
-            } else {
-                add_instruction(L"str", L"x{},[sp,-16]!", ix);
-                pop_saved_regs = std::format(L"ldr x{},[sp],16\n{}", ix, pop_saved_regs);
-            }
+    writer.activate_prolog();
+    for (auto s : regs_to_be_saved) {
+        if (save_regs[s]) {
+            writer.add_instruction(L"pushq", L"%{}", s);
+            pop_saved_regs = std::format(L"popq {}\n%{}", s, pop_saved_regs);
         }
     }
-    activate_code();
+    writer.activate_code();
     if (!pop_saved_regs.empty()) {
-        add_instruction(L"mov", L"x0,x21");
-        add_text(pop_saved_regs);
+        writer.add_text(pop_saved_regs);
     }
 }
 
 std::wostream &operator<<(std::wostream &os, Function const &function)
 {
-    os << std::format(L"{}", function.prolog);
-    os << std::format(L"{}", function.code);
-    os << std::format(L"{}", function.epilog) << std::endl;
+    os << function.writer.prolog;
+    os << function.writer.code;
+    os << function.writer.epilog << std::endl;
     return os;
 }
 
-void Object::generate(IR::pIR const &module)
+void Object::generate()
 {
-    auto &mod_init = functions.emplace_back(std::format(L"_{}_init", module->name), *this);
-    mod_init.generate(module->operations);
-
     for (auto const &[name, f] : get<IR::Module>(module).functions) {
         auto &function = functions.emplace_back(name, *this, f);
         function.generate(f->operations);
+    }
+    if (!module->operations.empty()) {
+        auto &mod_init = functions.emplace_back(std::format(L"_{}_init", module->name), *this);
+        mod_init.naked = true;
+        mod_init.generate(module->operations);
     }
 }
 
@@ -868,7 +784,7 @@ std::wostream &operator<<(std::wostream &os, Object const &object)
     return os;
 }
 
-std::expected<bool, X86_64Error> Object::save_and_assemble() const
+bool Object::save_and_assemble() const
 {
     fs::path dot_arwen { ".arwen" };
     fs::create_directory(dot_arwen);
@@ -877,28 +793,31 @@ std::expected<bool, X86_64Error> Object::save_and_assemble() const
     {
         std::fstream s(path, std::ios::out | std::ios::binary);
         if (!s.is_open()) {
-            return std::unexpected(X86_64Error { X86_64ErrorCode::IOError, std::format("Could not open assembly file `{}`", path.string()) });
+            log_error("Could not open assembly file `{}`", path.string());
+            return false;
         }
         std::wstringstream ss;
         ss << *this;
         s << as_utf8(ss.view());
         if (s.fail() || s.bad()) {
-            return std::unexpected(X86_64Error { X86_64ErrorCode::IOError, std::format("Could not write assembly file `{}`: {}", path.string(), strerror(errno)) });
+            log_error("Could not write assembly file `{}`: {}", path.string(), strerror(errno));
+            return false;
         }
     }
     fs::path o_file { path };
     o_file.replace_extension("o");
     if (module != nullptr) {
-        std::wcerr << std::format(L"[X86_64] Assembling `{}`", module->name) << std::endl;
+        info(L"[X86_64] Assembling `{}`", module->name);
     } else {
-        std::println("[X86_64] Assembling root module");
+        info("[X86_64] Assembling root module");
     }
     Util::Process as { "as", path.string(), "-o", o_file.string() };
     if (auto res = as.execute(); !res.has_value()) {
-        return std::unexpected(X86_64Error { X86_64ErrorCode::InternalError, std::format("`as` execution failed: {}", res.error().description) });
+        log_error("`as` execution failed: {}", res.error().description);
+        return false;
     } else if (res.value() != 0) {
-        std::string as_errors { as.stderr() };
-        return std::unexpected(X86_64Error { X86_64ErrorCode::InternalError, std::format("`as` returned {}:\n{}", res.value(), as_errors) });
+        log_error("`as` returned {}:\n{}", res.value(), as.stderr());
+        return false;
     }
     if (!has_option("keep-assembly")) {
         fs::remove(path);
@@ -906,15 +825,18 @@ std::expected<bool, X86_64Error> Object::save_and_assemble() const
     return true;
 }
 
-std::expected<void, X86_64Error> Executable::generate()
+bool Executable::generate()
 {
-    auto &static_init = objects.emplace_back(L"__program");
-    auto &prog_init = static_init.functions.emplace_back(L"__program_init", static_init);
-
+    auto  program_obj_name = std::format(L"__program_{}", program->name);
+    auto &static_init = objects.emplace_back(program_obj_name);
+    auto &prog_init = static_init.functions.emplace_back(L"__static_init", static_init);
+    prog_init.naked = true;
     prog_init.generate(program->operations);
     for (auto const &[name, mod] : get<IR::Program>(program).modules) {
-        prog_init.add_instruction(L"bl", std::format(L"_{}_init", name));
-        objects.emplace_back(name, mod).generate(mod);
+        if (!mod->operations.empty()) {
+            prog_init.writer.add_instruction(L"call", std::format(L"_{}_init", name));
+        }
+        objects.emplace_back(name, mod).generate();
     }
 
     fs::path dot_arwen { ".arwen" };
@@ -922,8 +844,8 @@ std::expected<void, X86_64Error> Executable::generate()
     std::vector<fs::path> o_files;
     for (auto const &obj : objects) {
         if (obj.has_exports) {
-            if (auto res { obj.save_and_assemble() }; !res.has_value()) {
-                return std::unexpected(res.error());
+            if (!obj.save_and_assemble()) {
+                return false;
             }
             fs::path path { dot_arwen / obj.file_name };
             o_files.push_back(path.replace_extension("o"));
@@ -933,15 +855,13 @@ std::expected<void, X86_64Error> Executable::generate()
     if (!o_files.empty()) {
         fs::path program_path { as_utf8(program->name) };
         program_path.replace_extension();
-        std::println("[X86_64] Linking `{}`", program_path.string());
+        info("[X86_64] Linking `{}`", program_path.string());
 
         std::vector<std::string> ld_args {
             "-o",
             fs::path { as_utf8(program->name) }.replace_extension("").string(),
-            "-no-pie",
-            "-nostdlib",
+            // "-no-pie",
             std::format("-L{}/lib", Arwen::arwen_dir().string()),
-            "-larwenstart",
             "-larwenrt",
         };
         for (auto const &o : o_files) {
@@ -950,9 +870,10 @@ std::expected<void, X86_64Error> Executable::generate()
 
         Util::Process link { "cc", ld_args };
         if (auto res = link.execute(); !res.has_value()) {
-            return std::unexpected(X86_64Error { X86_64ErrorCode::InternalError, std::format("Linker execution failed: {}", res.error().description) });
+            log_error("Linker execution failed: {}", res.error().description);
+            return false;
         } else if (res.value() != 0) {
-            return std::unexpected(X86_64Error { X86_64ErrorCode::InternalError, std::format("Linking failed:\n{}", link.stderr()) });
+            log_error("Linking failed:\n{}", link.stderr());
         }
         if (!has_option("keep-objects")) {
             for (auto const &o : o_files) {
@@ -960,7 +881,7 @@ std::expected<void, X86_64Error> Executable::generate()
             }
         }
     }
-    return {};
+    return true;
 }
 
 std::wostream &operator<<(std::wostream &os, Executable &executable)
@@ -972,7 +893,7 @@ std::wostream &operator<<(std::wostream &os, Executable &executable)
     return os;
 }
 
-std::expected<void, X86_64Error> generate_x86_64(IR::IRNodes const &program)
+bool generate_x86_64(IR::IRNodes const &program)
 {
     Executable executable { program.program };
     return executable.generate();

@@ -177,9 +177,12 @@ void generate_node(Generator &generator, ASTNode const &n, Block const &node)
             generator.generate(stmt);
         }
         auto &last = last_op(generator);
-        if (last.type() == Operation::Type::Break) {
-            add_operation<Operation::Pop>(generator, n->bound_type);
-        }
+
+        // I can't remember what I did here. But a Break is basically a jump
+        // so the Pop will never be executed?
+        // if (last.type() == Operation::Type::Break) {
+        //     add_operation<Operation::Pop>(generator, n->bound_type);
+        // }
 
         if (empty) {
             add_operation<Operation::PushConstant>(generator, make_void());
@@ -581,7 +584,6 @@ IRNodes &generate_ir(ASTNode const &node, IRNodes &ir)
 {
     Generator generator { ir };
     assert(is<Arwen::Program>(node));
-    std::cerr << "1\n";
     generator.generate(node);
     return generator.ir;
 }

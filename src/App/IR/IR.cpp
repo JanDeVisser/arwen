@@ -9,6 +9,7 @@
 
 #include <App/IR/IR.h>
 #include <Util/Logging.h>
+#include <string_view>
 #include <variant>
 
 namespace Arwen::IR {
@@ -96,6 +97,30 @@ std::wostream &list(IRNodes const &ir, std::wostream &os)
     return os;
 }
 
+bool save(IRNodes const &ir)
+{
+    std::wstring_view file_name = ir.program->name;
+    fs::path          dot_arwen { ".arwen" };
+    fs::create_directory(dot_arwen);
+    fs::path path { dot_arwen / file_name };
+    path.replace_extension("ir");
+    {
+        std::fstream s(path, std::ios::out | std::ios::binary);
+        if (!s.is_open()) {
+            log_error("Could not open intermediate representation file `{}`", path.string());
+            return false;
+        }
+        std::wstringstream ss;
+        list(ir, ss);
+        s << as_utf8(ss.view());
+        if (s.fail() || s.bad()) {
+            log_error("Could not write intermediate representation file `{}`: {}", path.string(), strerror(errno));
+            return false;
+        }
+    }
+    return true;
+}
+
 }
 
 std::wostream &operator<<(std::wostream &os, std::monostate const &)
@@ -171,7 +196,7 @@ std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation const &op)
         break;
         IROperationTypes(S)
 #undef S
-            default : Util::UNREACHABLE();
+            default : UNREACHABLE();
     }
     os << Util::as_wstring(s);
     std::visit(

@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <ctime>
 #include <mutex>
 
 #include <Util/Logging.h>
@@ -18,11 +17,11 @@ LoggingConfig log_config { LogLevel::Info };
 std::optional<LogLevel> LogLevel_by_name(std::string_view const &name)
 {
 #undef S
-#define S(level, cardinal)      \
-    if (name == #level) {       \
-        return LogLevel::level; \
+#define S(L, C, S)          \
+    if (name == #L) {       \
+        return LogLevel::L; \
     }
-    ENUMERATE_LOG_LEVELS(S)
+    LOG_LEVELS(S)
 #undef S
     return {};
 }

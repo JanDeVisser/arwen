@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <ostream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <Util/Logging.h>
@@ -273,6 +274,7 @@ struct Generator {
 IRNodes       &generate_ir(ASTNode const &node, IRNodes &ir);
 std::wostream &list_node(pIR const &ir, std::wostream &os);
 std::wostream &list(IRNodes const &ir, std::wostream &os);
+bool           save(IRNodes const &ir);
 
 }
 

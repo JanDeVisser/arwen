@@ -32,9 +32,9 @@ inline intptr_t alignat(intptr_t bytes, intptr_t align)
 }
 
 template<uint8_t WordSize = 8>
-inline intptr_t words_needed(intptr_t bytes)
+inline int words_needed(int bytes)
 {
-    auto ret { bytes / WordSize };
+    int ret { bytes / WordSize };
     return (bytes % WordSize) ? ret + 1 : ret;
 }
 

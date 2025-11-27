@@ -137,6 +137,7 @@ if (IS_APPLE)
 add_library(
     ArwenCodeGen
     STATIC
+    src/Arch/AssemblyWriter.cpp
     src/Arch/Arm64/Arm64.cpp
     src/Arch/Arm64/GenOp.cpp
 )
@@ -147,6 +148,7 @@ if (IS_LINUX)
 add_library(
     ArwenCodeGen
     STATIC
+    src/Arch/AssemblyWriter.cpp
     src/Arch/Linux/x86_64/X86_64.cpp
     src/Arch/Linux/x86_64/GenOp.cpp
   )
@@ -164,6 +166,7 @@ target_link_libraries(
 
 add_executable(
         arwen
+        src/App/Debugger.cpp
         src/App/Main.cpp
 )
 

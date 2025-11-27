@@ -1316,22 +1316,22 @@ void Parser::push_namespace(ASTNode const &ns)
         ns->ns->parent = namespaces.back();
     }
     namespaces.push_back(ns);
-    std::wcerr << L"[S+]";
-    for (auto &n : namespaces | std::ranges::views::reverse) {
-        std::wcerr << " <- " << n.id.value();
-    }
-    std::wcerr << "\n";
+    // std::wcerr << L"[S+]";
+    // for (auto &n : namespaces | std::ranges::views::reverse) {
+    //     std::wcerr << " <- " << n.id.value();
+    // }
+    // std::wcerr << "\n";
 }
 
 void Parser::pop_namespace()
 {
     assert(!namespaces.empty());
     namespaces.pop_back();
-    std::wcerr << L"[S-]";
-    for (auto &n : namespaces | std::ranges::views::reverse) {
-        std::wcerr << " <- " << n.id.value();
-    }
-    std::wcerr << "\n";
+    // std::wcerr << L"[S-]";
+    // for (auto &n : namespaces | std::ranges::views::reverse) {
+    //     std::wcerr << " <- " << n.id.value();
+    // }
+    // std::wcerr << "\n";
 }
 
 void Parser::append(LexerErrorMessage const &lexer_error)

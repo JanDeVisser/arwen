@@ -4,8 +4,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <iostream>
-#include <ostream>
 #include <ranges>
 #include <string>
 #include <unistd.h>
@@ -128,22 +126,22 @@ std::wostream &ASTNodeImpl::header(std::wostream &os)
     os << " ";
     switch (status) {
     case Status::Initialized:
-        std::wcerr << L"Initialized";
+        os << L"Initialized";
         break;
     case Status::Normalized:
-        std::wcerr << L"Normalized";
+        os << L"Normalized";
         break;
     case Status::Bound:
-        std::wcerr << L"Bound";
+        os << L"Bound";
         break;
     case Status::Undetermined:
-        std::wcerr << L"Undetermined";
+        os << L"Undetermined";
         break;
     case Status::Ambiguous:
-        std::wcerr << L"Ambiguous";
+        os << L"Ambiguous";
         break;
     case Status::BindErrors:
-        std::wcerr << L"BindErrors";
+        os << L"BindErrors";
         break;
     }
     return os;

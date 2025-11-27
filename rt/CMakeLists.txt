@@ -21,7 +21,7 @@ add_library(
 
 add_library(
         arwenrt
-        SHARED
+        SHARED STATIC
         dynarr.c
         puts.c
         utf8.c

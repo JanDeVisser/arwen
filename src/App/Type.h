@@ -52,14 +52,14 @@ namespace Arwen {
 
 enum class TypeKind {
 #undef S
+
 #define S(K) K,
     TypeKinds(S)
 #undef S
 };
 
 using pType = Ptr<struct Type, struct TypeRegistry>;
-
-// using pConstType = std::shared_ptr<const struct Type>;
+using pTypes = std::vector<pType>;
 
 using Slice = slice_t;
 using DynamicArray = dynarr_t;
