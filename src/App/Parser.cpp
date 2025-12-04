@@ -4,12 +4,10 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "Util/Ptr.h"
 #include <algorithm>
 #include <cstddef>
-#include <iostream>
 #include <optional>
-#include <ranges>
-#include <string>
 #include <string_view>
 
 #include <Util/Defer.h>
@@ -258,12 +256,12 @@ ASTNode Parser::parse_statement()
         }
     case TokenKind::Raw: {
         auto raw = t.raw_text();
-        assert(raw.marker == ArwenInsertBlock::begin);
+        assert(raw.marker == ArwenComptimeBlock::begin);
         lexer.lex();
         if (raw.end) {
-            return make_node<Insert>(t.location, text_at(raw.start, *raw.end));
+            return make_node<Comptime>(t.location, text_at(raw.start, *raw.end));
         } else {
-            append(t.location, "Unclosed `@insert` block");
+            append(t.location, "Unclosed `@comptime` block");
             return {};
         }
     }
@@ -1236,6 +1234,35 @@ ASTNode Parser::parse_yield()
     }
 }
 
+ASTStatus Parser::bind(ASTNode node)
+{
+    if (node == nullptr) {
+        node = program;
+    }
+    assert(node != nullptr);
+    node = node.hunt();
+    pass = 0;
+    unbound = std::numeric_limits<int>::max();
+    int prev_pass;
+    do {
+        prev_pass = unbound;
+        unbound = 0;
+        unbound_nodes.clear();
+        auto res = Arwen::bind(node);
+        node = node.hunt();
+        if (res.has_value()) {
+            if (node->bound_type) {
+                break;
+            }
+        } else {
+            return res.error();
+        }
+        ++pass;
+    } while (unbound > 0 && unbound < prev_pass);
+    program = program.hunt();
+    return node->status;
+}
+
 pType Parser::type_of(std::wstring const &name) const
 {
     assert(!namespaces.empty() && namespaces.back()->ns);
@@ -1379,16 +1406,16 @@ void Parser::append(TokenLocation location, char const *message)
     append(std::move(location), MUST_EVAL(to_wstring(message)));
 }
 
-pType Parser::bind_error(TokenLocation location, std::wstring const &msg)
+BindError Parser::bind_error(TokenLocation location, std::wstring const &msg)
 {
     append(location, msg);
-    return make_error(location, msg);
+    return BindError { ASTStatus::BindErrors };
 }
 
-pType Parser::bind_error(TokenLocation location, std::string const &msg)
+BindError Parser::bind_error(TokenLocation location, std::string const &msg)
 {
     append(location, msg);
-    return make_error(location, MUST_EVAL(to_wstring(msg)));
+    return BindError { ASTStatus::BindErrors };
 }
 
 }

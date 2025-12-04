@@ -6,10 +6,9 @@
 
 #pragma once
 
-#include <concepts>
 #include <cstddef>
+#include <expected>
 #include <map>
-#include <memory>
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -34,6 +33,7 @@ using namespace Util;
     S(BoolConstant)        \
     S(Break)               \
     S(Call)                \
+    S(Comptime)            \
     S(Constant)            \
     S(Continue)            \
     S(DeferStatement)      \
@@ -50,7 +50,6 @@ using namespace Util;
     S(IfStatement)         \
     S(Include)             \
     S(Import)              \
-    S(Insert)              \
     S(LoopStatement)       \
     S(Module)              \
     S(Nullptr)             \
@@ -77,8 +76,22 @@ enum class SyntaxNodeType {
 #undef S
 };
 
+enum class ASTStatus {
+    Initialized,
+    Normalized,
+    Undetermined,
+    Bound,
+    Ambiguous,
+    BindErrors,
+    InternalError,
+};
+
+using BindError = std::unexpected<ASTStatus>;
+using BindResult = std::expected<pType, ASTStatus>;
+using BindResults = std::expected<pTypes, ASTStatus>;
+
 extern char const *SyntaxNodeType_name(SyntaxNodeType type);
-extern void        print_indent(int indent);
+extern void        print_indent(std::wostream &os, int indent);
 
 using Label = std::optional<std::wstring>;
 
@@ -102,12 +115,13 @@ struct ASTNode : public Ptr<struct ASTNodeImpl, Parser> {
     {
     }
 
-    TokenLocation operator+(ASTNode const &other);
-    TokenLocation operator+(TokenLocation const &other);
-    void          error(char const *message) const { error(std::string(message)); }
-    void          error(wchar_t const *message) const { error(std::wstring(message)); }
-    void          error(std::wstring const &message) const;
-    void          error(std::string const &message) const;
+    ASTNode const &hunt() const;
+    TokenLocation  operator+(ASTNode const &other);
+    TokenLocation  operator+(TokenLocation const &other);
+    void           error(char const *message) const { error(std::string(message)); }
+    void           error(wchar_t const *message) const { error(std::wstring(message)); }
+    void           error(std::wstring const &message) const;
+    void           error(std::string const &message) const;
 
     template<typename... Args>
     void error(std::format_string<Args...> const message, Args &&...args) const
@@ -121,11 +135,11 @@ struct ASTNode : public Ptr<struct ASTNodeImpl, Parser> {
         error(std::vformat(message.get(), std::make_wformat_args(args...)));
     }
 
-    pType bind_error(std::wstring const &message) const;
-    pType bind_error(wchar_t const *message) const { return bind_error(std::wstring(message)); }
+    BindError bind_error(std::wstring const &message) const;
+    BindError bind_error(wchar_t const *message) const { return bind_error(std::wstring(message)); }
 
     template<typename... Args>
-    pType bind_error(std::wformat_string<Args...> const message, Args &&...args) const
+    BindError bind_error(std::wformat_string<Args...> const message, Args &&...args) const
     {
         return bind_error(std::vformat(message.get(), std::make_wformat_args(args...)));
     }
@@ -133,16 +147,7 @@ struct ASTNode : public Ptr<struct ASTNodeImpl, Parser> {
 
 using ASTNodes = std::vector<ASTNode>;
 
-struct AbstractSyntaxNode {
-    pType          bind(ASTNode const &n);
-    ASTNode        normalize(ASTNode const &n);
-    ASTNode        stamp(ASTNode const &n);
-    std::wostream &header(ASTNode const &, std::wostream &os);
-    void           dump_node(ASTNode const &, int);
-    ASTNode        coerce(ASTNode const &n, pType const &target);
-};
-
-struct Namespace : std::enable_shared_from_this<Namespace> {
+struct Namespace {
     using VariableMap = std::map<std::wstring, ASTNode>;
     using TypeMap = std::map<std::wstring, pType>;
     using FunctionMap = std::multimap<std::wstring, ASTNode>;
@@ -155,6 +160,7 @@ struct Namespace : std::enable_shared_from_this<Namespace> {
     ASTNode     parent { nullptr };
 
     explicit Namespace(ASTNode parent = nullptr);
+    ASTNode           parent_of() const;
     bool              is_registered(std::wstring const &name) const;
     pType             find_type(std::wstring const &name) const;
     bool              has_type(std::wstring const &name) const;
@@ -172,293 +178,200 @@ struct Namespace : std::enable_shared_from_this<Namespace> {
     void              register_variable(std::wstring name, ASTNode node);
 };
 
-struct BinaryExpression final : AbstractSyntaxNode {
+struct BinaryExpression {
     ASTNode  lhs;
     Operator op;
     ASTNode  rhs;
 
     BinaryExpression(ASTNode lhs, Operator op, ASTNode rhs);
-
-    pType          bind(ASTNode const &n);
-    ASTNode        normalize(ASTNode const &n);
-    ASTNode        stamp(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
-    void           dump_node(ASTNode const &n, int indent);
 };
 
-struct Block final : AbstractSyntaxNode {
+struct Block {
     ASTNodes statements;
 
     Block() = default;
     Block(ASTNodes statements);
-
-    ASTNode normalize(ASTNode const &n);
-    pType   bind(ASTNode const &n);
-    ASTNode stamp(ASTNode const &n);
-    void    dump_node(ASTNode const &n, int indent);
 };
 
-struct BoolConstant final : AbstractSyntaxNode {
+struct BoolConstant {
     bool value;
 
     explicit BoolConstant(bool value);
-    ASTNode        normalize(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
 };
 
-struct Break final : AbstractSyntaxNode {
+struct Break {
     Label label;
 
     explicit Break(Label label);
-
-    pType          bind(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
 };
 
-struct Call final : AbstractSyntaxNode {
+struct Call {
     ASTNode callable;
     ASTNode arguments;
     ASTNode function;
 
     Call(ASTNode callable, ASTNode arguments);
-    pType          bind(ASTNode const &n);
-    ASTNode        stamp(ASTNode const &n);
-    void           dump_node(ASTNode const &n, int indent);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
 };
 
-struct Constant final : AbstractSyntaxNode {
+struct Comptime {
+    std::wstring script_text;
+    ASTNode      statements;
+    std::wstring output;
+
+    explicit Comptime(std::wstring_view script_text);
+};
+
+struct Constant {
     std::optional<Value> bound_value {};
 
     explicit Constant(Value value);
-    pType          bind(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
 };
 
-struct Continue final : AbstractSyntaxNode {
+struct Continue {
     Label label;
 
     Continue(Label label);
-
-    pType          bind(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
 };
 
-struct DeferStatement final : AbstractSyntaxNode {
-    ASTNode stmt;
+struct DeferStatement {
+    ASTNode statement;
 
-    DeferStatement(ASTNode stmt);
-    ASTNode normalize(ASTNode const &n);
-    pType   bind(ASTNode const &n);
-    ASTNode stamp(ASTNode const &n);
-    void    dump_node(ASTNode const &n, int indent);
+    DeferStatement(ASTNode statement);
 };
 
-struct Dummy final : AbstractSyntaxNode {
+struct Dummy {
     Dummy() = default;
-    pType bind(ASTNode const &n);
 };
 
-struct Embed final : AbstractSyntaxNode {
+struct Embed {
     std::wstring file_name;
 
     Embed(std::wstring_view file_name);
-    ASTNode        normalize(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
 };
 
-struct EnumValue final : AbstractSyntaxNode {
+struct EnumValue {
     std::wstring label;
     ASTNode      value;
     ASTNode      payload;
 
     EnumValue(std::wstring label, ASTNode value, ASTNode payload);
-    ASTNode        normalize(ASTNode const &n);
-    pType          bind(ASTNode const &n);
-    ASTNode        stamp(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
 };
 
-struct Enum final : AbstractSyntaxNode {
+struct Enum {
     std::wstring name;
     ASTNode      underlying_type;
     ASTNodes     values;
 
     Enum(std::wstring name, ASTNode underlying_type, ASTNodes values);
-    ASTNode        normalize(ASTNode const &n);
-    pType          bind(ASTNode const &n);
-    ASTNode        stamp(ASTNode const &n);
-    void           dump_node(ASTNode const &n, int indent);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
 };
 
-struct Error final : AbstractSyntaxNode {
+struct Error {
     ASTNode expression;
 
     Error(ASTNode expression);
-    ASTNode normalize(ASTNode const &n);
-    pType   bind(ASTNode const &n);
-    ASTNode stamp(ASTNode const &n);
-    void    dump_node(ASTNode const &n, int indent);
 };
 
-struct ExpressionList final : AbstractSyntaxNode {
+struct ExpressionList {
     ASTNodes expressions;
 
     explicit ExpressionList(ASTNodes expressions);
-    ASTNode        normalize(ASTNode const &n);
-    pType          bind(ASTNode const &n);
-    ASTNode        stamp(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
-    void           dump_node(ASTNode const &n, int indent);
 };
 
-struct ExternLink final : AbstractSyntaxNode {
+struct ExternLink {
     std::wstring link_name;
 
     ExternLink(std::wstring link_name);
-    pType          bind(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
 };
 
-struct ForStatement final : AbstractSyntaxNode {
+struct ForStatement {
     std::wstring range_variable;
     ASTNode      range_expr;
     ASTNode      statement;
 
-    ForStatement(std::wstring var, ASTNode expr, ASTNode stmt);
-    ASTNode        normalize(ASTNode const &n);
-    pType          bind(ASTNode const &n);
-    ASTNode        stamp(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
-    void           dump_node(ASTNode const &n, int indent);
+    ForStatement(std::wstring var, ASTNode expr, ASTNode statement);
 };
 
-struct FunctionDeclaration final : AbstractSyntaxNode {
+struct FunctionDeclaration {
     std::wstring name;
     ASTNodes     generics;
     ASTNodes     parameters;
     ASTNode      return_type;
 
     FunctionDeclaration(std::wstring name, ASTNodes generics, ASTNodes parameters, ASTNode return_type);
-    ASTNode        normalize(ASTNode const &n);
-    pType          bind(ASTNode const &n);
-    ASTNode        stamp(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
-    void           dump_node(ASTNode const &n, int indent);
 };
 
-struct FunctionDefinition final : AbstractSyntaxNode {
+struct FunctionDefinition {
     std::wstring name;
     ASTNode      declaration;
     ASTNode      implementation;
 
     FunctionDefinition(std::wstring name, ASTNode declaration, ASTNode implementation);
     FunctionDefinition(std::wstring name);
-
-    ASTNode normalize(ASTNode const &n);
-    pType   bind(ASTNode const &n);
-    ASTNode stamp(ASTNode const &n);
-    void    dump_node(ASTNode const &n, int indent);
     ASTNode instantiate(ASTNode const &n, std::vector<pType> const &generic_args) const;
     ASTNode instantiate(ASTNode const &n, std::map<std::wstring, pType> const &generic_args) const;
 };
 
-struct Identifier final : AbstractSyntaxNode {
+struct Identifier {
     std::wstring identifier;
 
     explicit Identifier(std::wstring_view identifier);
-    pType          bind(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
 };
 
-struct IfStatement final : AbstractSyntaxNode {
+struct IfStatement {
     ASTNode condition;
     ASTNode if_branch;
     ASTNode else_branch;
 
     IfStatement(ASTNode condition, ASTNode if_branch, ASTNode else_branch);
-    ASTNode normalize(ASTNode const &n);
-    pType   bind(ASTNode const &n);
-    ASTNode stamp(ASTNode const &n);
-    void    dump_node(ASTNode const &n, int indent);
 };
 
-struct Import final : AbstractSyntaxNode {
-    std::wstring name;
+struct Import {
+    std::wstring file_name;
 
-    explicit Import(std::wstring name);
-    ASTNode        normalize(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
+    explicit Import(std::wstring file_name);
 };
 
-struct Include final : AbstractSyntaxNode {
+struct Include {
     std::wstring file_name;
 
     explicit Include(std::wstring_view file_name);
-    ASTNode        normalize(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
 };
 
-struct Insert final : AbstractSyntaxNode {
-    std::wstring script_text;
-
-    explicit Insert(std::wstring_view script_text);
-    ASTNode normalize(ASTNode const &n);
-};
-
-struct LoopStatement final : AbstractSyntaxNode {
+struct LoopStatement {
     Label   label;
     ASTNode statement;
 
     LoopStatement(Label label, ASTNode statement);
-    ASTNode        normalize(ASTNode const &n);
-    pType          bind(ASTNode const &n);
-    ASTNode        stamp(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
-    void           dump_node(ASTNode const &n, int indent);
 };
 
-struct Module final : AbstractSyntaxNode {
+struct Module {
     std::wstring name;
     std::wstring source;
     ASTNodes     statements;
 
     Module(std::wstring name, std::wstring source);
     Module(std::wstring name, std::wstring source, ASTNodes const &statements);
-    ASTNode        normalize(ASTNode const &n);
-    pType          bind(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
-    void           dump_node(ASTNode const &n, int indent);
 };
 
-struct Nullptr final : AbstractSyntaxNode {
+struct Nullptr {
     Nullptr();
-    ASTNode        normalize(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
 };
 
-struct Number final : AbstractSyntaxNode {
+struct Number {
     std::wstring number;
     NumberType   number_type;
 
     Number(std::wstring_view number, NumberType type);
-    ASTNode        normalize(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
 };
 
-struct Parameter final : AbstractSyntaxNode {
+struct Parameter {
     std::wstring name;
     ASTNode      type_name;
 
     Parameter(std::wstring name, ASTNode type_name);
-    pType          bind(ASTNode const &n);
-    ASTNode        normalize(ASTNode const &n);
-    ASTNode        stamp(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
 };
 
-struct Program final : AbstractSyntaxNode {
+struct Program {
     std::wstring                    name;
     std::map<std::wstring, ASTNode> modules {};
     std::wstring                    source;
@@ -467,73 +380,47 @@ struct Program final : AbstractSyntaxNode {
     Program(std::wstring name, std::wstring source);
     Program(std::wstring name, std::map<std::wstring, ASTNode> modules, ASTNodes statements);
     Program(std::wstring name, std::wstring source, ASTNodes statements);
-    ASTNode        normalize(ASTNode const &n);
-    pType          bind(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
-    void           dump_node(ASTNode const &n, int indent);
 };
 
-struct PublicDeclaration final : AbstractSyntaxNode {
+struct PublicDeclaration {
     std::wstring name;
     ASTNode      declaration;
 
     PublicDeclaration(std::wstring name, ASTNode declaration);
-    ASTNode normalize(ASTNode const &n);
-    pType   bind(ASTNode const &n);
-    ASTNode stamp(ASTNode const &n);
-    void    dump_node(ASTNode const &n, int indent);
 };
 
-struct QuotedString final : AbstractSyntaxNode {
+struct QuotedString {
     std::wstring string;
     QuoteType    quote_type;
 
     QuotedString(std::wstring_view str, QuoteType type);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
-    ASTNode        normalize(ASTNode const &n);
 };
 
-struct Return final : AbstractSyntaxNode {
+struct Return {
     ASTNode expression;
 
     explicit Return(ASTNode expression);
-    ASTNode normalize(ASTNode const &n);
-    pType   bind(ASTNode const &n);
-    ASTNode stamp(ASTNode const &n);
-    void    dump_node(ASTNode const &n, int indent);
 };
 
-struct StampedIdentifier final : AbstractSyntaxNode {
+struct StampedIdentifier {
     std::wstring identifier;
     ASTNodes     arguments;
 
     explicit StampedIdentifier(std::wstring_view identifier, ASTNodes arguments);
-    pType          bind(ASTNode const &n);
-    ASTNode        stamp(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
 };
 
-struct StructMember final : AbstractSyntaxNode {
+struct StructMember {
     std::wstring label;
     ASTNode      member_type;
 
     StructMember(std::wstring label, ASTNode payload);
-    ASTNode        normalize(ASTNode const &n);
-    pType          bind(ASTNode const &n);
-    ASTNode        stamp(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
 };
 
-struct Struct final : AbstractSyntaxNode {
+struct Struct {
     std::wstring name;
     ASTNodes     members;
 
     Struct(std::wstring name, ASTNodes members);
-    ASTNode        normalize(ASTNode const &n);
-    pType          bind(ASTNode const &n);
-    ASTNode        stamp(ASTNode const &n);
-    void           dump_node(ASTNode const &n, int indent);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
 };
 
 struct TypeNameNode {
@@ -591,7 +478,7 @@ concept is_type_specification = std::is_same_v<S, TypeNameNode>
     || std::is_same_v<S, OptionalDescriptionNode>
     || std::is_same_v<S, ErrorDescriptionNode>;
 
-struct TypeSpecification final : AbstractSyntaxNode {
+struct TypeSpecification {
 
     TypeSpecificationDescription description;
 
@@ -603,68 +490,41 @@ struct TypeSpecification final : AbstractSyntaxNode {
         : description(specification)
     {
     }
-
-    ASTNode        normalize(ASTNode const &n);
-    pType          bind(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
-    std::wstring   to_string();
-    pType          resolve(ASTNode const &n);
 };
 
-struct UnaryExpression final : AbstractSyntaxNode {
+struct UnaryExpression {
     Operator op;
     ASTNode  operand;
 
     UnaryExpression(Operator op, ASTNode operand);
-    ASTNode        normalize(ASTNode const &n);
-    pType          bind(ASTNode const &n);
-    ASTNode        stamp(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
-    void           dump_node(ASTNode const &n, int indent);
 };
 
-struct VariableDeclaration final : AbstractSyntaxNode {
+struct VariableDeclaration {
     std::wstring name;
     ASTNode      type_name {};
     ASTNode      initializer;
     bool         is_const;
 
     VariableDeclaration(std::wstring name, ASTNode type_name, ASTNode initializer, bool is_const);
-    pType          bind(ASTNode const &n);
-    ASTNode        stamp(ASTNode const &n);
-    ASTNode        normalize(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
-    void           dump_node(ASTNode const &n, int indent);
 };
 
-struct Void final : AbstractSyntaxNode {
+struct Void {
     Void();
-    pType bind(ASTNode const &n);
 };
 
-struct WhileStatement final : AbstractSyntaxNode {
+struct WhileStatement {
     Label   label;
     ASTNode condition;
     ASTNode statement;
 
     WhileStatement(Label label, ASTNode condition, ASTNode statement);
-    ASTNode        normalize(ASTNode const &n);
-    pType          bind(ASTNode const &n);
-    ASTNode        stamp(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
-    void           dump_node(ASTNode const &n, int indent);
 };
 
-struct Yield final : AbstractSyntaxNode {
+struct Yield {
     Label   label;
     ASTNode statement;
 
     Yield(Label label, ASTNode statement);
-    ASTNode        normalize(ASTNode const &n);
-    pType          bind(ASTNode const &n);
-    ASTNode        stamp(ASTNode const &n);
-    std::wostream &header(ASTNode const &n, std::wostream &os);
-    void           dump_node(ASTNode const &n, int indent);
 };
 
 template<class N>
@@ -673,18 +533,13 @@ concept is_component = std::is_same_v<N, Program> || std::is_same_v<N, Module>;
 template<class N>
 concept is_identifier = std::is_same_v<N, Identifier> || std::is_same_v<N, StampedIdentifier>;
 
-template<class N>
-concept has_name = std::is_same_v<N, Module>
-    || std::is_same_v<N, FunctionDeclaration>
-    || std::is_same_v<N, VariableDeclaration>;
-
-using SyntaxNode = std::variant<
-    Dummy,
+using SyntaxNode = std::variant<Dummy,
     BinaryExpression,
     Block,
     BoolConstant,
     Break,
     Call,
+    Comptime,
     Constant,
     Continue,
     DeferStatement,
@@ -701,7 +556,6 @@ using SyntaxNode = std::variant<
     IfStatement,
     Include,
     Import,
-    Insert,
     LoopStatement,
     Module,
     Nullptr,
@@ -722,24 +576,16 @@ using SyntaxNode = std::variant<
     Yield>;
 
 struct ASTNodeImpl {
-    enum class Status {
-        Initialized,
-        Normalized,
-        Bound,
-        Undetermined,
-        Ambiguous,
-        BindErrors
-    };
-
     TokenLocation            location {};
-    Status                   status { Status::Initialized };
+    ASTStatus                status { ASTStatus::Initialized };
     SyntaxNode               node {};
     pType                    bound_type {};
     std::optional<Namespace> ns {};
     ASTNode                  id;
+    ASTNode                  supercedes;
+    ASTNode                  superceded_by;
 
     template<class N, typename... Args>
-        requires std::derived_from<N, AbstractSyntaxNode>
     static ASTNodeImpl make(TokenLocation const &loc, Args... args)
     {
         ASTNodeImpl ret = make<N>(loc, args...);
@@ -747,8 +593,15 @@ struct ASTNodeImpl {
         return ret;
     }
 
+    template<class N>
+    static ASTNodeImpl make(N impl)
+    {
+        ASTNodeImpl ret;
+        ret.node = std::move(impl);
+        return ret;
+    }
+
     template<class N, typename... Args>
-        requires std::derived_from<N, AbstractSyntaxNode>
     static ASTNodeImpl make(Args... args)
     {
         ASTNodeImpl ret;
@@ -758,15 +611,6 @@ struct ASTNodeImpl {
 
     [[nodiscard]] SyntaxNodeType type() const { return static_cast<SyntaxNodeType>(node.index()); }
     void                         init_namespace();
-    void                         dump(int indent = 0);
-    std::wostream               &header_line(std::wostream &os);
-    std::wostream               &header(std::wostream &os);
-
-    ASTNode clone();
-    ASTNode normalize();
-    pType   bind();
-    ASTNode stamp();
-    ASTNode coerce(pType const &target);
 
 private:
     ASTNodeImpl() = default;
@@ -797,7 +641,10 @@ static inline std::wstring_view identifier(ASTNode const &n)
 {
     return std::visit(
         overloads {
-            [](is_identifier auto const &node) -> std::wstring_view {
+            [](Identifier const &node) -> std::wstring_view {
+                return std::wstring_view(node.identifier);
+            },
+            [](StampedIdentifier const &node) -> std::wstring_view {
                 return std::wstring_view(node.identifier);
             },
             [](auto const &node) -> std::wstring_view {
@@ -810,7 +657,19 @@ static inline std::wstring_view name(ASTNode const &n)
 {
     return std::visit(
         overloads {
-            [](has_name auto const &node) -> std::wstring_view {
+            [](Enum const &node) -> std::wstring_view {
+                return std::wstring_view(node.name);
+            },
+            [](FunctionDefinition const &node) -> std::wstring_view {
+                return std::wstring_view(node.name);
+            },
+            [](FunctionDeclaration const &node) -> std::wstring_view {
+                return std::wstring_view(node.name);
+            },
+            [](Module const &node) -> std::wstring_view {
+                return std::wstring_view(node.name);
+            },
+            [](Program const &node) -> std::wstring_view {
                 return std::wstring_view(node.name);
             },
             [](auto const &node) -> std::wstring_view {
@@ -819,10 +678,61 @@ static inline std::wstring_view name(ASTNode const &n)
         n->node);
 }
 
-void     normalize_nodes(ASTNodes &nodes);
-ASTNodes stamp_nodes(ASTNodes const &nodes);
-pType    bind_nodes(ASTNodes const &nodes);
+void         dump(ASTNode const &node, std::wostream &os, int indent = 0);
+void         dump(ASTNodes const &nodes, std::wostream &os, int indent = 0);
+void         header(ASTNode const &node, std::wostream &os);
+std::wstring to_string(ASTNode const &node);
+pType        resolve(ASTNode const &type_node);
+ASTNode      normalize(ASTNode const &node);
+ASTNodes     normalize(ASTNodes const &nodes);
+BindResult   bind(ASTNode const &node);
+ASTNode      coerce(ASTNode const &node, pType const &type);
+ASTNode      stamp(ASTNode const &node);
+ASTNodes     stamp(ASTNodes const &nodes);
 
 }
 
 std::wostream &operator<<(std::wostream &os, Arwen::SyntaxNode const &node);
+
+namespace std {
+
+using namespace Arwen;
+
+template<>
+struct formatter<ASTNode, wchar_t> {
+    bool with_type { false };
+
+    template<class ParseContext>
+    constexpr ParseContext::iterator parse(ParseContext &ctx)
+    {
+        auto it = ctx.begin();
+        if (it == ctx.end() || *it == '}')
+            return it;
+
+        switch (*it) {
+        case 't':
+            with_type = true;
+            break;
+        default:
+            throw std::format_error("Invalid format args for ASTNode");
+        }
+        ++it;
+        if (it != ctx.end() && *it != '}') {
+            throw std::format_error("Invalid format args for ASTNode");
+        }
+        return it;
+    }
+
+    template<class FmtContext>
+    FmtContext::iterator format(ASTNode const &node, FmtContext &ctx) const
+    {
+        std::wostringstream out;
+        header(node, out);
+        if (with_type) {
+            out << " [" << SyntaxNodeType_name(node->type()) << ']';
+        }
+        return std::ranges::copy(std::move(out).str(), ctx.out()).out;
+    }
+};
+
+}

@@ -1,0 +1,8 @@
+func main() i32
+{
+@comptime
+	putln("Hello from Comptime")
+	"puts(\"Hello, World!\n\")"
+@end
+	return 0::i32
+}

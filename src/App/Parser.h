@@ -6,9 +6,8 @@
 
 #pragma once
 
-#include <concepts>
+#include <expected>
 #include <format>
-#include <iostream>
 #include <string>
 #include <string_view>
 
@@ -31,13 +30,13 @@ using namespace Util;
 
 struct Parser {
 
-    struct ArwenInsertBlock {
-        constexpr static wchar_t const *begin = L"@insert";
+    struct ArwenComptimeBlock {
+        constexpr static wchar_t const *begin = L"@comptime";
         constexpr static wchar_t const *end = L"@end";
     };
 
     using ArwenLexerTypes = LexerTypes<std::wstring_view, wchar_t, ArwenKeyword>;
-    using ArwenLexer = Lexer<ArwenLexerTypes, ArwenLexerTypes::ScannerPack<ArwenLexerTypes::CScannerPack, ArwenLexerTypes::RawScanner<ArwenInsertBlock>>>;
+    using ArwenLexer = Lexer<ArwenLexerTypes, ArwenLexerTypes::ScannerPack<ArwenLexerTypes::CScannerPack, ArwenLexerTypes::RawScanner<ArwenComptimeBlock>>>;
     using Token = ArwenLexer::Token;
     using LexerError = ArwenLexer::LexerError;
     using LexerResult = ArwenLexer::LexerResult;
@@ -75,7 +74,6 @@ struct Parser {
     ASTNodeImpl       &operator[](size_t ix) { return nodes[ix]; }
 
     template<class N, typename... Args>
-        requires std::derived_from<N, AbstractSyntaxNode>
     ASTNode make_node(TokenLocation const &loc, Args... args)
     {
         ASTNode ret = this->make_node<N>(args...);
@@ -84,15 +82,22 @@ struct Parser {
     }
 
     template<class N, typename... Args>
-        requires std::derived_from<N, AbstractSyntaxNode>
     ASTNode make_node(Args... args)
     {
         nodes.push_back(ASTNodeImpl::make<N>(args...));
         ASTNode ret = { this };
         nodes.back().id = ret;
-        // std::wcout << L"[C] ";
-        // ret->header(std::wcout);
-        // std::wcout << "\n";
+        trace(L"[C] {}", ret);
+        return ret;
+    }
+
+    template<class N>
+    ASTNode copy_node(TokenLocation const &loc, N impl)
+    {
+        nodes.push_back(ASTNodeImpl::make<N>(std::move(impl)));
+        ASTNode ret = { this };
+        nodes.back().id = ret;
+        trace(L"[C] {}", ret);
         return ret;
     }
 
@@ -101,6 +106,7 @@ struct Parser {
     Token                              parse_statements(ASTNodes &statements);
     ASTNode                            parse_statement();
     ASTNode                            parse_module_level_statement();
+    ASTStatus                          bind(ASTNode node = nullptr);
     std::wstring_view                  text_at(size_t start, std::optional<size_t> end) const;
     std::wstring_view                  text_of(Token const &token) const;
     std::wstring_view                  text_of(LexerErrorMessage const &error) const;
@@ -191,27 +197,43 @@ struct Parser {
         append(lexer_error.location, std::vformat(message.get(), std::make_wformat_args(args...)));
     }
 
-    pType bind_error(TokenLocation location, std::wstring const &msg);
-    pType bind_error(TokenLocation location, std::string const &msg);
+    BindError bind_error(TokenLocation location, std::wstring const &msg);
+    BindError bind_error(TokenLocation location, std::string const &msg);
 
     template<typename... Args>
-    pType bind_error(TokenLocation location, std::format_string<Args...> const message, Args &&...args)
+    BindError bind_error(TokenLocation location, std::format_string<Args...> const message, Args &&...args)
     {
         return bind_error(std::move(location), as_wstring(std::vformat(message.get(), std::make_format_args(args...))));
     }
 
     template<typename... Args>
-    pType bind_error(TokenLocation location, std::wformat_string<Args...> const message, Args &&...args)
+    BindError bind_error(TokenLocation location, std::wformat_string<Args...> const message, Args &&...args)
     {
         return bind_error(std::move(location), std::vformat(message.get(), std::make_wformat_args(args...)));
     }
 };
 
 template<typename Node, typename... Args>
-    requires std::derived_from<Node, AbstractSyntaxNode>
 ASTNode make_node(ASTNode const &from, Args... args)
 {
-    return from.repo->make_node<Node>(from->location, args...);
+    ASTNode ret = from.repo->make_node<Node>(from->location, args...);
+    if (from->ns) {
+        ret->ns = std::move(from->ns);
+        from->ns.reset();
+    }
+    ret->supercedes = from;
+    from->superceded_by = ret;
+    return ret;
+}
+
+template<typename Node>
+ASTNode copy_node(ASTNode const &from, Node impl)
+{
+    auto ret = from.repo->copy_node<Node>(from->location, std::move(impl));
+    if (from->ns) {
+        ret->ns = std::move(from->ns);
+    }
+    return ret;
 }
 
 template<typename Node>

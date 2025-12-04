@@ -4,8 +4,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <cstdint>
-#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <locale.h>
@@ -17,7 +15,6 @@
 #include <Util/Lexer.h>
 #include <Util/Logging.h>
 #include <Util/Options.h>
-#include <Util/Process.h>
 #include <Util/StringUtil.h>
 #include <Util/TokenLocation.h>
 #include <Util/Utf8.h>
@@ -49,7 +46,7 @@ extern int debugger_main();
 
 using namespace Util;
 using namespace Interpreter;
-using namespace IR;
+using namespace Arwen::IR;
 
 using Interp = Arwen::Interpreter::Interpreter;
 
@@ -151,12 +148,16 @@ struct Builder {
         return true;
     }
 
-    Value eval()
+    bool eval()
     {
         if (!gen_ir()) {
             return false;
         }
-        return execute_ir(ir);
+        if (!generate_code()) {
+            log_error("Code generation failed");
+            return false;
+        }
+        return true;
     }
 
     bool parse()
@@ -205,7 +206,7 @@ struct Builder {
 
     bool normalize()
     {
-        auto normalized = parser.program->normalize();
+        auto normalized = Arwen::normalize(parser.program);
         if (!parser.errors.empty()) {
             log_error("Error(s) found during first phase of sematic analysis:");
             for (auto const &err : parser.errors) {
@@ -228,20 +229,27 @@ struct Builder {
             prev_pass = parser.unbound;
             parser.unbound = 0;
             parser.unbound_nodes.clear();
-            auto bound_type = parser.program->bind();
-            if (!bound_type) {
-                log_error("Internal error(s) encountered during semantic analysis");
-                return false;
-            }
+            Arwen::bind(parser.program);
+            ++parser.pass;
+        } while (parser.program->status != ASTStatus::Bound && parser.unbound < prev_pass);
+        if (parser.program->status != ASTStatus::Bound) {
+            info("Second phase of semantic analysis failed after {} pass(es)", parser.pass);
             if (!parser.errors.empty()) {
                 log_error("Error(s) found during second phase of semantic analysis:");
                 for (auto const &err : parser.errors) {
                     log_error(L"{}:{} {}", err.location.line + 1, err.location.column + 1, err.message);
                 }
-                return false;
+            } else if (parser.program->status != ASTStatus::Undetermined) {
+                log_error("Internal error(s) encountered during semantic analysis");
             }
-            ++parser.pass;
-        } while (parser.unbound > 0 && parser.unbound < prev_pass);
+            if (!parser.unbound_nodes.empty()) {
+                info("The following nodes could not be bound:");
+                for (auto const &n : parser.unbound_nodes) {
+                    info(L"{}", n);
+                }
+            }
+            return false;
+        }
         info("Second phase of semantic analysis succeeded after {} pass(es)", parser.pass);
         return true;
     }
@@ -307,15 +315,15 @@ void usage()
     std::cout << "arwen - arwen language compiler  https://www.arwen-lang.org\n\n";
     std::cout << "Usage:\n";
     std::cout << "   arwen --help - This text\n";
-    std::cout << "   arwen [OPTIONS] build [-- <arg> ...]\n";
-    std::cout << "   arwen [OPTIONS] compile <file> ... [-- <arg> ...]\n";
+    std::cout << "   arwen [OPTIONS] build\n";
+    std::cout << "   arwen [OPTIONS] compile <file> ...\n";
+    std::cout << "   arwen [OPTIONS] run <file> ... [-- <arg> ...]\n";
+    std::cout << "   arwen [OPTIONS] eval <file> ... [-- <arg> ...]\n";
     std::cout << "   arwen [OPTIONS] debug - Start debugger\n\n";
     std::cout << "Options:\n";
-    std::cout << "  --eval                Evaluate the compilation result (in a virtual machine)\n";
     std::cout << "  --keep-assembly       Do not delete assembly files after compiling\n";
     std::cout << "  --keep-objects        Do not delete object files after linking\n";
     std::cout << "  --list                Write intermediate representation to .arwen/<program>.ir\n";
-    std::cout << "  --run                 Run the compilation result (native executable)\n";
     std::cout << "  --stop-after-analysis Stop after semantic analysis\n";
     std::cout << "  --stop-after-parse    Stop after syntactic parsing\n";
     std::cout << "  --trace               Print debug tracing information\n";
@@ -334,31 +342,11 @@ int main(int argc, char const **argv)
     if (arg_ix == argc || has_option("help") || has_option("usage")) {
         usage();
     }
-    int ret = 0;
-
-    auto build = [](Builder &builder) -> int {
-        if (has_option("eval")) {
-            auto retval = builder.eval();
-            if (auto coerced = retval.coerce(TypeRegistry::i32); coerced) {
-                return as<int32_t>(coerced.value());
-            }
-            return 1;
-        } else {
-            if (!builder.build()) {
-                return 1;
-            }
-            if (has_option("run")) {
-                std::string cmd = std::string("./" + builder.program_name);
-                info("[CMD] {}", cmd);
-                return system(cmd.c_str());
-            }
-            return 0;
-        }
-    };
-
     if (strcmp(argv[arg_ix], "build") == 0) {
         if (auto builder_maybe = make_builder(fs::current_path()); builder_maybe) {
-            return build(*builder_maybe);
+            if (!builder_maybe->build()) {
+                return 1;
+            }
         }
     } else if (strcmp(argv[arg_ix], "compile") == 0 && argc - arg_ix > 1) {
         std::vector<fs::path> files;
@@ -366,14 +354,26 @@ int main(int argc, char const **argv)
             files.emplace_back(argv[ix]);
         }
         if (auto builder_maybe = make_builder(files); builder_maybe) {
-            return build(*builder_maybe);
+            if (!builder_maybe->build()) {
+                return 1;
+            }
+        }
+    } else if (strcmp(argv[arg_ix], "eval") == 0 && argc - arg_ix > 1) {
+        std::vector<fs::path> files;
+        for (size_t ix = arg_ix + 1; ix < argc; ++ix) {
+            files.emplace_back(argv[ix]);
+        }
+        if (auto builder_maybe = make_builder(files); builder_maybe) {
+            if (!builder_maybe->eval()) {
+                return 1;
+            }
         }
     } else if (strcmp(argv[arg_ix], "debug") == 0 && argc - arg_ix == 1) {
         return debugger_main();
     } else {
         usage();
     }
-    return ret;
+    return 0;
 }
 
 }

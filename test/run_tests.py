@@ -1,7 +1,7 @@
-#!/opt/homebrew/bin/python3
-#  Copyright (c) 2021-2022, Jan de Visser <jan@finiandarcy.com>
+#!python3
+#  Copyright (c) 2021-2025, Jan de Visser <jan@finiandarcy.com>
 #
-#  SPDX-License-Identifier: GPL-3.0-or-later
+#  SPDX-License-Identifier: MIT
 
 import argparse
 import json

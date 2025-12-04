@@ -4,23 +4,28 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <ranges>
+#include <ostream>
 #include <string>
+#include <string_view>
 #include <unistd.h>
-#include <variant>
 
 #include <Util/Defer.h>
+#include <Util/IO.h>
 #include <Util/Lexer.h>
 #include <Util/Logging.h>
 #include <Util/StringUtil.h>
+#include <Util/TokenLocation.h>
 #include <Util/Utf8.h>
 
 #include <App/Operator.h>
 #include <App/Parser.h>
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
+#include <App/Value.h>
 
 namespace Arwen {
+
+using namespace Util;
 
 char const *SyntaxNodeType_name(SyntaxNodeType type)
 {
@@ -35,9 +40,15 @@ char const *SyntaxNodeType_name(SyntaxNodeType type)
     }
 }
 
-void print_indent(int indent)
+ASTNode const &ASTNode::hunt() const
 {
-    printf("%*.*s", indent, indent, "");
+    if (*this == nullptr) {
+        return *this;
+    }
+    if ((*this)->superceded_by == nullptr) {
+        return *this;
+    }
+    return (*this)->superceded_by.hunt();
 }
 
 TokenLocation ASTNode::operator+(ASTNode const &other)
@@ -63,42 +74,9 @@ void ASTNode::error(std::string const &msg) const
     repo->append((*this)->location, msg);
 }
 
-pType ASTNode::bind_error(std::wstring const &msg) const
+BindError ASTNode::bind_error(std::wstring const &msg) const
 {
     return repo->bind_error((*this)->location, msg);
-}
-
-pType AbstractSyntaxNode::bind(ASTNode const &n)
-{
-    fatal("Node of type `{}` should have been elided during normalization", SyntaxNodeType_name(n->type()));
-}
-
-ASTNode AbstractSyntaxNode::normalize(ASTNode const &n)
-{
-    return n;
-}
-
-ASTNode AbstractSyntaxNode::stamp(ASTNode const &n)
-{
-    return n;
-}
-
-std::wostream &AbstractSyntaxNode::header(ASTNode const &, std::wostream &os)
-{
-    return os;
-}
-
-void AbstractSyntaxNode::dump_node(ASTNode const &, int)
-{
-}
-
-ASTNode AbstractSyntaxNode::coerce(ASTNode const &n, pType const &target)
-{
-    assert(n->bound_type);
-    if (target == n->bound_type) {
-        return n;
-    }
-    return {};
 }
 
 void ASTNodeImpl::init_namespace()
@@ -110,233 +88,267 @@ void ASTNodeImpl::init_namespace()
     id.repo->push_namespace(id);
 }
 
-std::wostream &ASTNodeImpl::header_line(std::wostream &os)
-{
-    header(os);
-    return os;
-}
-
-std::wostream &ASTNodeImpl::header(std::wostream &os)
-{
-    os << id.id.value() << " " << SyntaxNodeType_name(type()) << " (" << location.index << ".." << location.index + location.length << ") ";
-    std::visit([this](auto &n) { n.header(id, std::wcerr); }, node);
-    if (bound_type != nullptr) {
-        os << " -> " << bound_type->to_string();
-    }
-    os << " ";
-    switch (status) {
-    case Status::Initialized:
-        os << L"Initialized";
-        break;
-    case Status::Normalized:
-        os << L"Normalized";
-        break;
-    case Status::Bound:
-        os << L"Bound";
-        break;
-    case Status::Undetermined:
-        os << L"Undetermined";
-        break;
-    case Status::Ambiguous:
-        os << L"Ambiguous";
-        break;
-    case Status::BindErrors:
-        os << L"BindErrors";
-        break;
-    }
-    return os;
-}
-
-void ASTNodeImpl::dump(int indent)
-{
-    print_indent(indent);
-    header_line(std::wcerr);
-    std::cerr << std::endl;
-    if (ns.has_value()) {
-        print_indent(indent);
-        std::cerr << "{" << std::endl;
-        if (ns->parent != nullptr) {
-            print_indent(indent + 4);
-            std::wcerr << "parent: ";
-            if (ns->parent != nullptr) {
-                ns->parent->header_line(std::wcerr) << std::endl;
-            } else {
-                std::cerr << "[null]\n";
-            }
-        }
-        for (auto const &[n, t] : ns->types) {
-            print_indent(indent + 4);
-            std::wcerr << n << ": " << t->to_string() << "\n";
-        }
-        for (auto const &[n, f] : ns->functions) {
-            print_indent(indent + 4);
-            std::wcerr << n << ": " << f->bound_type->to_string() << "\n";
-        }
-        for (auto const &[n, v] : ns->variables) {
-            print_indent(indent + 4);
-            std::wcerr << n << ": " << v->bound_type->to_string() << "\n";
-        }
-        print_indent(indent);
-        std::cerr << "}" << std::endl;
-    }
-    std::visit([this, indent](auto &n) { return n.dump_node(id, indent); }, node);
-}
-
-ASTNode ASTNodeImpl::clone()
-{
-    return std::visit([this](auto n) -> ASTNode {
-        return make_node<decltype(n)>(id, n);
-    },
-        node);
-}
-
-ASTNode ASTNodeImpl::normalize()
-{
-    // std::wcerr << L"[->N] ";
-    // header(std::wcerr);
-    // std::wcerr << "\n";
-    if (status >= Status::Normalized) {
-        return id;
-    }
-    if (ns.has_value()) {
-        id.repo->push_namespace(id);
-    }
-    auto ret = std::visit([this](auto n) {
-        ASTNode ret = n.normalize(id);
-        if (ret && ret.id == id.id) {
-            ret->node.emplace<decltype(n)>(n);
-        }
-        return ret;
-    },
-        node);
-    if (id->ns.has_value()) {
-        id.repo->pop_namespace();
-    }
-    if (ret != nullptr && ret->status < ASTNodeImpl::Status::Normalized) {
-        ret->status = Status::Normalized;
-    }
-    // std::wcerr << L"[N->] ";
-    // ret->header(std::wcerr);
-    // std::wcerr << "\n";
-    return ret;
-}
-
-ASTNode ASTNodeImpl::stamp()
-{
-    if (ns.has_value()) {
-        id.repo->push_namespace(id);
-    }
-    ASTNode ret = std::visit([this](auto &n) { return n.stamp(id); }, node);
-    if (ns.has_value()) {
-        id.repo->pop_namespace();
-    }
-    return ret;
-}
-
-pType ASTNodeImpl::bind()
-{
-    // std::wcerr << L"[B] ";
-    // header(std::wcerr);
-    // std::wcerr << "\n";
-    assert(status >= Status::Normalized);
-    if (status == Status::Bound) {
-        return bound_type;
-    }
-    if (ns.has_value()) {
-        id.repo->push_namespace(id);
-    }
-    auto ret = std::visit([this](auto &n) { return n.bind(id); }, node);
-    if (ns.has_value()) {
-        id.repo->pop_namespace();
-    }
-    if (ret == nullptr) {
-        dump();
-    }
-    assert(ret != nullptr);
-    if (ret == TypeRegistry::undetermined) {
-        id.repo->unbound_nodes.push_back(id);
-        id.repo->unbound++;
-    } else if (is<BindErrors>(ret)) {
-        status = Status::BindErrors;
-    } else if (is<Undetermined>(ret)) {
-        status = Status::Undetermined;
-    } else if (is<Ambiguous>(ret)) {
-        status = Status::Ambiguous;
-    } else {
-        status = Status::Bound;
-    }
-    bound_type = ret;
-    // std::wcerr << L"[B->] ";
-    // header(std::wcerr);
-    // std::wcerr << "\n";
-    return ret;
-}
-
-ASTNode ASTNodeImpl::coerce(pType const &target)
-{
-    return std::visit([this, &target](auto &n) { return n.coerce(id, target); }, node);
-}
-
-DeferStatement::DeferStatement(ASTNode stmt)
-    : stmt(std::move(stmt))
+Block::Block(ASTNodes statements)
+    : statements(std::move(statements))
 {
 }
 
-ASTNode DeferStatement::normalize(ASTNode const &n)
+DeferStatement::DeferStatement(ASTNode statement)
+    : statement(std::move(statement))
 {
-    stmt = stmt->normalize();
-    return n;
 }
 
-ASTNode DeferStatement::stamp(ASTNode const &n)
+Comptime::Comptime(std::wstring_view script_text)
+    : script_text(script_text)
 {
-    stmt = stmt->stamp();
-    return n;
 }
 
-pType DeferStatement::bind(ASTNode const &n)
+Constant::Constant(Value value)
+    : bound_value(std::move(value))
 {
-    if (auto const stmt_type = stmt->bind(); stmt_type == TypeRegistry::undetermined) {
-        return stmt_type;
+}
+
+BoolConstant::BoolConstant(bool value)
+    : value(value)
+{
+}
+
+Nullptr::Nullptr()
+{
+}
+
+Number::Number(std::wstring_view number, NumberType type)
+    : number(number)
+    , number_type(type)
+{
+}
+
+QuotedString::QuotedString(std::wstring_view str, QuoteType type)
+    : string(str)
+    , quote_type(type)
+{
+}
+
+Embed::Embed(std::wstring_view file_name)
+    : file_name(file_name)
+{
+}
+
+EnumValue::EnumValue(std::wstring label, ASTNode value, ASTNode payload)
+    : label(std::move(label))
+    , value(std::move(value))
+    , payload(std::move(payload))
+{
+}
+
+Enum::Enum(std::wstring name, ASTNode underlying_type, ASTNodes values)
+    : name(std::move(name))
+    , underlying_type(std::move(underlying_type))
+    , values(std::move(values))
+{
+}
+
+BinaryExpression::BinaryExpression(ASTNode lhs, Operator const op, ASTNode rhs)
+    : lhs(std::move(lhs))
+    , op(op)
+    , rhs(std::move(rhs))
+{
+}
+
+UnaryExpression::UnaryExpression(Operator const op, ASTNode operand)
+    : op(op)
+    , operand(std::move(operand))
+{
+}
+
+ExpressionList::ExpressionList(ASTNodes expressions)
+    : expressions(std::move(expressions))
+{
+}
+
+ExternLink::ExternLink(std::wstring link_name)
+    : link_name(std::move(link_name))
+{
+}
+
+FunctionDeclaration::FunctionDeclaration(std::wstring name, ASTNodes generics, ASTNodes parameters, ASTNode return_type)
+    : name(std::move(name))
+    , generics(std::move(generics))
+    , parameters(std::move(parameters))
+    , return_type(std::move(return_type))
+{
+}
+
+FunctionDefinition::FunctionDefinition(std::wstring name, ASTNode declaration, ASTNode implementation)
+    : name(std::move(name))
+    , declaration(std::move(declaration))
+    , implementation(std::move(implementation))
+{
+    assert(this->declaration != nullptr);
+}
+
+FunctionDefinition::FunctionDefinition(std::wstring name)
+    : name(std::move(name))
+{
+}
+
+Parameter::Parameter(std::wstring name, ASTNode type_name)
+    : name(std::move(name))
+    , type_name(std::move(type_name))
+{
+}
+
+Call::Call(ASTNode callable, ASTNode args)
+    : callable(std::move(callable))
+    , arguments(std::move(args))
+{
+    if (!is<Identifier>(this->callable) && !is<StampedIdentifier>(this->callable)) {
+        NYI("Callable must be a function name");
     }
-    return TypeRegistry::void_;
+    assert(this->arguments != nullptr);
 }
 
-void DeferStatement::dump_node(ASTNode const &n, int const indent)
+IfStatement::IfStatement(ASTNode condition, ASTNode if_branch, ASTNode else_branch)
+    : condition(condition)
+    , if_branch(if_branch)
+    , else_branch(else_branch)
 {
-    stmt->dump(indent + 4);
+    assert(condition != nullptr && if_branch != nullptr);
 }
 
-pType Dummy::bind(ASTNode const &n)
+Import::Import(std::wstring file_name)
+    : file_name(std::move(file_name))
 {
-    return TypeRegistry::void_;
 }
 
-void normalize_nodes(ASTNodes &nodes)
+Include::Include(std::wstring_view file_name)
+    : file_name(file_name)
 {
-    std::vector<size_t> deleted;
-    for (size_t ix = 0; ix < nodes.size(); ++ix) {
-        auto normalized = nodes[ix]->normalize();
-        if (normalized == nullptr) {
-            deleted.emplace_back(ix);
-            continue;
-        }
-        nodes[ix] = normalized;
-    }
-    for (auto ix : deleted | std::ranges::views::reverse) {
-        nodes.erase(nodes.begin() + ix);
-    }
 }
 
-ASTNodes stamp_nodes(ASTNodes const &nodes)
+ForStatement::ForStatement(std::wstring var, ASTNode expr, ASTNode statement)
+    : range_variable(std::move(var))
+    , range_expr(std::move(expr))
+    , statement(statement)
 {
-    ASTNodes stamped;
-    for (auto const &n : nodes) {
-        stamped.emplace_back(n->stamp());
-    }
-    return stamped;
+    assert(this->range_expr != nullptr);
+    assert(this->statement != nullptr);
 }
 
+LoopStatement::LoopStatement(Label label, ASTNode statement)
+    : label(std::move(label))
+    , statement(std::move(statement))
+{
+    assert(this->statement != nullptr);
+}
+
+WhileStatement::WhileStatement(Label label, ASTNode condition, ASTNode statement)
+    : label(std::move(label))
+    , condition(std::move(condition))
+    , statement(std::move(statement))
+{
+    assert(this->condition != nullptr && this->statement != nullptr);
+}
+
+Module::Module(std::wstring name, std::wstring source)
+    : name(std::move(name))
+    , source(std::move(source))
+{
+}
+
+Module::Module(std::wstring name, std::wstring source, ASTNodes const &statements)
+    : name(std::move(name))
+    , source(std::move(source))
+    , statements(statements)
+{
+}
+
+Program::Program(std::wstring name, std::wstring source)
+    : name(std::move(name))
+    , source(std::move(source))
+{
+}
+
+Program::Program(std::wstring name, std::map<std::wstring, ASTNode> modules, ASTNodes statements)
+    : name(std::move(name))
+    , modules(std::move(modules))
+    , statements(std::move(statements))
+{
+}
+
+PublicDeclaration::PublicDeclaration(std::wstring name, ASTNode declaration)
+    : name(std::move(name))
+    , declaration(std::move(declaration))
+{
+    assert(this->declaration != nullptr);
+}
+
+Break::Break(Label label)
+    : label(std::move(label))
+{
+}
+
+Continue::Continue(Label label)
+    : label(std::move(label))
+{
+}
+
+Error::Error(ASTNode expression)
+    : expression(std::move(expression))
+{
+}
+
+Return::Return(ASTNode expression)
+    : expression(std::move(expression))
+{
+}
+
+Yield::Yield(Label label, ASTNode statement)
+    : label(std::move(label))
+    , statement(std::move(statement))
+{
+}
+
+StructMember::StructMember(std::wstring label, ASTNode type)
+    : label(std::move(label))
+    , member_type(std::move(type))
+{
+    assert(this->member_type != nullptr);
+}
+
+Struct::Struct(std::wstring name, ASTNodes members)
+    : name(std::move(name))
+    , members(std::move(members))
+{
+}
+
+TypeSpecification::TypeSpecification(TypeSpecificationDescription description)
+    : description(description)
+{
+}
+
+Void::Void()
+{
+}
+
+Identifier::Identifier(std::wstring_view const identifier)
+    : identifier(identifier)
+{
+}
+
+StampedIdentifier::StampedIdentifier(std::wstring_view const identifier, ASTNodes arguments)
+    : identifier(identifier)
+    , arguments(std::move(arguments))
+{
+}
+
+VariableDeclaration::VariableDeclaration(std::wstring name, ASTNode type_name, ASTNode initializer, bool is_const)
+    : name(std::move(name))
+    , type_name(type_name)
+    , initializer(std::move(initializer))
+    , is_const(is_const)
+{
+}
 }
 
 std::wostream &operator<<(std::wostream &os, Arwen::ASTNode const &node)

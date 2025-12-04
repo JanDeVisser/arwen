@@ -1,3 +1,4 @@
+
 /*
  * Copyright (c) 2025, Jan de Visser <jan@finiandarcy.com>
  *
@@ -21,14 +22,11 @@
 #include <Util/Ptr.h>
 #include <Util/Utf8.h>
 
-#include <App/Operator.h>
+#include <App/Keyword.h>
 
 namespace Arwen {
 
 #define TypeKinds(S)       \
-    S(Undetermined)        \
-    S(Ambiguous)           \
-    S(BindErrors)          \
     S(VoidType)            \
     S(PointerType)         \
     S(NamespaceType)       \
@@ -219,58 +217,6 @@ struct TypeList {
     std::wstring to_string() const;
     intptr_t     size_of() const;
     intptr_t     align_of() const;
-};
-
-struct Undetermined {
-    std::wstring to_string() const
-    {
-        return L"Undetermined";
-    }
-
-    intptr_t size_of() const
-    {
-        return 0;
-    }
-
-    intptr_t align_of() const
-    {
-        return 0;
-    }
-};
-
-struct Ambiguous {
-    std::wstring to_string() const
-    {
-        return L"Ambiguous";
-    }
-
-    intptr_t size_of() const
-    {
-        return 0;
-    }
-
-    intptr_t align_of() const
-    {
-        return 0;
-    }
-};
-
-struct BindErrors {
-    std::vector<ArwenError> errors;
-    std::wstring            to_string() const
-    {
-        return L"BindErrors";
-    }
-
-    intptr_t size_of() const
-    {
-        return 0;
-    }
-
-    intptr_t align_of() const
-    {
-        return 0;
-    }
 };
 
 struct GenericParameter {
@@ -553,8 +499,6 @@ struct TypeRegistry {
     static pType character;
     static pType void_;
     static pType pointer;
-    static pType undetermined;
-    static pType ambiguous;
 
 private:
     TypeRegistry();
@@ -598,20 +542,6 @@ pType make_type(DescrType descr)
     return make_type(std::format(L"anon-{}", TypeRegistry::the().types.size()), std::move(descr));
 }
 
-pType make_error(TokenLocation location, std::wstring msg);
-
-template<typename... Args>
-pType make_error(TokenLocation location, std::format_string<Args...> const message, Args &&...args)
-{
-    return make_error(std::move(location), as_wstring(std::vformat(message.get(), std::make_format_args(args...))));
-}
-
-template<typename... Args>
-pType make_error(TokenLocation location, std::wformat_string<Args...> const message, Args &&...args)
-{
-    return make_error(std::move(location), std::vformat(message.get(), std::make_wformat_args(args...)));
-}
-
 template<typename T>
 pType const &type_of()
 {
@@ -646,3 +576,47 @@ inline pType const &type_of<char *>() { return TypeRegistry::cstring; }
 }
 
 std::wostream &operator<<(std::wostream &os, Arwen::pType const &type);
+
+namespace std {
+
+using namespace Arwen;
+
+template<>
+struct formatter<pType, wchar_t> {
+    bool with_type { false };
+
+    template<class ParseContext>
+    constexpr ParseContext::iterator parse(ParseContext &ctx)
+    {
+        auto it = ctx.begin();
+        if (it == ctx.end() || *it == '}')
+            return it;
+
+        switch (*it) {
+        case 't':
+            with_type = true;
+            break;
+        default:
+            throw std::format_error("Invalid format args for pType");
+        }
+        ++it;
+        if (it != ctx.end() && *it != '}') {
+            throw std::format_error("Invalid format args for pType");
+        }
+        return it;
+    }
+
+    template<class FmtContext>
+    FmtContext::iterator format(pType const &type, FmtContext &ctx) const
+    {
+        std::wostringstream out;
+        if (type != nullptr) {
+            out << type;
+        } else {
+            out << "(null)";
+        }
+        return std::ranges::copy(std::move(out).str(), ctx.out()).out;
+    }
+};
+
+}

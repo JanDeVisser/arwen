@@ -52,8 +52,6 @@ pType TypeRegistry::cstring;
 pType TypeRegistry::character;
 pType TypeRegistry::void_;
 pType TypeRegistry::pointer;
-pType TypeRegistry::ambiguous;
-pType TypeRegistry::undetermined;
 
 TypeRegistry TypeRegistry::s_registry {};
 
@@ -314,8 +312,6 @@ TypeRegistry::TypeRegistry()
     character = make_type(L"char", TypeAlias { TypeRegistry::u32 });
     void_ = make_type(L"void", VoidType {});
     pointer = make_type(L"pointer", PointerType {});
-    ambiguous = make_type(L"%ambiguous", Ambiguous {});
-    undetermined = make_type(L"%undetermined", Undetermined {});
 }
 
 TypeRegistry &TypeRegistry::the()
@@ -567,15 +563,6 @@ pType TypeRegistry::struct_of(StructType::Fields const &fields)
             [](StructType::Field const &f) -> std::wstring { return std::format(L"{}: {}", f.name, f.type->to_string()); }));
     auto ret = make_type(n, StructType { fields });
     return ret;
-}
-
-pType make_error(TokenLocation location, std::wstring msg)
-{
-    return make_type(
-        BindErrors { { {
-            std::move(location),
-            std::move(msg),
-        } } });
 }
 
 }
