@@ -10,6 +10,10 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <type_traits>
+#include <utility>
+#include <variant>
+#include <vector>
 
 #include <Util/IO.h>
 #include <Util/Lexer.h>
@@ -27,11 +31,6 @@
 #include <App/IR/IR.h>
 
 #include <Interp/Interpreter.h>
-#include <system_error>
-#include <type_traits>
-#include <utility>
-#include <variant>
-#include <vector>
 
 #ifdef IS_ARM64
 #include <Arch/Arm64/Arm64.h>
@@ -153,11 +152,20 @@ struct Builder {
         if (!gen_ir()) {
             return false;
         }
-        if (!generate_code()) {
-            log_error("Code generation failed");
-            return false;
-        }
+        auto v = execute_ir(ir);
+        std::wcout << v << "\n";
         return true;
+    }
+
+    int run()
+    {
+        // FIXME: There should be a way to have Util::Process not mess with
+        // stdout and stderr and have it just go to same in this process.
+        // Until that's possible we use good old shitty system(3).
+        // TODO: Pass command line parameters
+        auto cmd = std::format("./{}", program_name);
+        info("[CMD] {}", cmd);
+        return std::system(cmd.c_str());
     }
 
     bool parse()
@@ -224,15 +232,16 @@ struct Builder {
     {
         parser.pass = 0;
         parser.unbound = std::numeric_limits<int>::max();
-        int prev_pass;
+        int        prev_pass;
+        BindResult s;
         do {
             prev_pass = parser.unbound;
             parser.unbound = 0;
             parser.unbound_nodes.clear();
-            Arwen::bind(parser.program);
+            s = Arwen::bind(parser.program);
             ++parser.pass;
-        } while (parser.program->status != ASTStatus::Bound && parser.unbound < prev_pass);
-        if (parser.program->status != ASTStatus::Bound) {
+        } while (!s.has_value() && parser.unbound < prev_pass);
+        if (!s.has_value()) {
             info("Second phase of semantic analysis failed after {} pass(es)", parser.pass);
             if (!parser.errors.empty()) {
                 log_error("Error(s) found during second phase of semantic analysis:");
@@ -314,22 +323,31 @@ void usage()
 {
     std::cout << "arwen - arwen language compiler  https://www.arwen-lang.org\n\n";
     std::cout << "Usage:\n";
-    std::cout << "   arwen --help - This text\n";
-    std::cout << "   arwen [OPTIONS] build\n";
-    std::cout << "   arwen [OPTIONS] compile <file> ...\n";
-    std::cout << "   arwen [OPTIONS] run <file> ... [-- <arg> ...]\n";
+    std::cout << "   arwen help | usage | --help, -h - This text\n";
+    std::cout << "   arwen [OPTIONS] build [-- <arg>...]\n";
+    std::cout << "   arwen [OPTIONS] compile <file> ... [-- <arg> ...]\n";
     std::cout << "   arwen [OPTIONS] eval <file> ... [-- <arg> ...]\n";
     std::cout << "   arwen [OPTIONS] debug - Start debugger\n\n";
+    std::cout << "   arwen version | --version | -v - Display version\n\n";
     std::cout << "Options:\n";
     std::cout << "  --keep-assembly       Do not delete assembly files after compiling\n";
     std::cout << "  --keep-objects        Do not delete object files after linking\n";
     std::cout << "  --list                Write intermediate representation to .arwen/<program>.ir\n";
+    std::cout << "  --run                 Run the executable build with `build` or `compile`\n";
+    std::cout << "                        Pass the command line arguments specified after `--`";
     std::cout << "  --stop-after-analysis Stop after semantic analysis\n";
     std::cout << "  --stop-after-parse    Stop after syntactic parsing\n";
     std::cout << "  --trace               Print debug tracing information\n";
     std::cout << "  --verbose             Provide progress information\n";
     std::cout << "\n";
     exit(1);
+}
+
+void version()
+{
+    std::print(std::cout, "arwen {} {} {}\n",
+        ARWEN_VERSION, ARWEN_SYSTEM, ARWEN_SYSTEM_VERSION, ARWEN_CPU, ARWEN_COMPILER);
+    exit(0);
 }
 
 int main(int argc, char const **argv)
@@ -339,13 +357,23 @@ int main(int argc, char const **argv)
     set_logging_config(LoggingConfig { has_option("trace") ? LogLevel::Trace : (has_option("verbose") ? LogLevel::Info : LogLevel::Error) });
     trace("Tracing is ON");
     info("Verbose mode is ON");
-    if (arg_ix == argc || has_option("help") || has_option("usage")) {
+    if (arg_ix == argc) {
+        if (has_option("version")) {
+            version();
+        }
         usage();
     }
-    if (strcmp(argv[arg_ix], "build") == 0) {
+    if (has_option("version") || strcmp(argv[arg_ix], "usage") == 0 || strcmp(argv[arg_ix], "help") == 0) {
+        usage();
+    } else if (strcmp(argv[arg_ix], "version") == 0) {
+        version();
+    } else if (strcmp(argv[arg_ix], "build") == 0) {
         if (auto builder_maybe = make_builder(fs::current_path()); builder_maybe) {
             if (!builder_maybe->build()) {
                 return 1;
+            }
+            if (has_option("run")) {
+                return builder_maybe->run();
             }
         }
     } else if (strcmp(argv[arg_ix], "compile") == 0 && argc - arg_ix > 1) {
@@ -356,6 +384,9 @@ int main(int argc, char const **argv)
         if (auto builder_maybe = make_builder(files); builder_maybe) {
             if (!builder_maybe->build()) {
                 return 1;
+            }
+            if (has_option("run")) {
+                return builder_maybe->run();
             }
         }
     } else if (strcmp(argv[arg_ix], "eval") == 0 && argc - arg_ix > 1) {

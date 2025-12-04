@@ -232,7 +232,7 @@ Value Interpreter::execute(pIR const &ir)
 Value execute_ir(IRNodes const &ir)
 {
     Interpreter interpreter;
-    return interpreter.execute(ir.program);
+    return interpreter.execute(ir.entry_point);
 }
 
 }

@@ -9,7 +9,6 @@
 #include <cstdint>
 #include <ostream>
 #include <string>
-#include <string_view>
 #include <vector>
 
 #include <Util/Logging.h>
@@ -71,7 +70,7 @@ struct IRNode;
 
 struct IRNodes {
     std::vector<IRNode>  nodes;
-    Ptr<IRNode, IRNodes> program { nullptr };
+    Ptr<IRNode, IRNodes> entry_point { nullptr };
     size_t               size() const;
     bool                 empty() const;
     IRNode const        &operator[](size_t ix) const;

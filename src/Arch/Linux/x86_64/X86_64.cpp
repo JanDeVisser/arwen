@@ -895,7 +895,7 @@ std::wostream &operator<<(std::wostream &os, Executable &executable)
 
 bool generate_x86_64(IR::IRNodes const &program)
 {
-    Executable executable { program.program };
+    Executable executable { program.entry_point };
     return executable.generate();
 }
 }

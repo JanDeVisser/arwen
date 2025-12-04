@@ -10,9 +10,12 @@
 #include <string>
 
 #include <Util/Error.h>
+#include <string_view>
 
 namespace Util {
 
+size_t               utf32_length(std::string_view const &s);
+size_t               utf8_length(std::wstring_view const &s);
 Result<std::string>  to_utf8(std::wstring_view const &s);
 Result<std::wstring> to_wstring(std::string_view const &s);
 Result<ssize_t>      write_utf8(std::ofstream &os, std::wstring_view const &contents);

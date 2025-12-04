@@ -88,18 +88,14 @@ std::wostream &list_node(pIR const &ir, std::wostream &os)
 
 std::wostream &list(IRNodes const &ir, std::wostream &os)
 {
-    for (auto const &n : ir.nodes) {
-        if (std::holds_alternative<Program>(n.node)) {
-            list_node(n.id, os);
-            break;
-        }
-    }
+    assert(ir.entry_point != nullptr);
+    list_node(ir.entry_point, os);
     return os;
 }
 
 bool save(IRNodes const &ir)
 {
-    std::wstring_view file_name = ir.program->name;
+    std::wstring_view file_name = ir.entry_point->name;
     fs::path          dot_arwen { ".arwen" };
     fs::create_directory(dot_arwen);
     fs::path path { dot_arwen / file_name };

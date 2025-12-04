@@ -84,7 +84,6 @@ pIR const &find_ir_node(Generator const &generator)
 }
 
 template<typename T>
-    requires std::derived_from<T, AbstractSyntaxNode>
 void generate_node(Generator &, ASTNode const &, T const &)
 {
     trace("generate_node({})", typeid(T).name());
@@ -154,6 +153,7 @@ void generate_node(Generator &generator, ASTNode const &n, Block const &node)
         generator.ctxs.push_back(Context { module, {} });
     }
     Declarations variables;
+    assert(n->ns);
     for (auto const &var : n->ns->variables) {
         variables.emplace_back(var.first, var.second->bound_type);
     }
@@ -332,7 +332,7 @@ void generate_node(Generator &generator, ASTNode const &n, DeferStatement const 
         if (std::visit(
                 overloads {
                     [&node, &label](Context::BlockDescriptor &bd) -> bool {
-                        bd.defer_stmts.emplace_back(node.stmt, label);
+                        bd.defer_stmts.emplace_back(node.statement, label);
                         return true;
                     },
                     [](auto &) -> bool {
@@ -420,11 +420,15 @@ template<>
 void generate_node(Generator &generator, ASTNode const &n, Arwen::Module const &node)
 {
     auto module = make_node<IR::Module>(generator.ir, node.name, n);
-    get<Module>(module).program = generator.ir.program;
+    if (generator.ir.entry_point) {
+        get<Module>(module).program = generator.ir.entry_point;
+        get<Program>(generator.ir.entry_point).modules.emplace(node.name, module);
+    } else {
+        generator.ir.entry_point = module;
+    }
     for (auto const &[name, var_node] : n->ns->variables) {
         module->variables.emplace_back(name, var_node->bound_type);
     }
-    get<Program>(generator.ir.program).modules.emplace(node.name, module);
     generator.ctxs.push_back(Context { module, {} });
 
     pType discard { nullptr };
@@ -448,10 +452,10 @@ template<>
 void generate_node(Generator &generator, ASTNode const &n, Arwen::Program const &node)
 {
     assert(generator.ctxs.empty());
-    generator.ir.program = make_node<Program>(generator.ir, node.name, n);
-    generator.ctxs.push_back(Context { generator.ir.program, {} });
+    generator.ir.entry_point = make_node<Program>(generator.ir, node.name, n);
+    generator.ctxs.push_back(Context { generator.ir.entry_point, {} });
     for (auto const &[name, var_node] : n->ns->variables) {
-        generator.ir.program->variables.emplace_back(name, var_node->bound_type);
+        generator.ir.entry_point->variables.emplace_back(name, var_node->bound_type);
     }
     pType discard { nullptr };
     auto  empty { true };
@@ -583,7 +587,7 @@ void Generator::generate(ASTNode const &n)
 IRNodes &generate_ir(ASTNode const &node, IRNodes &ir)
 {
     Generator generator { ir };
-    assert(is<Arwen::Program>(node));
+    assert(is<Arwen::Program>(node) || is<Arwen::Module>(node) || is<Arwen::Call>(node) || is<Arwen::Block>(node));
     generator.generate(node);
     return generator.ir;
 }

@@ -210,6 +210,7 @@ void execute_op<>(pIR const &, Interpreter &interpreter, Operation::NativeCall c
         types.push_back(param.type);
     }
     void *ptr = interpreter.stack.stack + (interpreter.stack.top - depth);
+    trace(L"Native call: {} -> {}", impl.payload.name, impl.payload.return_type);
     if (native_call(as_utf8(impl.payload.name), ptr, types, interpreter.registers.data(), impl.payload.return_type)) {
         auto return_value = make_from_buffer(impl.payload.return_type, interpreter.registers.data());
         interpreter.stack.discard(depth);
