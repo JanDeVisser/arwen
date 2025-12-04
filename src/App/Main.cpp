@@ -147,14 +147,16 @@ struct Builder {
         return true;
     }
 
-    bool eval()
+    int eval()
     {
         if (!gen_ir()) {
             return false;
         }
         auto v = execute_ir(ir);
-        std::wcout << v << "\n";
-        return true;
+        if (v.type != TypeRegistry::i32) {
+            return 0;
+        }
+        return as<int32_t>(v);
     }
 
     int run()
@@ -395,9 +397,7 @@ int main(int argc, char const **argv)
             files.emplace_back(argv[ix]);
         }
         if (auto builder_maybe = make_builder(files); builder_maybe) {
-            if (!builder_maybe->eval()) {
-                return 1;
-            }
+            return builder_maybe->eval();
         }
     } else if (strcmp(argv[arg_ix], "debug") == 0 && argc - arg_ix == 1) {
         return debugger_main();
