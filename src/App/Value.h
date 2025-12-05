@@ -85,9 +85,6 @@ struct Atom {
 template<typename T>
 T const &as(Atom const &atom)
 {
-    int         status;
-    char const *mangled { typeid(T).name() };
-    char       *demangled = abi::__cxa_demangle(mangled, 0, 0, &status);
     return std::get<T>(atom.payload);
 }
 
