@@ -1,4 +1,4 @@
-#!python3
+#!/usr/bin/env python3
 #  Copyright (c) 2021-2025, Jan de Visser <jan@finiandarcy.com>
 #
 #  SPDX-License-Identifier: MIT
@@ -17,52 +17,28 @@ def check_stream(script, which, stream):
     if which in script:
         written = [line.strip() for line in stream]
         written = "\n".join(written)
-        expected = ("\n".join(script[which])
-                    if isinstance(script[which], (list, tuple))
-                    else script[which])
+        expected = (
+            "\n".join(script[which])
+            if isinstance(script[which], (list, tuple))
+            else script[which]
+        )
         if written != expected:
             print("%s: %s '%s' != '%s'" % (script["name"], which, written, expected))
             ret = 1
     return ret
 
 
-def compile_script(name):
-    os.path.exists("stdout") and os.remove("stdout")
-    os.path.exists("stderr") and os.remove("stderr")
-    if name.endswith(".arw"):
-        f = name
-        name = name[:-4]
-    else:
-        f = name + ".arw"
-
-    with open("stdout", "w+") as out, open("stderr", "w+") as err:
-        if os.path.exists(name):
-            os.remove(name)
-        if os.path.exists(os.path.join(".arwen", name)):
-            os.remove(os.path.join(".arwen", name))
-        print(f)
-        ex = subprocess.call(["../build/bin/arwen", "--keep-assembly", "compile", f], stdout=out, stderr=err)
-        if ex != 0:
-            print(f"Compilation of '{f}' failed: {ex}")
-            subprocess.call(["cat", "stdout"])
-            subprocess.call(["cat", "stderr"])
-            return None
-    os.path.exists("stdout") and os.remove("stdout")
-    os.path.exists("stderr") and os.remove("stderr")
-    os.rename(name, os.path.join(".arwen", name))
-    return name
-
-
-def test_script(name):
-    if name.endswith(".arw"):
-        name = name[:-4]
-
-    with open(name + ".json") as fd:
-        script = json.load(fd)
-
+def test_compile(name, script):
     with open("stdout", "w+") as out, open("stderr", "w+") as err:
         # cmdline = [os.path.join(".compiled", name)]
-        cmdline = ["../build/bin/arwen", "run", name + ".arw"]
+        cmdline = [
+            "../build/bin/arwen",
+            "--list",
+            "--keep-assembly",
+            "--run",
+            "compile",
+            name + ".arw",
+        ]
         cmdline.extend(script["args"])
         ex = subprocess.call(cmdline, stdout=out, stderr=err)
         out.seek(0)
@@ -79,40 +55,65 @@ def test_script(name):
     os.remove("stdout")
     os.remove("stderr")
     if error == 0:
-        print(f"{name}: \033[32mOK\033[0m ")
+        print("\033[32m[  OK  ]\033[0m ", end="")
     else:
-        print(f"{name}: \033[31mFAILED\033[0m ")
-
-    name = compile_script(name)
-    if name is None:
-        print(f"{name}: \033[31mFAILED\033[0m ")
-        error += 1
-    else:
-        print(f"{name}: \033[32mOK\033[0m ")
-        with open("stdout", "w+") as out, open("stderr", "w+") as err:
-            # cmdline = [os.path.join(".compiled", name)]
-            cmdline = [os.path.join(".arwen", name)]
-            cmdline.extend(script["args"])
-            ex = subprocess.call(cmdline, stdout=out, stderr=err)
-            out.seek(0)
-            err.seek(0)
-
-            error = 0
-            if "exit" in script:
-                expected = script["exit"]
-                if ex != expected and ex != expected + 256 and ex != expected - 256:
-                    print("%s: Exit code %s != %s" % (name, ex, script["exit"]))
-                    error += 1
-            error += check_stream(script, "stdout", out)
-            error += check_stream(script, "stderr", err)
-        os.remove("stdout")
-        os.remove("stderr")
-        if error == 0:
-            print(f"{name}: \033[32mOK\033[0m ")
-        else:
-            print(f"{name}: \033[31mFAILED\033[0m ")
+        print("\033[31m[FAILED]\033[0m ", end="")
 
     return error == 0
+
+
+def test_eval(name, script):
+    with open("stdout", "w+") as out, open("stderr", "w+") as err:
+        # cmdline = [os.path.join(".compiled", name)]
+        cmdline = ["../build/bin/arwen", "--list", "eval", name + ".arw"]
+        cmdline.extend(script["args"])
+        ex = subprocess.call(cmdline, stdout=out, stderr=err)
+        out.seek(0)
+        err.seek(0)
+
+        error = 0
+        if "exit" in script:
+            expected = script["exit"]
+            if ex != expected and ex != expected + 256 and ex != expected - 256:
+                print("%s: Exit code %s != %s" % (name, ex, script["exit"]))
+                error += 1
+        error += check_stream(script, "stdout", out)
+        error += check_stream(script, "stderr", err)
+    os.remove("stdout")
+    os.remove("stderr")
+    if error == 0:
+        print("\033[32m[  OK  ]\033[0m ", end="\r\n")
+    else:
+        print("\033[31m[FAILED]\033[0m ", end="\r\n")
+
+    return error == 0
+
+
+def test_script(name):
+    if name.endswith(".arw"):
+        name = name[:-4]
+
+    with open(name + ".json") as fd:
+        script = json.load(fd)
+
+    print(f"{name:<25}", end="")
+    if "no-compile" not in script:
+        test_compile(name, script)
+    else:
+        print("\033[36m[  XX  ]\033[0m ", end="")
+    if "no-eval" not in script:
+        test_eval(name, script)
+    else:
+        print("\033[36m[  XX  ]\033[0m ", end="\r\n")
+    return True
+
+
+def run_tests(names):
+    print("                         Compiled Evaluated")
+    print("===========================================")
+    for n in names:
+        if not test_script(n):
+            break
 
 
 def load_test_names():
@@ -125,10 +126,7 @@ def load_test_names():
 
 
 def run_all_tests():
-    scripts = load_test_names()
-    for script in scripts:
-        if not test_script(script):
-            break
+    run_tests(load_test_names())
 
 
 def config_test(name, *args):
@@ -141,7 +139,7 @@ def config_test(name, *args):
 
     with open("stdout", "w+") as out, open("stderr", "w+") as err:
         # cmdline = [os.path.join(".compiled", name)]
-        cmdline = ["../build/bin/arwen", "run", name + ".arw"]
+        cmdline = ["../build/bin/arwen", "--run", "compile", name + ".arw"]
         cmdline.extend(args)
         ex = subprocess.call(cmdline, stdout=out, stderr=err)
         out.seek(0)
@@ -155,7 +153,7 @@ def config_test(name, *args):
         scripts.append(name)
         with open("tests.json", "w+") as fd:
             json.dump(scripts, fd, indent=2)
-            print(file=fd);
+            print(file=fd)
     with open(name + ".json", "w+") as fd:
         json.dump(script, fd, indent=2)
         print(file=fd)
@@ -199,7 +197,11 @@ def config_tests(tests):
     with open(tests) as fd:
         # FIXME Why does this map() not work?
         # map(config_test, [stripped for stripped in [name.strip() for name in fd] if not stripped.startswith("#")])
-        for tests in [stripped for stripped in [test.strip() for test in fd] if not stripped.startswith("#")]:
+        for tests in [
+            stripped
+            for stripped in [test.strip() for test in fd]
+            if not stripped.startswith("#")
+        ]:
             name_args = filter(None, tests.split(" "))
             config_test(*name_args)
 
@@ -213,35 +215,59 @@ initialize()
 arg_parser = argparse.ArgumentParser()
 group = arg_parser.add_mutually_exclusive_group(required=True)
 group.add_argument(
-    "-i", "--index", action='store_true',
-    help="Displays an index of all registered tests. Output can be used by -f/--add-all")
-group.add_argument("-a", "--execute-all", action='store_true', help="Execute all tests in the registry")
-group.add_argument("-x", "--execute", nargs="+", metavar="Test", help="Execute the specified tests")
+    "-i",
+    "--index",
+    action="store_true",
+    help="Displays an index of all registered tests. Output can be used by -f/--add-all",
+)
 group.add_argument(
-    "-c", "--create", nargs="+", metavar=("Test", "Argument"),
-    help="Add the specified test script with optional arguments to the test registry, and executes them")
+    "-a", "--execute-all", action="store_true", help="Execute all tests in the registry"
+)
 group.add_argument(
-    "-f", "--add-all", metavar="File",
-    help="Add all tests in <File>. <File> should contain test script names, one per line")
+    "-x", "--execute", nargs="+", metavar="Test", help="Execute the specified tests"
+)
 group.add_argument(
-    "-d", "--delete", nargs="+", metavar="Test",
-    help="Remove the specified tests from the registry. The expected outcome .json files will be retained")
+    "-c",
+    "--create",
+    nargs="+",
+    metavar=("Test", "Argument"),
+    help="Add the specified test script with optional arguments to the test registry, and executes them",
+)
 group.add_argument(
-    "--destroy", nargs="+", metavar="Test",
-    help="Remove the specified tests from the registry. The expected outcome .json files will be deleted as well")
+    "-f",
+    "--add-all",
+    metavar="File",
+    help="Add all tests in <File>. <File> should contain test script names, one per line",
+)
 group.add_argument(
-    "--clear", action='store_true',
-    help="Clear the test registry. The expected outcome .json files will be retained")
+    "-d",
+    "--delete",
+    nargs="+",
+    metavar="Test",
+    help="Remove the specified tests from the registry. The expected outcome .json files will be retained",
+)
 group.add_argument(
-    "--nuke", action='store_true',
-    help="Clear the test registry. The expected outcome .json files will be deleted as well")
+    "--destroy",
+    nargs="+",
+    metavar="Test",
+    help="Remove the specified tests from the registry. The expected outcome .json files will be deleted as well",
+)
+group.add_argument(
+    "--clear",
+    action="store_true",
+    help="Clear the test registry. The expected outcome .json files will be retained",
+)
+group.add_argument(
+    "--nuke",
+    action="store_true",
+    help="Clear the test registry. The expected outcome .json files will be deleted as well",
+)
 args = arg_parser.parse_args()
 
 if args.execute_all:
     run_all_tests()
 if args.execute:
-    for name in args.execute:
-        test_script(name)
+    run_tests(args.execute)
 if args.create:
     config_test(args.create[0], *args.create[1:])
 if args.add_all:

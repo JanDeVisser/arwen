@@ -1,0 +1,9 @@
+{
+  "name": "01_helloworld",
+  "exit": 0,
+  "stdout": [
+    "Hello, World!"
+  ],
+  "stderr": [],
+  "args": []
+}
