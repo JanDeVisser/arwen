@@ -167,7 +167,11 @@ struct Builder {
         // TODO: Pass command line parameters
         auto cmd = std::format("./{}", program_name);
         info("[CMD] {}", cmd);
-        return std::system(cmd.c_str());
+        int exit_code = std::system(cmd.c_str());
+        if (!WIFEXITED(exit_code)) {
+            return -WTERMSIG(exit_code);
+        }
+        return WEXITSTATUS(exit_code);
     }
 
     bool parse()
