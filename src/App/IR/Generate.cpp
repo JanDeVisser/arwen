@@ -151,6 +151,7 @@ void generate_node(Generator &generator, ASTNode const &n, Block const &node)
     if (generator.ctxs.empty()) {
         auto module = make_node<Module>(generator.ir, L"anonymous", n);
         generator.ctxs.push_back(Context { module, {} });
+        generator.ir.entry_point = module;
     }
     Declarations variables;
     assert(n->ns);
@@ -160,19 +161,18 @@ void generate_node(Generator &generator, ASTNode const &n, Block const &node)
     add_operation<Operation::ScopeBegin>(generator, variables);
     auto const scope_end = next_label();
     auto const end_block = next_label();
-    add_operation<Operation::PushConstant>(generator, make_void());
     generator.ctxs.emplace_back(Context { {}, Context::BlockDescriptor { scope_end } });
     bool has_defered { false };
     {
         Defer _ { [&generator]() { generator.ctxs.pop_back(); } };
 
-        pType discard { TypeRegistry::void_ };
+        pType discard { nullptr };
         auto  empty { true };
         for (auto const &stmt : node.statements) {
             if (discard != nullptr) {
                 add_operation<Operation::Discard>(generator, discard);
             }
-            discard = stmt->bound_type;
+            discard = (stmt->bound_type && stmt->bound_type->size_of() > 0) ? stmt->bound_type : nullptr;
             empty &= (discard == nullptr);
             generator.generate(stmt);
         }
@@ -278,6 +278,13 @@ void generate_node(Generator &generator, ASTNode const &n, Call const &node)
         return;
     }
     add_operation<Operation::Call>(generator, Operation::CallOp { get<FunctionDefinition>(node.function).name, params, n->bound_type });
+}
+
+template<>
+void generate_node(Generator &generator, ASTNode const &n, Comptime const &node)
+{
+    assert(node.statements != nullptr);
+    generator.generate(node.statements);
 }
 
 template<>
@@ -484,22 +491,22 @@ void generate_node(Generator &generator, ASTNode const &n, Return const &node)
     }
     add_operation<Operation::Pop>(generator, node.expression->bound_type->value_type());
 
-    uint64_t depth { 0 };
     uint64_t scope_end { 0 };
     for (auto const &ctx : generator.ctxs | std::views::reverse) {
         if (std::visit(
                 overloads {
-                    [&generator, &depth, &scope_end](Context::BlockDescriptor const &bd) -> bool {
+                    [&generator, &scope_end](Context::BlockDescriptor const &bd) -> bool {
                         if (!bd.defer_stmts.empty()) {
                             if (scope_end == 0) {
                                 scope_end = bd.defer_stmts.back().second;
                             }
-                            ++depth;
+                        } else {
+                            scope_end = bd.scope_end_label;
                         }
                         return false;
                     },
                     [&generator, &scope_end](Context::FunctionDescriptor const &fd) -> bool {
-                        add_operation<Operation::Break>(generator, IR::Operation::BreakOp { scope_end, std::numeric_limits<uint64_t>::max(), 0 });
+                        add_operation<Operation::Break>(generator, IR::Operation::BreakOp { scope_end, {}, 0 });
                         return true;
                     },
                     [](auto const &) {

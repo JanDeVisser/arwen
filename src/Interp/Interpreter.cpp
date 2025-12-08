@@ -76,6 +76,7 @@ Scope &Interpreter::new_scope(pIR const &ir, Declarations const &variables)
     }
     create_scope(*this, ir, variables);
     scopes.back().allocate();
+    break_depth.reset();
     if (callback != nullptr) {
         callback(Interpreter::CallbackType::AfterScopeStart, *this, std::monostate {});
     }

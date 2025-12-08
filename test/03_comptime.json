@@ -1,6 +1,8 @@
 {
-  "name": "01_helloworld",
-  "comptime_stdout": [],
+  "name": "03_comptime",
+  "comptime_stdout": [
+    "Hello from Comptime"
+  ],
   "comptime_stderr": [],
   "stdout": [
     "Hello, World!"

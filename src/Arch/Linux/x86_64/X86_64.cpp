@@ -126,7 +126,6 @@ void Function::skeleton()
             writer.add_instruction(L"subq", L"${}, %rsp", stack_depth);
         }
         writer.add_instruction(L"movq", L"$0,-{}(%rbp)", Function::scope_depth_index);
-        writer.add_instruction(L"movq", L"$0,-{}(%rbp)", Function::function_return_pointer_index);
         writer.add_instruction(L"movq", L"$0,-{}(%rbp)", Function::return_value_index);
     }
     if (function) {
@@ -139,6 +138,7 @@ void Function::skeleton()
         }
     }
     writer.activate_epilog();
+    writer.add_instruction(L"movq", L"-{}(%rbp),%rax", Function::return_value_index);
     if (!naked) {
         writer.add_instruction(L"movq", L"%rbp,%rsp");
         writer.add_instruction(L"popq", L"%rbp");
@@ -480,12 +480,8 @@ void generate_op(Function &function, IR::Operation::BinaryOperator const &impl)
 template<>
 void generate_op(Function &function, IR::Operation::Break const &impl)
 {
-    if (impl.payload.label != impl.payload.scope_end) {
-        function.save_regs[19] = function.save_regs[20] = true;
-        function.writer.add_instruction(L"movq", L"${},%r15", impl.payload.depth);
-        function.writer.add_instruction(L"leaq", L"lbl_{},%r14", impl.payload.label);
-        function.writer.add_instruction(L"jmp", L"lbl_{}", impl.payload.scope_end);
-    }
+    function.writer.add_instruction(L"movq", L"${},-{}(%rbp)", impl.payload.depth.value_or(-1), Function::scope_depth_index);
+    function.writer.add_instruction(L"jmp", L"lbl_{}", impl.payload.scope_end);
 }
 
 void generate_call(Function &function, IR::Operation::CallOp const &call)
@@ -684,29 +680,21 @@ void generate_op(Function &function, IR::Operation::PushVarAddress const &impl)
 template<>
 void generate_op(Function &function, IR::Operation::ScopeBegin const &)
 {
-    function.writer.add_instruction(L"inc", L"-{}(%rbp)", Function::scope_depth_index);
+    function.writer.add_instruction(L"movq", L"$0,-{}(%rbp)", Function::scope_depth_index);
 }
 
 template<>
 void generate_op(Function &function, IR::Operation::ScopeEnd const &impl)
 {
-    if (impl.payload.has_defers) {
-        function.writer.add_text(std::format(
-            LR"(test -{}%(rbp)
-    jne  1f
-    test -{}(%rbp)
-    je   2f
-    jmp  -{}:(%rbp)
-1:
-    dec  -{}(%rbp)
-    jmp  lbl_{}
-2:)",
-            Function::scope_depth_index,
-            Function::function_return_pointer_index,
-            Function::function_return_pointer_index,
-            Function::scope_depth_index,
-            impl.payload.enclosing_end));
-    }
+    function.writer.add_text(std::format(
+        LR"(
+    xor %rax,%rax
+    test -{}(%rbp),%rax
+    je  1f
+    jmp lbl_{}
+1:)",
+        Function::scope_depth_index,
+        impl.payload.enclosing_end));
 }
 
 template<>
@@ -736,7 +724,7 @@ void Function::generate(std::vector<IR::Operation> const &operations)
     for (auto s : regs_to_be_saved) {
         if (save_regs[s]) {
             writer.add_instruction(L"pushq", L"%{}", s);
-            pop_saved_regs = std::format(L"popq {}\n%{}", s, pop_saved_regs);
+            pop_saved_regs = std::format(L"popq %{}\n{}", s, pop_saved_regs);
         }
     }
     writer.activate_code();

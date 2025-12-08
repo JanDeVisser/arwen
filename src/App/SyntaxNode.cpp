@@ -98,8 +98,9 @@ DeferStatement::DeferStatement(ASTNode statement)
 {
 }
 
-Comptime::Comptime(std::wstring_view script_text)
+Comptime::Comptime(std::wstring_view script_text, ASTNode const &block)
     : script_text(script_text)
+    , statements(std::move(block))
 {
 }
 

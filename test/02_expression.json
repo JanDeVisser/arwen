@@ -1,7 +1,9 @@
 {
   "name": "02_expression",
-  "exit": 20,
+  "comptime_stdout": [],
+  "comptime_stderr": [],
   "stdout": [],
   "stderr": [],
+  "exit": 20,
   "args": []
 }

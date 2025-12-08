@@ -12,19 +12,20 @@ import subprocess
 import sys
 
 
-def check_stream(script, which, stream):
+def check_stream(script, what, stream):
     ret = 0
-    if which in script:
-        written = [line.strip() for line in stream]
-        written = "\n".join(written)
-        expected = (
-            "\n".join(script[which])
-            if isinstance(script[which], (list, tuple))
-            else script[which]
-        )
-        if written != expected:
-            print("%s: %s '%s' != '%s'" % (script["name"], which, written, expected))
-            ret = 1
+    written = [line.strip() for line in stream]
+    written = "\n".join(written)
+    expected = (
+        "\n".join(what)
+        if isinstance(what, (list, tuple))
+        else ""
+        if what is None
+        else what
+    )
+    if written != expected:
+        print("%s: '%s' != '%s'" % (script["name"], written, expected))
+        ret = 1
     return ret
 
 
@@ -35,10 +36,26 @@ def test_compile(name, script):
             "../build/bin/arwen",
             "--list",
             "--keep-assembly",
-            "--run",
             "compile",
             name + ".arw",
         ]
+        ex = subprocess.call(cmdline, stdout=out, stderr=err)
+        out.seek(0)
+        err.seek(0)
+
+        error = check_stream(script, script["comptime_stdout"], out)
+        error += check_stream(script, script["comptime_stderr"], err)
+    os.remove("stdout")
+    os.remove("stderr")
+    if error == 0:
+        print("\033[32m[  OK  ]\033[0m ", end="")
+    else:
+        print("\033[31m[FAILED]\033[0m ", end="")
+        return False
+
+    with open("stdout", "w+") as out, open("stderr", "w+") as err:
+        # cmdline = [os.path.join(".compiled", name)]
+        cmdline = [f"./{name}"]
         cmdline.extend(script["args"])
         ex = subprocess.call(cmdline, stdout=out, stderr=err)
         out.seek(0)
@@ -50,8 +67,9 @@ def test_compile(name, script):
             if ex != expected and ex != expected + 256 and ex != expected - 256:
                 print("%s: Exit code %s != %s" % (name, ex, script["exit"]))
                 error += 1
-        error += check_stream(script, "stdout", out)
-        error += check_stream(script, "stderr", err)
+        error += check_stream(script, script["stdout"], out)
+        error += check_stream(script, script["stderr"], err)
+
     os.remove("stdout")
     os.remove("stderr")
     if error == 0:
@@ -65,7 +83,7 @@ def test_compile(name, script):
 def test_eval(name, script):
     with open("stdout", "w+") as out, open("stderr", "w+") as err:
         # cmdline = [os.path.join(".compiled", name)]
-        cmdline = ["../build/bin/arwen", "--list", "eval", name + ".arw"]
+        cmdline = ["../build/bin/arwen", "--list", "eval", f"{name}.arw"]
         cmdline.extend(script["args"])
         ex = subprocess.call(cmdline, stdout=out, stderr=err)
         out.seek(0)
@@ -77,8 +95,13 @@ def test_eval(name, script):
             if ex != expected and ex != expected + 256 and ex != expected - 256:
                 print("%s: Exit code %s != %s" % (name, ex, script["exit"]))
                 error += 1
-        error += check_stream(script, "stdout", out)
-        error += check_stream(script, "stderr", err)
+        o = script["comptime_stdout"]
+        o.extend(script["stdout"])
+        error += check_stream(script, o, out)
+        e = script["comptime_stderr"]
+        e.extend(script["stderr"])
+        error += check_stream(script, e, err)
+
     os.remove("stdout")
     os.remove("stderr")
     if error == 0:
@@ -100,17 +123,17 @@ def test_script(name):
     if "no-compile" not in script:
         test_compile(name, script)
     else:
-        print("\033[36m[  XX  ]\033[0m ", end="")
+        print("\033[93m[  XX  ] [  XX  ]\033[0m ", end="")
     if "no-eval" not in script:
         test_eval(name, script)
     else:
-        print("\033[36m[  XX  ]\033[0m ", end="\r\n")
+        print("\033[93m[  XX  ]\033[0m ", end="\r\n")
     return True
 
 
 def run_tests(names):
-    print("                         Compiled Evaluated")
-    print("===========================================")
+    print("                         Comptime Compiled   Eval")
+    print("===================================================")
     for n in names:
         if not test_script(n):
             break
@@ -138,23 +161,31 @@ def config_test(name, *args):
     script = {"name": name}
 
     with open("stdout", "w+") as out, open("stderr", "w+") as err:
-        # cmdline = [os.path.join(".compiled", name)]
-        cmdline = ["../build/bin/arwen", "--run", "compile", name + ".arw"]
+        cmdline = ["../build/bin/arwen", "compile", name + ".arw"]
+        ex = subprocess.call(cmdline, stdout=out, stderr=err)
+        out.seek(0)
+        err.seek(0)
+        script["comptime_stdout"] = [line.strip() for line in out]
+        script["comptime_stderr"] = [line.strip() for line in err]
+
+    with open("stdout", "w+") as out, open("stderr", "w+") as err:
+        cmdline = [f"./{name}"]
         cmdline.extend(args)
         ex = subprocess.call(cmdline, stdout=out, stderr=err)
         out.seek(0)
         err.seek(0)
-        script["exit"] = ex
         script["stdout"] = [line.strip() for line in out]
         script["stderr"] = [line.strip() for line in err]
+        script["exit"] = ex
         script["args"] = args
+
     scripts = load_test_names()
     if name not in scripts:
         scripts.append(name)
-        with open("tests.json", "w+") as fd:
+        with open("tests.json", "w") as fd:
             json.dump(scripts, fd, indent=2)
             print(file=fd)
-    with open(name + ".json", "w+") as fd:
+    with open(f"{name}.json", "w") as fd:
         json.dump(script, fd, indent=2)
         print(file=fd)
     os.remove("stdout")

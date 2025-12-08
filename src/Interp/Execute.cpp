@@ -75,10 +75,7 @@ void execute_op<>(pIR const &, Interpreter &interpreter, Operation::BinaryOperat
 template<>
 void execute_op<>(pIR const &, Interpreter &interpreter, Operation::Break const &impl)
 {
-    uint64_t depth { impl.payload.scope_end != 0 ? impl.payload.depth : 0 };
-    uint64_t ip { ip_for_label(interpreter, impl.payload.label) };
-    interpreter.move_in(&depth, sizeof(uint64_t), 18);
-    interpreter.move_in(&ip, sizeof(uint64_t), 17);
+    interpreter.break_depth = interpreter.scopes.size();
     interpreter.call_stack.back().ip = ip_for_label(interpreter, impl.payload.scope_end);
 }
 
@@ -250,13 +247,29 @@ void execute_op<>(pIR const &, Interpreter &interpreter, Operation::PushVarAddre
     interpreter.call_stack.back().ip++;
 }
 
+//
+// {                             ScopeBegin
+//   foo()                       Call foo
+//   defer bar()
+//   if (hello()) {              Call hello
+//                               JumpF  2
+//     baz()                     Call baz
+//     return                    Return
+//   }                        2:
+//   defer quux()
+//   frob()                      Call frob
+// }
+//
+//
+//
+//
+//
+//
+
 template<>
 void execute_op<>(pIR const &ir, Interpreter &interpreter, Operation::ScopeBegin const &impl)
 {
     interpreter.new_scope(ir, impl.payload);
-    uint64_t zero { 0 };
-    interpreter.move_in(&zero, sizeof(uint64_t), 17);
-    interpreter.move_in(&zero, sizeof(uint64_t), 18);
     interpreter.call_stack.back().ip++;
 }
 
@@ -264,15 +277,14 @@ template<>
 void execute_op<>(pIR const &, Interpreter &interpreter, Operation::ScopeEnd const &impl)
 {
     interpreter.drop_scope();
-    uint64_t depth { interpreter.move_out(18) };
-    if (depth > 0) {
-        --depth;
-        interpreter.move_in(&depth, sizeof(uint64_t), 18);
+    if (interpreter.break_depth.value_or(0) > 0) {
+        if (interpreter.break_depth) {
+            (*interpreter.break_depth)--;
+        }
         interpreter.call_stack.back().ip = ip_for_label(interpreter, impl.payload.enclosing_end);
         return;
     }
-    auto jump { interpreter.move_out(17) };
-    interpreter.call_stack.back().ip = (jump == 0) ? interpreter.call_stack.back().ip + 1 : jump;
+    interpreter.call_stack.back().ip++;
 }
 
 template<>

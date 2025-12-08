@@ -552,7 +552,7 @@ void generate_op(Function &function, IR::Operation::Break const &impl)
 {
     if (impl.payload.label != impl.payload.scope_end) {
         function.save_regs[19] = function.save_regs[20] = true;
-        function.add_instruction(L"mov", L"x19,{}", impl.payload.depth);
+        function.add_instruction(L"mov", L"x19,{}", (impl.payload.depth) ? *(impl.payload.depth) : -1);
         function.add_instruction(L"adr", L"x20,lbl_{}", impl.payload.label);
         function.add_instruction(L"b", L"lbl_{}", impl.payload.scope_end);
     }
@@ -569,7 +569,7 @@ void generate_call(Function &function, IR::Operation::CallOp const &call)
     for (auto [dest, type] : std::views::zip(
                                  allocations,
                                  call.parameters
-				 | std::ranges::views::transform([](auto const &decl) {
+                                     | std::ranges::views::transform([](auto const &decl) {
                                            return decl.type;
                                        }))
             | std::views::reverse) {

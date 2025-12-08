@@ -218,7 +218,7 @@ struct Comptime {
     ASTNode      statements;
     std::wstring output;
 
-    explicit Comptime(std::wstring_view script_text);
+    explicit Comptime(std::wstring_view script_text, ASTNode const &block = nullptr);
 };
 
 struct Constant {

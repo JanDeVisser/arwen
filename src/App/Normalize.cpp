@@ -112,7 +112,7 @@ template<>
 ASTNode normalize(ASTNode const &n, Comptime const &impl)
 {
     Parser &parser = *(n.repo);
-    auto    script = parse<Module>(parser, std::format("*Comptime* {}", n.id.value()), impl.script_text);
+    auto    script = parse<Block>(parser, impl.script_text);
 
     if (!parser.errors.empty()) {
         log_error("Syntax error(s) found in @comptime block:");
@@ -121,13 +121,12 @@ ASTNode normalize(ASTNode const &n, Comptime const &impl)
         }
         return n;
     }
-    Module mod = get<Module>(script);
-    auto   ret = make_node<Module>(n, mod.name, mod.source, normalize(mod.statements));
-    info("@comptime block parsed");
+    script = normalize(script);
+    trace("@comptime block parsed");
     if (trace_on()) {
-        dump(get<Module>(ret).statements, std::wcerr);
+        dump(get<Block>(script).statements, std::wcerr);
     }
-    return ret;
+    return make_node<Comptime>(n, impl.script_text, script);
 }
 
 template<>
@@ -233,7 +232,7 @@ ASTNode normalize(ASTNode const &n, Import const &impl)
     }
     if (auto contents_maybe = read_file_by_name<wchar_t>(as_utf8(fname)); contents_maybe.has_value()) {
         auto const &contents = contents_maybe.value();
-        auto        module = parse<Module>(*(n.repo), as_utf8(impl.file_name), std::move(contents));
+        auto        module = parse<Module>(*(n.repo), std::move(contents), as_utf8(impl.file_name));
         if (module) {
             module->location = n->location;
             return normalize(module);
@@ -250,7 +249,7 @@ ASTNode normalize(ASTNode const &n, Include const &impl)
     auto fname = as_utf8(impl.file_name);
     if (auto contents_maybe = read_file_by_name<wchar_t>(fname); contents_maybe.has_value()) {
         auto const &contents = contents_maybe.value();
-        auto        node = parse<Block>(*(n.repo), fname, std::move(contents));
+        auto        node = parse<Block>(*(n.repo), std::move(contents), fname);
         if (node) {
             node->location = n->location;
             return normalize(node);

@@ -489,7 +489,6 @@ BindResult bind(ASTNode const &n, Call &impl)
 template<>
 BindResult bind(ASTNode const &n, Comptime &impl)
 {
-    info("in bind");
     Parser &parser = *(n.repo);
     if (n->bound_type == nullptr) {
         switch (parser.bind(impl.statements)) {
@@ -518,7 +517,6 @@ BindResult bind(ASTNode const &n, Comptime &impl)
             dump(impl.statements, std::wcerr);
         }
     }
-    info("@comptime block analyzed");
 
     if (impl.output.empty()) {
         Interpreter::IRNodes script_ir {};
@@ -528,28 +526,30 @@ BindResult bind(ASTNode const &n, Comptime &impl)
             IR::list(script_ir, std::wcerr);
             trace("---------------------------------------------------");
         }
-        auto output_val = Interpreter::execute_ir(script_ir);
-        trace(L"output: {} {}", output_val.type, output_val.payload.index());
+        auto       output_val = Interpreter::execute_ir(script_ir);
         auto const output_slice = as<Slice>(output_val);
         impl.output = std::wstring { static_cast<wchar_t *>(output_slice.ptr), static_cast<size_t>(output_slice.size) };
-        info("@comptime block executed");
+        trace("@comptime block executed");
         trace(L"@comptime output: {}", impl.output);
     }
 
-    if (auto node = parse<Block>(*(n.repo), "*Comptime Eval*", impl.output); node) {
+    if (auto parsed_output = parse<Block>(*(n.repo), impl.output); parsed_output) {
         trace("@comptime after parsing");
         if (trace_on()) {
-            dump(node, std::wcerr);
+            dump(parsed_output, std::wcerr);
         }
-        node = normalize(node);
+        impl.statements = normalize(parsed_output);
         trace("@comptime after normalizing");
         if (trace_on()) {
-            dump(node, std::wcerr);
+            dump(impl.statements, std::wcerr);
         }
-        n->node = std::move(node->node);
-        n->ns = std::move(node->ns);
-        parser.push_namespace(n);
-        return bind(n);
+        return bind(impl.statements);
+    } else {
+        log_error("@comptime parse failed");
+        for (auto const &err : parser.errors) {
+            log_error(L"{}:{} {}", err.location.line + 1, err.location.column + 1, err.message);
+        }
+        return n.bind_error(L"Error(s) parsing result of @comptime block");
     }
     return nullptr;
 }
@@ -558,7 +558,6 @@ template<>
 BindResult bind(ASTNode const &n, Constant &impl)
 {
     assert(impl.bound_value.has_value());
-    trace(L"Constant -----> {} {}", n.id.value(), impl.bound_value->type);
     return impl.bound_value->type;
 }
 
@@ -628,7 +627,6 @@ BindResult bind(ASTNode const &n, Error &impl)
 template<>
 BindResult bind(ASTNode const &n, ExpressionList &impl)
 {
-    trace(L"Expr -------> {} {}", impl.expressions.size(), impl.expressions);
     auto ret = TypeRegistry::the().typelist_of(try_bind_nodes(impl.expressions));
     assert(is<TypeList>(ret));
     auto l = get<TypeList>(ret);

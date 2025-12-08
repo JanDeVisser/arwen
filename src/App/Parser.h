@@ -238,7 +238,7 @@ ASTNode copy_node(ASTNode const &from, Node impl)
 
 template<typename Node>
     requires is_component<Node> || std::is_same_v<Node, Block>
-ASTNode parse(Parser &parser, std::string_view module_name, std::wstring const &text)
+ASTNode parse(Parser &parser, std::wstring const &text, std::string_view name = "")
 {
     parser.text = text;
     parser.lexer.push_source(text);
@@ -247,7 +247,8 @@ ASTNode parse(Parser &parser, std::string_view module_name, std::wstring const &
     if constexpr (std::is_same_v<Node, Block>) {
         ret = parser.make_node<Node>();
     } else {
-        ret = parser.make_node<Node>(as_wstring(module_name), text);
+        assert(!name.empty());
+        ret = parser.make_node<Node>(as_wstring(name), text);
     }
     ASTNodes statements;
     if (auto t = parser.parse_statements(statements); !t.matches(TokenKind::EndOfFile)) {
@@ -258,23 +259,19 @@ ASTNode parse(Parser &parser, std::string_view module_name, std::wstring const &
         ret->location = statements[0]->location + statements.back()->location;
         std::visit(
             overloads {
-                [&statements](Program &n) {
+                [&statements, &parser, &ret](Program &n) {
                     n.statements = std::move(statements);
+                    parser.program = ret;
                 },
-                [&statements](Module &n) {
+                [&statements, &parser, &ret, &name](Module &n) {
                     n.statements = std::move(statements);
+                    get<Program>(parser.program).modules[as_wstring(name)] = ret;
                 },
                 [&statements](Block &n) {
                     n.statements = std::move(statements);
                 },
                 [](auto &n) { UNREACHABLE(); } },
             ret->node);
-        if constexpr (std::is_same_v<Node, Program>) {
-            parser.program = ret;
-        }
-        if constexpr (std::is_same_v<Node, Module>) {
-            get<Program>(parser.program).modules[std::wstring(name(ret))] = ret;
-        }
         return ret;
     }
     return nullptr;

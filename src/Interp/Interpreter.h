@@ -88,6 +88,7 @@ struct Interpreter {
     Stack                                       stack;
     std::vector<Context>                        call_stack;
     std::array<uint64_t, 20>                    registers;
+    std::optional<uint64_t>                     break_depth;
     Callback                                    callback { nullptr };
 
     Interpreter() = default;

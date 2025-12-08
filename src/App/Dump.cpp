@@ -41,8 +41,10 @@ void dump(ASTNode const &, BinaryExpression const &impl, std::wostream &os, int 
 template<class Statements>
     requires std::is_same_v<Statements, Block>
     || std::is_same_v<Statements, Module>
-void dump(ASTNode const &n, Block const &impl, std::wostream &os, int indent)
+void dump(ASTNode const &n, Statements const &impl, std::wostream &os, int indent)
 {
+    print_indent(os, indent);
+    os << "#statements: " << impl.statements.size() << "\n";
     for (auto const &stmt : impl.statements) {
         dump(stmt, os, indent + 4);
     }

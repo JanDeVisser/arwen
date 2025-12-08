@@ -88,10 +88,10 @@ struct Operation {
     };
 
     struct BreakOp {
-        uint64_t scope_end;
-        uint64_t depth;
-        uint64_t label;
-        pType    exit_type;
+        uint64_t                scope_end;
+        std::optional<uint64_t> depth;
+        uint64_t                label;
+        pType                   exit_type;
     };
     struct CallOp {
         std::wstring                       name;

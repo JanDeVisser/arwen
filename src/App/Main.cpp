@@ -180,7 +180,7 @@ struct Builder {
         if (!std_lib) {
             return false;
         }
-        auto program = Arwen::parse<Arwen::Program>(parser, program_name, *std_lib);
+        auto program = Arwen::parse<Arwen::Program>(parser, *std_lib, program_name);
         if (!program) {
             log_error("Error(s) parsing builtins");
             return false;
@@ -205,7 +205,7 @@ struct Builder {
             return false;
         } else {
             source_text = *source_text_maybe;
-            auto mod = Arwen::parse<Arwen::Module>(parser, as_utf8(program_name), source_text);
+            auto mod = Arwen::parse<Arwen::Module>(parser, source_text, as_utf8(program_name));
             if (!parser.errors.empty()) {
                 log_error("Syntax error(s) found:");
                 for (auto const &err : parser.errors) {

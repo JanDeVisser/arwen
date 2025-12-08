@@ -153,7 +153,13 @@ std::wostream &operator<<(std::wostream &os, Arwen::IR::VarPath const &var_path)
 
 std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation::BreakOp const &break_op)
 {
-    os << break_op.scope_end << ',' << break_op.depth << ',' << break_op.label;
+    os << "enclosing end: " << break_op.scope_end << ", depth: ";
+    if (!break_op.depth) {
+        os << "any";
+    } else {
+        os << *break_op.depth;
+    }
+    os << ", target label: " << break_op.label;
     return os;
 }
 
@@ -171,7 +177,7 @@ std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation::BinaryOp cons
 
 std::wostream &operator<<(std::wostream &os, Arwen::IR::Operation::ScopeEndOp const &scope_end_op)
 {
-    os << scope_end_op.enclosing_end << ',' << scope_end_op.has_defers;
+    os << "enclosing end: " << scope_end_op.enclosing_end << ", has defers: " << ((scope_end_op.has_defers) ? "True" : "False");
     return os;
 }
 

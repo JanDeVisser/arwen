@@ -102,6 +102,7 @@ struct LogMessageMeta {
 };
 
 inline bool info_on() { return log_config.level >= LogLevel::Info; }
+inline bool verbose_on() { return log_config.level >= LogLevel::Info; }
 inline bool trace_on() { return log_config.level >= LogLevel::Trace; }
 
 inline std::ostream &operator<<(std::ostream &os, LogMessageMeta const &meta)

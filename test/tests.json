@@ -1,4 +1,5 @@
 [
   "01_helloworld",
-  "02_expression"
+  "02_expression",
+  "03_comptime"
 ]
