@@ -22,10 +22,15 @@ size_t arwen$puts(wchar_t const *ptr, uint64_t len)
     return ret;
 }
 
+size_t arwen$endln()
+{
+    return write(1, "\n", 1);
+}
+
 size_t arwen$putln(wchar_t const *ptr, uint64_t len)
 {
     size_t ret = arwen$puts(ptr, len);
-    ret += write(1, "\n", 1);
+    ret += arwen$endln();
     return ret;
 }
 

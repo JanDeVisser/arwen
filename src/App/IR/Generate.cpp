@@ -263,7 +263,11 @@ template<>
 void generate_node(Generator &generator, ASTNode const &n, Call const &node)
 {
     std::vector<IRVariableDeclaration> params;
-    for (auto const &param_def : get<FunctionDeclaration>(get<FunctionDefinition>(node.function).declaration).parameters) {
+    trace(L"Call: definition id: {}", node.function);
+    auto const &definition = get<FunctionDefinition>(node.function);
+    trace(L"Name: {} declaration id: {}", definition.name, definition.declaration);
+    auto const &declaration = get<FunctionDeclaration>(definition.declaration);
+    for (auto const &param_def : declaration.parameters) {
         params.emplace_back(get<Parameter>(param_def).name, param_def->bound_type);
     }
     for (auto const &expression : get<ExpressionList>(node.arguments).expressions) {

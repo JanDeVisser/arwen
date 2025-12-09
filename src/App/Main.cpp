@@ -214,6 +214,9 @@ struct Builder {
                 return false;
             }
             info("Syntactic parsing succeeded", parser.pass);
+            if (has_option("dump-trees")) {
+                dump(parser.program, std::wcerr);
+            }
             return true;
         }
     }
@@ -231,6 +234,9 @@ struct Builder {
         assert(normalized);
         parser.program = normalized;
         info("First phase of sematic analysis succeeded");
+        if (has_option("dump-trees")) {
+            dump(parser.program, std::wcerr);
+        }
         return true;
     }
 
@@ -247,6 +253,9 @@ struct Builder {
             s = Arwen::bind(parser.program);
             ++parser.pass;
         } while (!s.has_value() && parser.unbound < prev_pass);
+        if (has_option("dump-trees")) {
+            dump(parser.program, std::wcerr);
+        }
         if (!s.has_value()) {
             info("Second phase of semantic analysis failed after {} pass(es)", parser.pass);
             if (!parser.errors.empty()) {

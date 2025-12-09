@@ -466,7 +466,11 @@ void dump(ASTNode const &node, std::wostream &os, int indent)
         }
         for (auto const &[n, f] : node->ns->functions) {
             print_indent(os, indent + 4);
-            os << n << ": " << f->bound_type->to_string() << "\n";
+            os << n;
+            if (f->bound_type) {
+                os << ": " << f->bound_type->to_string();
+            }
+            os << "\n";
         }
         for (auto const &[n, v] : node->ns->variables) {
             print_indent(os, indent + 4);

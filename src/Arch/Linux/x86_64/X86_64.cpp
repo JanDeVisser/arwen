@@ -298,26 +298,34 @@ void Function::pop(size_t size, Registers const &targets)
         return;
     }
     assert(!stack.empty());
-    auto w = words_needed(size);
-    assert(targets.size() == w);
+    auto      w = words_needed(size);
+    Registers t = targets;
+    trace("targets.size: {} size: {} w: {}", targets.size(), size, w);
+    if (t.empty()) {
+        for (auto ix = 0; ix < w; ++ix) {
+            t.push_back(alu_regs[ix]);
+        }
+    } else {
+        assert(t.size() == w);
+    }
     ValueStackEntry alloc = pop_reg(size);
     std::visit(
         overloads {
-            [this, &size, &targets](Registers const &srcs) {
-                assert(srcs.size() == targets.size());
-                for (auto [src, target] : std::ranges::views::zip(srcs, targets)) {
+            [this, &size, &t](Registers const &srcs) {
+                assert(srcs.size() == t.size());
+                for (auto [src, target] : std::ranges::views::zip(srcs, t)) {
                     save_regs[target] = true;
                     writer.add_instruction(L"movq", L"%{},%{}", src, target);
                 }
             },
-            [this, &targets](StackAllocation const &alloc) {
-                for (auto reg : targets) {
+            [this, &t](StackAllocation const &alloc) {
+                for (auto reg : t) {
                     save_regs[reg] = true;
                     writer.add_instruction(L"popq", L"%{}", reg);
                 }
             },
-            [this, &size, &targets](VarPointer const &) {
-                deref(size, targets);
+            [this, &size, &t](VarPointer const &) {
+                deref(size, t);
             } },
         alloc);
 }
@@ -364,11 +372,9 @@ VarPointer Function::deref(size_t size, Registers const &targets)
     stack.pop_back();
     // debug_stack(*this, std::format("deref({}, {}) VarPointer {}", size, target, ptr));
     auto num_regs { words_needed(size) };
-    auto num { num_regs };
-    while (num > 0) {
-        writer.add_instruction(L"movq", L"-{}(%rbp%),%{}", ptr, targets[num_regs - num - 1]);
+    for (auto num = 0; num < num_regs; ++num) {
+        writer.add_instruction(L"movq", L"-{}(%rbp),%{}", ptr, targets[num]);
         ptr -= 8;
-        ++num;
     }
     return ret;
 }
