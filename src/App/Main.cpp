@@ -32,12 +32,16 @@
 
 #include <Interp/Interpreter.h>
 
+#if 0
 #ifdef IS_ARM64
 #include <Arch/Arm64/Arm64.h>
 #endif
 #ifdef IS_X86_64
 #include <Arch/Linux/x86_64/X86_64.h>
 #endif
+#endif
+
+#include <App/QBE/QBE.h>
 
 namespace Arwen {
 
@@ -109,35 +113,28 @@ struct Builder {
     bool         verbose { false };
     IR::IRNodes  ir {};
 
-    bool gen_ir()
+    bool analyze()
     {
         if (!parse()) {
             std::cerr << "Syntactic parsing failed\n";
             return false;
         }
         if (has_option("stop-after-parse")) {
-            return true;
+            return false;
         }
         if (!normalize() || !bind()) {
             log_error("Semantic analysis failed");
             return false;
         }
         if (has_option("stop-after-analysis")) {
-            return true;
-        }
-        if (!generate_ir()) {
-            log_error("Intermediate representation generation failed");
             return false;
-        }
-        if (has_option("list")) {
-            save(ir);
         }
         return true;
     }
 
     bool build()
     {
-        if (!gen_ir()) {
+        if (!analyze()) {
             return false;
         }
         if (!generate_code()) {
@@ -149,8 +146,12 @@ struct Builder {
 
     int eval()
     {
-        if (!gen_ir()) {
+        if (!analyze()) {
             return false;
+        }
+        IR::generate_ir(parser.program, ir);
+        if (has_option("list")) {
+            save(ir);
         }
         auto v = execute_ir(ir);
         if (v.type != TypeRegistry::i32) {
@@ -253,9 +254,6 @@ struct Builder {
             s = Arwen::bind(parser.program);
             ++parser.pass;
         } while (!s.has_value() && parser.unbound < prev_pass);
-        if (has_option("dump-trees")) {
-            dump(parser.program, std::wcerr);
-        }
         if (!s.has_value()) {
             info("Second phase of semantic analysis failed after {} pass(es)", parser.pass);
             if (!parser.errors.empty()) {
@@ -275,17 +273,15 @@ struct Builder {
             return false;
         }
         info("Second phase of semantic analysis succeeded after {} pass(es)", parser.pass);
-        return true;
-    }
-
-    bool generate_ir()
-    {
-        IR::generate_ir(parser.program, ir);
+        if (has_option("dump-trees")) {
+            dump(parser.program, std::wcerr);
+        }
         return true;
     }
 
     bool generate_code()
     {
+#if 0
 #ifdef IS_ARM64
         MUST(Arm64::generate_arm64(ir));
         return true;
@@ -293,6 +289,12 @@ struct Builder {
 #ifdef IS_X86_64
         return X86_64::generate_x86_64(ir);
 #endif
+#endif
+        if (auto res = QBE::generate_qbe(parser.program); !res) {
+            log_error(L"QBE generation error: {}", res.error());
+            return false;
+        }
+        return true;
     }
 
 private:

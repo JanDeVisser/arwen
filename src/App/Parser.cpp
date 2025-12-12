@@ -204,6 +204,8 @@ ASTNode Parser::parse_statement()
             return parse_include();
         case ArwenKeyword::Loop:
             return parse_loop();
+        case ArwenKeyword::Public:
+            return parse_public();
         case ArwenKeyword::Return:
             return parse_return_error();
         case ArwenKeyword::Struct:
