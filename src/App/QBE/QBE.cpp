@@ -176,6 +176,12 @@ GenResult generate_qbe_node(ASTNode const &n, Call const &impl, QBEContext &ctx)
 }
 
 template<>
+GenResult generate_qbe_node(ASTNode const &n, Comptime const &impl, QBEContext &ctx)
+{
+    return generate_qbe_node(impl.statements, ctx);
+}
+
+template<>
 GenResult generate_qbe_node(ASTNode const &n, Constant const &impl, QBEContext &ctx)
 {
     if (impl.bound_value->type == TypeRegistry::void_) {
