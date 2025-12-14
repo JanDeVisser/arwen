@@ -522,6 +522,12 @@ void generate_node(Generator &generator, ASTNode const &n, Return const &node)
 }
 
 template<>
+void generate_node(Generator &generator, ASTNode const &n, PublicDeclaration const &node)
+{
+    generator.generate(node.declaration);
+}
+
+template<>
 void generate_node(Generator &generator, ASTNode const &n, Struct const &node)
 {
     add_operation<Operation::PushConstant>(generator, make_void());

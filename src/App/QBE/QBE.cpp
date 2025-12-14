@@ -12,7 +12,6 @@
 #include <format>
 #include <fstream>
 #include <ranges>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -236,6 +235,12 @@ GenResult generate_qbe_node(ASTNode const &n, Constant const &impl, QBEContext &
 }
 
 template<>
+GenResult generate_qbe_node(ASTNode const &n, Dummy const &impl, QBEContext &ctx)
+{
+    return 0;
+}
+
+template<>
 GenResult generate_qbe_node(ASTNode const &n, FunctionDefinition const &impl, QBEContext &ctx)
 {
     if (!is<ExternLink>(impl.implementation)) {
@@ -394,13 +399,15 @@ GenResult generate_qbe_node(ASTNode const &n, Return const &impl, QBEContext &ct
             }
         }
     }
-    ctx.text += L"    ret ";
-    if (var != 0) {
-        ctx.text += std::format(L"{} %v{}", qbe_type(impl.expression->bound_type), var);
-    } else if (impl.expression != nullptr) {
-        // It's a first-class Constant
-        if (auto res = generate_qbe_node(impl.expression, ctx); !res) {
-            return res;
+    ctx.text += L"    ret";
+    if (impl.expression != nullptr) {
+        if (var != 0) {
+            ctx.text += std::format(L" %v{}", var);
+        } else {
+            ctx.text += ' ';
+            if (auto res = generate_qbe_node(impl.expression, ctx); !res) {
+                return res;
+            }
         }
     }
     ctx.text += '\n';
