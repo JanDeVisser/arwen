@@ -388,6 +388,7 @@ template<>
 void generate_node(Generator &generator, ASTNode const &n, Identifier const &node)
 {
     add_operation<Operation::PushVarAddress>(generator, VarPath { node.identifier, n->bound_type, 0 });
+    add_operation<Operation::Dereference>(generator, n->bound_type);
 }
 
 template<>

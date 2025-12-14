@@ -202,7 +202,7 @@ GenResult generate_qbe_node(ASTNode const &n, Constant const &impl, QBEContext &
                         (int_type.is_signed) ? as<int32_t>(*impl.bound_value) : as<uint32_t>(*impl.bound_value));
                     break;
                 case 64:
-                    ctx.text += std::format(L"%{}\n",
+                    ctx.text += std::format(L"{}",
                         (int_type.is_signed) ? as<int64_t>(*impl.bound_value) : as<uint64_t>(*impl.bound_value));
                     break;
                 }
@@ -226,7 +226,7 @@ GenResult generate_qbe_node(ASTNode const &n, Constant const &impl, QBEContext &
                 auto str_id = ctx.strings.size();
                 auto len_id = ++ctx.next_var;
                 ctx.text += std::format(
-                    LR"(%v{} = l alloc8 16
+                    LR"(%v{} = l alloc16 16
     storel $str_{}, %v{}
     %v{} = l add %v{}, 8
     storel {}, %v{}
@@ -279,6 +279,42 @@ GenResult generate_qbe_node(ASTNode const &n, FunctionDeclaration const &impl, Q
     }
     ctx.text += ')';
     return 0;
+}
+
+template<>
+GenResult generate_qbe_node(ASTNode const &n, Identifier const &impl, QBEContext &ctx)
+{
+    auto              var = ++ctx.next_var;
+    auto              size = n->bound_type->size_of();
+    std::wstring_view code = std::visit(
+        overloads {
+            [](IntType const &int_type) -> std::wstring_view {
+                switch (int_type.width_bits) {
+                case 8:
+                    return (int_type.is_signed) ? L"sb" : L"ub";
+                    break;
+                case 16:
+                    return (int_type.is_signed) ? L"sh" : L"uh";
+                    break;
+                case 32:
+                    return (int_type.is_signed) ? L"sw" : L"uw";
+                    break;
+                case 64:
+                    return L"l";
+                    break;
+                default:
+                    UNREACHABLE();
+                }
+            },
+            [](FloatType const &float_type) -> std::wstring_view {
+                return (float_type.width_bits == 64) ? L"d" : L"s";
+            },
+            [](auto const &) -> std::wstring_view {
+                NYI("Identifier");
+            } },
+        n->bound_type->description);
+    ctx.text += std::format(L"    %v{} = {} load{} %{}$\n", var, code.back(), code, impl.identifier);
+    return var;
 }
 
 template<>
@@ -418,6 +454,54 @@ GenResult generate_qbe_node(ASTNode const &n, Return const &impl, QBEContext &ct
     }
     ctx.text += '\n';
     return 0;
+}
+
+template<>
+GenResult generate_qbe_node(ASTNode const &n, VariableDeclaration const &impl, QBEContext &ctx)
+{
+    int var = 0;
+    if (impl.initializer && (!is<Constant>(impl.initializer) || !qbe_first_class_type(impl.initializer->bound_type))) {
+        if (auto res = generate_qbe_node(impl.initializer, ctx); !res) {
+            return res;
+        } else {
+            var = res.value();
+        }
+    }
+    auto size = n->bound_type->size_of();
+    char code = std::visit(
+        overloads {
+            [](IntType const &int_type) -> char {
+                switch (int_type.width_bits) {
+                case 8:
+                    return 'b';
+                case 16:
+                    return 'h';
+                case 32:
+                    return 'w';
+                default:
+                    return 'l';
+                }
+            },
+            [](FloatType const &float_type) -> char {
+                return (float_type.width_bits == 64) ? 'd' : 's';
+            },
+            [](auto const &) -> char {
+                NYI("VariableDeclaration");
+            } },
+        n->bound_type->description);
+    ctx.text += std::format(L"    %{}$ = l alloc{} {}\n", impl.name, (size < 8) ? '4' : '8', size);
+    if (impl.initializer) {
+        ctx.text += std::format(L"    store{} ", code, impl.name);
+        if (var != 0) {
+            ctx.text += std::format(L"%v{}\n", var);
+        } else {
+            if (auto res = generate_qbe_node(impl.initializer, ctx); !res) {
+                return res;
+            }
+        }
+        ctx.text += std::format(L", %{}$\n", impl.name);
+    }
+    return var;
 }
 
 GenResult generate_qbe_node(ASTNode const &n, QBEContext &ctx)

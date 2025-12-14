@@ -8,6 +8,7 @@
 #define __ARWEN_H__
 
 #include <assert.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -42,6 +43,9 @@ slice_t     to_utf8(slice_t utf32);
 slice_t     to_utf32(slice_t utf8);
 slice_t     cstring_to_string(char const *cstring);
 char const *string_to_cstring(slice_t string);
+
+extern size_t arwen$endln();
+extern size_t arwen$puts(wchar_t const *ptr, uint64_t len);
 
 #define ALIGNAT(bytes, align) ((bytes + (align - 1)) & ~(align - 1))
 #define AS_SLICE(dynarr) (*(slice_t *) (&dynarr))
