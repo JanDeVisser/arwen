@@ -224,5 +224,6 @@ void assert_msg(std::string_view const &file, size_t line, std::string_view cons
 #define assert_with_msg(condition, fmt, ...) assert_msg(__FILE__, __LINE__, __func__, condition, "Assertion error: " #condition ": " fmt __VA_OPT__(, ) __VA_ARGS__)
 
 #define UNREACHABLE() std::unreachable()
-#define NYI(msg) fatal("Not yet implemented: " msg)
+#define NYI(fmt, ...) fatal_msg(__FILE__, __LINE__, __func__, "Not Yet Implemented: " fmt __VA_OPT__(, ) __VA_ARGS__)
+
 }

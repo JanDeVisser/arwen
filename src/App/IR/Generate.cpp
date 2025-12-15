@@ -83,6 +83,18 @@ pIR const &find_ir_node(Generator const &generator)
     UNREACHABLE();
 }
 
+void assign(std::wstring varname, pType const &lhs, ASTNode const &rhs, Generator &generator)
+{
+    generator.generate(rhs);
+    auto &rhs_type { rhs->bound_type };
+    add_operation<Operation::PushVarAddress>(generator, VarPath { std::move(varname), lhs, 0 });
+    if (rhs_type->kind() == TypeKind::ReferenceType) {
+        add_operation<Operation::AssignFromRef>(generator, lhs);
+    } else {
+        add_operation<Operation::AssignValue>(generator, lhs);
+    }
+}
+
 template<typename T>
 void generate_node(Generator &, ASTNode const &, T const &)
 {
@@ -123,15 +135,8 @@ void generate_node(Generator &generator, ASTNode const &n, BinaryExpression cons
     auto        rhs_value_type { rhs_type->value_type() };
 
     if (node.op == Operator::Assign) {
-        generator.generate(node.rhs);
-        generator.generate(node.lhs);
-        if (rhs_type->kind() == TypeKind::ReferenceType) {
-            add_operation<Operation::AssignFromRef>(generator, lhs_value_type);
-        } else {
-            add_operation<Operation::AssignValue>(generator, lhs_value_type);
-        }
-        generator.generate(node.lhs);
-        add_operation<Operation::Dereference>(generator, lhs_value_type);
+        auto ident = get<Identifier>(node.lhs); // crashes if LHS is not identifier
+        assign(ident.identifier, node.lhs->bound_type, node.rhs, generator);
         return;
     }
     generator.generate(node.lhs);
@@ -558,15 +563,7 @@ void generate_node(Generator &generator, ASTNode const &n, VariableDeclaration c
 {
     add_operation<Operation::DeclVar>(generator, IRVariableDeclaration { node.name, n->bound_type });
     if (node.initializer) {
-        generator.generate(node.initializer);
-        auto &rhs_type { node.initializer->bound_type };
-        auto &lhs_type { n->bound_type };
-        add_operation<Operation::PushVarAddress>(generator, VarPath { node.name, n->bound_type, 0 });
-        if (rhs_type->kind() == TypeKind::ReferenceType) {
-            add_operation<Operation::AssignFromRef>(generator, lhs_type);
-        } else {
-            add_operation<Operation::AssignValue>(generator, lhs_type);
-        }
+        assign(node.name, n->bound_type, node.initializer, generator);
     }
     add_operation<Operation::PushVarAddress>(generator, VarPath { node.name, n->bound_type, 0 });
     add_operation<Operation::Dereference>(generator, n->bound_type->value_type());

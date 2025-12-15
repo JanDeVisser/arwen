@@ -45,7 +45,7 @@ ASTNode normalize(ASTNode const &n, BinaryExpression const &impl)
     auto const_evaluate = [&n](ASTNode const &lhs, Operator op, ASTNode const &rhs) -> ASTNode {
         auto const &lhs_const = std::get_if<Constant>(&lhs->node);
         if (lhs_const == nullptr || !lhs_const->bound_value) {
-            return n;
+            return make_node<BinaryExpression>(n, lhs, op, rhs);
         }
         if (op == Operator::Cast) {
             if (is<TypeSpecification>(rhs)) {
@@ -62,7 +62,7 @@ ASTNode normalize(ASTNode const &n, BinaryExpression const &impl)
             auto ret = evaluate(lhs_const->bound_value.value(), op, rhs_const->bound_value.value());
             return make_node<Constant>(n, ret);
         }
-        return n;
+        return make_node<BinaryExpression>(n, lhs, op, rhs);
     };
 
     switch (impl.op) {

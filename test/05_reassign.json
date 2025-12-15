@@ -1,0 +1,11 @@
+{
+  "name": "05_reassign",
+  "comptime_stdout": [],
+  "comptime_stderr": [],
+  "stdout": [
+    "42"
+  ],
+  "stderr": [],
+  "exit": 0,
+  "args": []
+}

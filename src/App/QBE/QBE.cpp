@@ -93,10 +93,144 @@ std::wstring_view qbe_type(pType const &type)
         type->description);
 }
 
+std::wstring_view qbe_operator(Operator op, bool is_unsigned)
+{
+    switch (op) {
+    case Operator::Add:
+        return L"add";
+    case Operator::Divide:
+        return (is_unsigned) ? L"udiv" : L"div";
+    case Operator::Modulo:
+        return (is_unsigned) ? L"urem" : L"rem";
+    case Operator::Multiply:
+        return L"mul";
+    case Operator::Subtract:
+        return L"sub";
+    default:
+        NYI("QBE mapping for operator `{}`", Operator_name(op));
+        break;
+    }
+}
+
+static GenResult assign(std::wstring_view varname, pType const &type, ASTNode const &rhs, QBEContext &ctx)
+{
+    int var = 0;
+    if (!is<Constant>(rhs) || !qbe_first_class_type(type)) {
+        if (auto res = generate_qbe_node(rhs, ctx); !res) {
+            return res;
+        } else {
+            var = res.value();
+        }
+    }
+    char code = std::visit(
+        overloads {
+            [](IntType const &int_type) -> char {
+                switch (int_type.width_bits) {
+                case 8:
+                    return 'b';
+                case 16:
+                    return 'h';
+                case 32:
+                    return 'w';
+                default:
+                    return 'l';
+                }
+            },
+            [](FloatType const &float_type) -> char {
+                return (float_type.width_bits == 64) ? 'd' : 's';
+            },
+            [](auto const &) -> char {
+                NYI("VariableDeclaration");
+            } },
+        rhs->bound_type->description);
+    ctx.text += std::format(L"    store{} ", code, varname);
+    if (var != 0) {
+        ctx.text += std::format(L"%v{}", var);
+    } else {
+        if (auto res = generate_qbe_node(rhs, ctx); !res) {
+            return res;
+        }
+    }
+    ctx.text += std::format(L", %{}$\n", varname);
+    return var;
+}
+
+static GenResult generate_not_inline(ASTNode const &n, QBEContext &ctx)
+{
+    if (!is<Constant>(n) || !qbe_first_class_type(n->bound_type)) {
+        if (auto res = generate_qbe_node(n, ctx); !res) {
+            return res;
+        } else {
+            assert(res.value() != 0);
+            return res;
+        }
+    }
+    return 0;
+}
+
+#define TRY_GENERATE_NOT_INLINE(n, ctx)                                 \
+    (                                                                   \
+        {                                                               \
+            int __val = 0;                                              \
+            if (auto __res = generate_not_inline((n), (ctx)); !__res) { \
+                return __res;                                           \
+            } else {                                                    \
+                __val = __res.value();                                  \
+            }                                                           \
+            (__val);                                                    \
+        })
+
+static GenResult generate_inline(int var, ASTNode const &n, QBEContext &ctx)
+{
+    if (var > 0) {
+        ctx.text += std::format(L"%v{}", var);
+        return var;
+    } else {
+        return generate_qbe_node(n, ctx);
+    }
+}
+
+#define TRY_GENERATE_INLINE(var, n, ctx)                                   \
+    (                                                                      \
+        {                                                                  \
+            int __val = 0;                                                 \
+            if (auto __res = generate_inline((var), (n), (ctx)); !__res) { \
+                return __res;                                              \
+            } else {                                                       \
+                __val = __res.value();                                     \
+            }                                                              \
+            (__val);                                                       \
+        })
+
 template<class Node>
 GenResult generate_qbe_node(ASTNode const &, Node const &, QBEContext &)
 {
-    fatal("Unimplemented QBE serialization for {}", typeid(Node).name());
+    NYI("Unimplemented QBE serialization for {}", typeid(Node).name());
+}
+
+template<>
+GenResult generate_qbe_node(ASTNode const &n, BinaryExpression const &impl, QBEContext &ctx)
+{
+    auto const &rhs_type { impl.rhs->bound_type };
+    auto        rhs_value_type { rhs_type->value_type() };
+
+    if (impl.op == Operator::Assign) {
+        auto ident = get<Identifier>(impl.lhs);
+        return assign(ident.identifier, rhs_value_type, impl.rhs, ctx);
+    }
+    int  lhs_var = TRY_GENERATE_NOT_INLINE(impl.lhs, ctx);
+    int  rhs_var = TRY_GENERATE_NOT_INLINE(impl.rhs, ctx);
+    int  var = ++ctx.next_var;
+    bool is_unsigned = false;
+    if (auto int_type = get_if<IntType>(n->bound_type); int_type != nullptr) {
+        is_unsigned = !int_type->is_signed;
+    }
+    ctx.text += std::format(L"    %v{} = {} {} ", var, qbe_type(n->bound_type), qbe_operator(impl.op, is_unsigned));
+    TRY_GENERATE_INLINE(lhs_var, impl.lhs, ctx);
+    ctx.text += L", ";
+    TRY_GENERATE_INLINE(rhs_var, impl.rhs, ctx);
+    ctx.text += '\n';
+    return var;
 }
 
 template<>
@@ -124,18 +258,7 @@ GenResult generate_qbe_node(ASTNode const &n, Call const &impl, QBEContext &ctx)
 
     std::vector<Argument> args;
     for (auto const &expression : get<ExpressionList>(impl.arguments).expressions) {
-        if (is<Constant>(expression) && qbe_first_class_type(expression->bound_type)) {
-            args.emplace_back(expression, 0);
-            continue;
-        }
-        if (auto res = generate_qbe_node(expression, ctx); res) {
-            if (res.value() == 0) {
-                return std::unexpected(L"Argument expression must evaluate to value");
-            }
-            args.emplace_back(expression, res.value());
-        } else {
-            return res;
-        }
+        args.emplace_back(expression, TRY_GENERATE_NOT_INLINE(expression, ctx));
     }
     ctx.text += L"    ";
     int ret = 0;
@@ -163,13 +286,7 @@ GenResult generate_qbe_node(ASTNode const &n, Call const &impl, QBEContext &ctx)
         }
         first = false;
         ctx.text += std::format(L"{} ", qbe_type(expr->bound_type));
-        if (var > 0) {
-            ctx.text += std::format(L"%v{}", var);
-        } else {
-            if (auto res = generate_qbe_node(expr, ctx); !res) {
-                return res;
-            }
-        }
+        TRY_GENERATE_INLINE(var, expr, ctx);
     }
     ctx.text += L")\n";
     return ret;
@@ -459,49 +576,12 @@ GenResult generate_qbe_node(ASTNode const &n, Return const &impl, QBEContext &ct
 template<>
 GenResult generate_qbe_node(ASTNode const &n, VariableDeclaration const &impl, QBEContext &ctx)
 {
-    int var = 0;
-    if (impl.initializer && (!is<Constant>(impl.initializer) || !qbe_first_class_type(impl.initializer->bound_type))) {
-        if (auto res = generate_qbe_node(impl.initializer, ctx); !res) {
-            return res;
-        } else {
-            var = res.value();
-        }
-    }
     auto size = n->bound_type->size_of();
-    char code = std::visit(
-        overloads {
-            [](IntType const &int_type) -> char {
-                switch (int_type.width_bits) {
-                case 8:
-                    return 'b';
-                case 16:
-                    return 'h';
-                case 32:
-                    return 'w';
-                default:
-                    return 'l';
-                }
-            },
-            [](FloatType const &float_type) -> char {
-                return (float_type.width_bits == 64) ? 'd' : 's';
-            },
-            [](auto const &) -> char {
-                NYI("VariableDeclaration");
-            } },
-        n->bound_type->description);
     ctx.text += std::format(L"    %{}$ = l alloc{} {}\n", impl.name, (size < 8) ? '4' : '8', size);
-    if (impl.initializer) {
-        ctx.text += std::format(L"    store{} ", code, impl.name);
-        if (var != 0) {
-            ctx.text += std::format(L"%v{}\n", var);
-        } else {
-            if (auto res = generate_qbe_node(impl.initializer, ctx); !res) {
-                return res;
-            }
-        }
-        ctx.text += std::format(L", %{}$\n", impl.name);
+    if (impl.initializer != nullptr) {
+        return assign(impl.name, n->bound_type, impl.initializer, ctx);
     }
-    return var;
+    return 0;
 }
 
 GenResult generate_qbe_node(ASTNode const &n, QBEContext &ctx)

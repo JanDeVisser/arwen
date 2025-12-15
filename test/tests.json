@@ -1,5 +1,7 @@
 [
   "01_helloworld",
   "02_expression",
-  "03_comptime"
+  "03_comptime",
+  "04_variable",
+  "05_reassign"
 ]
