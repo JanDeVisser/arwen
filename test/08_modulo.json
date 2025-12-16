@@ -1,0 +1,14 @@
+{
+  "name": "08_modulo",
+  "comptime_stdout": [],
+  "comptime_stderr": [],
+  "stdout": [
+    "0",
+    "1"
+  ],
+  "stderr": [
+    "Division by zero"
+  ],
+  "exit": -6,
+  "args": []
+}

@@ -44,8 +44,15 @@ slice_t     to_utf32(slice_t utf8);
 slice_t     cstring_to_string(char const *cstring);
 char const *string_to_cstring(slice_t string);
 
-extern size_t arwen$endln();
+extern size_t arwen$fputs(int fd, wchar_t const *ptr, uint64_t len);
+extern size_t arwen$fendln(int fd);
+extern size_t arwen$fputln(int fd, wchar_t const *ptr, uint64_t len);
 extern size_t arwen$puts(wchar_t const *ptr, uint64_t len);
+extern size_t arwen$endln();
+extern size_t arwen$putln(wchar_t const *ptr, uint64_t len);
+extern size_t arwen$eputs(wchar_t const *ptr, uint64_t len);
+extern size_t arwen$eputln(wchar_t const *ptr, uint64_t len);
+extern void   arwen$abort(wchar_t const *ptr, uint64_t len);
 
 #define ALIGNAT(bytes, align) ((bytes + (align - 1)) & ~(align - 1))
 #define AS_SLICE(dynarr) (*(slice_t *) (&dynarr))

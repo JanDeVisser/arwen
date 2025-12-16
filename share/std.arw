@@ -1,5 +1,20 @@
+//
+// Copyright (c) 2025, Jan de Visser <jan@finiandarcy.com>
+//
+// SPDX-License-Identifier: MIT
+//
+
+func fputs(fd: i32, s: string) void -> "libarwenrt:arwen$fputs"
+func fendln(fd: i32) void -> "libarwenrt:arwen$fendln"
+func fputln(fd: i32, s: string) void -> "libarwenrt:arwen$fputln"
+
 func puts(s: string) void -> "libarwenrt:arwen$puts"
 func putln(s: string) void -> "libarwenrt:arwen$putln"
 func puti(i: i64) void -> "libarwenrt:arwen$puti"
+func putw(i: i32) void -> "libarwenrt:arwen$puti"
+func putb(b: bool) void -> "libarwenrt:arwen$puti"
 func endln() void -> "libarwenrt:arwen$endln"
+
+func eput(s: string) void -> "libarwenrt:arwen$putln"
+func eputln(s: string) void -> "libarwenrt:arwen$putln"
 

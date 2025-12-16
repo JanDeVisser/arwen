@@ -15,16 +15,38 @@
 static slice_t to_string_int64(slice_t dest, int64_t i, int radix);
 static slice_t to_string_uint64(slice_t dest, uint64_t i, int radix);
 
-size_t arwen$puts(wchar_t const *ptr, uint64_t len)
+size_t arwen$fputs(int fd, wchar_t const *ptr, uint64_t len)
 {
     slice_t utf8 = to_utf8((slice_t) { (void *) ptr, len });
-    size_t  ret = write(1, utf8.ptr, utf8.size);
+    size_t  ret = write(fd, utf8.ptr, utf8.size);
     return ret;
+}
+
+size_t arwen$fendln(int fd)
+{
+    return write(fd, "\n", 1);
+}
+
+size_t arwen$fputln(int fd, wchar_t const *ptr, uint64_t len)
+{
+    size_t ret = arwen$fputs(fd, ptr, len);
+    ret += arwen$fendln(fd);
+    return ret;
+}
+
+size_t arwen$puts(wchar_t const *ptr, uint64_t len)
+{
+    return arwen$fputs(1, ptr, len);
+}
+
+size_t arwen$eputs(wchar_t const *ptr, uint64_t len)
+{
+    return arwen$fputs(2, ptr, len);
 }
 
 size_t arwen$endln()
 {
-    return write(1, "\n", 1);
+    return arwen$fendln(1);
 }
 
 size_t arwen$putln(wchar_t const *ptr, uint64_t len)
@@ -32,6 +54,19 @@ size_t arwen$putln(wchar_t const *ptr, uint64_t len)
     size_t ret = arwen$puts(ptr, len);
     ret += arwen$endln();
     return ret;
+}
+
+size_t arwen$eputln(wchar_t const *ptr, uint64_t len)
+{
+    size_t ret = arwen$eputs(ptr, len);
+    ret += arwen$fendln(2);
+    return ret;
+}
+
+[[noreturn]] void arwen$abort(wchar_t const *ptr, uint64_t len)
+{
+    arwen$eputln(ptr, len);
+    abort();
 }
 
 size_t arwen$puti(int64_t i)

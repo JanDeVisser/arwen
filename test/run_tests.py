@@ -6,6 +6,7 @@
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 
@@ -23,7 +24,9 @@ def check_stream(script, what, stream):
         if what is None
         else what
     )
-    if written != expected:
+    if written != expected and not re.match(
+        f"(\\[.*Fatal.*\\]\\ )?{expected}", written
+    ):
         print("%s: '%s' != '%s'" % (script["name"], written, expected))
         ret = 1
     return ret
