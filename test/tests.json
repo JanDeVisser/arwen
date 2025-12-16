@@ -3,5 +3,7 @@
   "02_expression",
   "03_comptime",
   "04_variable",
-  "05_reassign"
+  "05_reassign",
+  "06_add_variables",
+  "07_while"
 ]

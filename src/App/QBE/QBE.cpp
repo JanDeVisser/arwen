@@ -93,23 +93,172 @@ std::wstring_view qbe_type(pType const &type)
         type->description);
 }
 
-std::wstring_view qbe_operator(Operator op, bool is_unsigned)
+char qbe_type_code(IntType type)
+{
+    switch (type.width_bits) {
+    case 8:
+        return 'b';
+    case 16:
+        return 'h';
+    case 32:
+        return 'w';
+    case 64:
+        return 'l';
+    default:
+        UNREACHABLE();
+    }
+}
+
+char qbe_type_code(FloatType type)
+{
+    switch (type.width_bits) {
+    case 32:
+        return 's';
+    case 64:
+        return 'd';
+    default:
+        UNREACHABLE();
+    }
+}
+
+template<class TLeft, class TRight = TLeft>
+void qbe_operator(TLeft const &lhs, Operator op, TRight const &rhs, QBEContext &ctx)
+{
+    fatal("Invalid operator `{}`", Operator_name(op));
+}
+
+template<>
+void qbe_operator(BoolType const &lhs, Operator op, BoolType const &rhs, QBEContext &ctx)
+{
+    switch (op) {
+    case Operator::LogicalAnd:
+        ctx.text += L"and";
+        break;
+    case Operator::LogicalOr:
+        ctx.text += L"or";
+        break;
+    default:
+        NYI("QBE mapping for bool operator `{}`", Operator_name(op));
+        break;
+    }
+}
+
+template<>
+void qbe_operator(IntType const &lhs, Operator op, IntType const &rhs, QBEContext &ctx)
 {
     switch (op) {
     case Operator::Add:
-        return L"add";
+        ctx.text += L"add";
+        break;
+    case Operator::BinaryAnd:
+        ctx.text += L"and";
+        break;
+    case Operator::BinaryOr:
+        ctx.text += L"or";
+        break;
+    case Operator::BinaryXor:
+        ctx.text += L"xor";
+        break;
     case Operator::Divide:
-        return (is_unsigned) ? L"udiv" : L"div";
+        ctx.text += (lhs.is_signed) ? L"div" : L"udiv";
+        break;
+    case Operator::Equals:
+        ctx.text += L"ceq";
+        ctx.text += qbe_type_code(lhs);
+        break;
+    case Operator::Greater:
+        ctx.text += (lhs.is_signed) ? L"cugt" : L"csgt";
+        ctx.text += qbe_type_code(lhs);
+        break;
+    case Operator::GreaterEqual:
+        ctx.text += (lhs.is_signed) ? L"cuge" : L"csge";
+        ctx.text += qbe_type_code(lhs);
+        break;
+    case Operator::Less:
+        ctx.text += (lhs.is_signed) ? L"cult" : L"cslt";
+        ctx.text += qbe_type_code(lhs);
+        break;
+    case Operator::LessEqual:
+        ctx.text += (lhs.is_signed) ? L"cule" : L"csle";
+        ctx.text += qbe_type_code(lhs);
+        break;
     case Operator::Modulo:
-        return (is_unsigned) ? L"urem" : L"rem";
+        ctx.text += (lhs.is_signed) ? L"rem" : L"urem";
     case Operator::Multiply:
-        return L"mul";
+        ctx.text += L"mul";
+        break;
+    case Operator::NotEqual:
+        ctx.text += L"cne";
+        ctx.text += qbe_type_code(lhs);
+        break;
+    case Operator::ShiftLeft:
+        ctx.text += L"shl";
+        break;
+    case Operator::ShiftRight:
+        ctx.text += L"shr";
+        break;
     case Operator::Subtract:
-        return L"sub";
+        ctx.text += L"sub";
+        break;
     default:
-        NYI("QBE mapping for operator `{}`", Operator_name(op));
+        NYI("QBE mapping for int operator `{}`", Operator_name(op));
         break;
     }
+}
+
+template<>
+void qbe_operator(FloatType const &lhs, Operator op, FloatType const &rhs, QBEContext &ctx)
+{
+    switch (op) {
+    case Operator::Add:
+        ctx.text += L"add";
+        break;
+    case Operator::Divide:
+        ctx.text += L"div";
+        break;
+    case Operator::Equals:
+        ctx.text += L"ceq";
+        ctx.text += qbe_type_code(lhs);
+        break;
+    case Operator::Greater:
+        ctx.text += L"cgt";
+        ctx.text += qbe_type_code(lhs);
+        break;
+    case Operator::GreaterEqual:
+        ctx.text += L"cge";
+        ctx.text += qbe_type_code(lhs);
+        break;
+    case Operator::Less:
+        ctx.text += L"clt";
+        ctx.text += qbe_type_code(lhs);
+        break;
+    case Operator::LessEqual:
+        ctx.text += L"cle";
+        ctx.text += qbe_type_code(lhs);
+        break;
+    case Operator::Multiply:
+        ctx.text += L"mul";
+        break;
+    case Operator::NotEqual:
+        ctx.text += L"cne";
+        ctx.text += qbe_type_code(lhs);
+        break;
+    case Operator::Subtract:
+        ctx.text += L"sub";
+        break;
+    default:
+        NYI("QBE mapping for float operator `{}`", Operator_name(op));
+        break;
+    }
+}
+
+void qbe_operator(pType const &lhs, Operator op, pType const &rhs, QBEContext &ctx)
+{
+    std::visit(
+        [&op, &ctx](auto const &lhs_descr, auto const &rhs_descr) {
+            qbe_operator(lhs_descr, op, rhs_descr, ctx);
+        },
+        lhs->description, rhs->description);
 }
 
 static GenResult assign(std::wstring_view varname, pType const &type, ASTNode const &rhs, QBEContext &ctx)
@@ -154,6 +303,18 @@ static GenResult assign(std::wstring_view varname, pType const &type, ASTNode co
     ctx.text += std::format(L", %{}$\n", varname);
     return var;
 }
+
+#define TRY_GENERATE(n, ctx)                                          \
+    (                                                                 \
+        {                                                             \
+            int __var { 0 };                                          \
+            if (auto __res = generate_qbe_node((n), (ctx)); !__res) { \
+                return __res;                                         \
+            } else {                                                  \
+                __var = __res.value();                                \
+            }                                                         \
+            (__var);                                                  \
+        })
 
 static GenResult generate_not_inline(ASTNode const &n, QBEContext &ctx)
 {
@@ -218,14 +379,12 @@ GenResult generate_qbe_node(ASTNode const &n, BinaryExpression const &impl, QBEC
         auto ident = get<Identifier>(impl.lhs);
         return assign(ident.identifier, rhs_value_type, impl.rhs, ctx);
     }
-    int  lhs_var = TRY_GENERATE_NOT_INLINE(impl.lhs, ctx);
-    int  rhs_var = TRY_GENERATE_NOT_INLINE(impl.rhs, ctx);
-    int  var = ++ctx.next_var;
-    bool is_unsigned = false;
-    if (auto int_type = get_if<IntType>(n->bound_type); int_type != nullptr) {
-        is_unsigned = !int_type->is_signed;
-    }
-    ctx.text += std::format(L"    %v{} = {} {} ", var, qbe_type(n->bound_type), qbe_operator(impl.op, is_unsigned));
+    int lhs_var = TRY_GENERATE_NOT_INLINE(impl.lhs, ctx);
+    int rhs_var = TRY_GENERATE_NOT_INLINE(impl.rhs, ctx);
+    int var = ++ctx.next_var;
+    ctx.text += std::format(L"    %v{} = {} ", var, qbe_type(n->bound_type));
+    qbe_operator(impl.lhs->bound_type->value_type(), impl.op, rhs_value_type, ctx);
+    ctx.text += ' ';
     TRY_GENERATE_INLINE(lhs_var, impl.lhs, ctx);
     ctx.text += L", ";
     TRY_GENERATE_INLINE(rhs_var, impl.rhs, ctx);
@@ -581,6 +740,22 @@ GenResult generate_qbe_node(ASTNode const &n, VariableDeclaration const &impl, Q
     if (impl.initializer != nullptr) {
         return assign(impl.name, n->bound_type, impl.initializer, ctx);
     }
+    return 0;
+}
+
+template<>
+GenResult generate_qbe_node(ASTNode const &n, WhileStatement const &impl, QBEContext &ctx)
+{
+    auto top_loop = ++ctx.next_label;
+    auto cont_loop = ++ctx.next_label;
+    auto end_loop = ++ctx.next_label;
+    ctx.text += std::format(L"@lbl_{}\n", top_loop);
+    int condition_var = TRY_GENERATE(impl.condition, ctx);
+    ctx.text += std::format(L"    jnz %v{}, @lbl_{}, @lbl_{}\n", condition_var, cont_loop, end_loop);
+    ctx.text += std::format(L"@lbl_{}\n", cont_loop);
+    TRY_GENERATE(impl.statement, ctx);
+    ctx.text += std::format(L"    jmp @lbl_{}\n", top_loop);
+    ctx.text += std::format(L"@lbl_{}\n", end_loop);
     return 0;
 }
 

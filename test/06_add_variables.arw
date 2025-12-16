@@ -1,0 +1,8 @@
+public func main() i32 {
+    x := 42
+    y : i64 = 12
+    z := x + y
+    puti(z)	
+    endln()
+    return 0::i32
+}

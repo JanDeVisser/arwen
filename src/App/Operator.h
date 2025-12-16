@@ -86,7 +86,9 @@ enum class PseudoType {
 };
 
 struct Operand {
-    std::variant<pType, TypeKind, PseudoType> type;
+    using OperandType = std::variant<pType, TypeKind, PseudoType>;
+
+    OperandType type;
 
     Operand(pType t);
     Operand(TypeKind k);

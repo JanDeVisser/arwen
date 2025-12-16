@@ -4,11 +4,13 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <ranges>
+
 #include <App/Operator.h>
 
 namespace Arwen {
 
-std::vector<BinaryOperator> binary_ops = {
+std::vector<BinaryOperator> binary_ops {
     { TypeKind::IntType, Operator::Add, PseudoType::Lhs, PseudoType::Lhs },
     { TypeKind::FloatType, Operator::Add, PseudoType::Lhs, PseudoType::Lhs },
     { TypeKind::IntType, Operator::Subtract, PseudoType::Lhs, PseudoType::Lhs },
@@ -85,6 +87,46 @@ Operand::Operand(PseudoType pseudo_type)
 
 bool Operand::matches(pType const &concrete, pType const &hint) const
 {
+    static bool first = true;
+    if (first) {
+        first = false;
+        for (auto const &[ix, result] : std::ranges::views::enumerate(
+                 std::vector<OpResult> {
+                     PseudoType::Lhs,
+                     PseudoType::Lhs,
+                     PseudoType::Lhs,
+                     PseudoType::Lhs,
+                     PseudoType::Lhs,
+                     PseudoType::Lhs,
+                     PseudoType::Lhs,
+                     PseudoType::Lhs,
+                     PseudoType::Lhs,
+                     PseudoType::Lhs,
+                     PseudoType::Lhs,
+                     TypeRegistry::boolean,
+                     TypeRegistry::boolean,
+                     TypeRegistry::boolean,
+                     TypeRegistry::boolean,
+                     TypeRegistry::boolean,
+                     TypeRegistry::boolean,
+                     TypeRegistry::boolean,
+                     TypeRegistry::boolean,
+                     TypeRegistry::boolean,
+                     TypeRegistry::boolean,
+                     TypeRegistry::boolean,
+                     TypeRegistry::boolean,
+                     PseudoType::Lhs,
+                     PseudoType::Lhs,
+                     PseudoType::Lhs,
+                     PseudoType::Lhs,
+                     PseudoType::Lhs,
+                     TypeRegistry::boolean,
+                     TypeRegistry::boolean,
+                 })) {
+            binary_ops[ix].result = result;
+        }
+    }
+
     auto concrete_value_type = concrete->value_type();
     return std::visit(
         overloads {
@@ -106,5 +148,4 @@ bool Operand::matches(pType const &concrete, pType const &hint) const
 {
     return lhs.matches(concrete_lhs, concrete_rhs) && rhs.matches(concrete_rhs, concrete_lhs);
 }
-
 }

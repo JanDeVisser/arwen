@@ -1,0 +1,11 @@
+{
+  "name": "06_add_variables",
+  "comptime_stdout": [],
+  "comptime_stderr": [],
+  "stdout": [
+    "54"
+  ],
+  "stderr": [],
+  "exit": 0,
+  "args": []
+}
