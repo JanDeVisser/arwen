@@ -652,6 +652,30 @@ GenResult generate_qbe_node(ASTNode const &n, Identifier const &impl, QBEContext
 }
 
 template<>
+GenResult generate_qbe_node(ASTNode const &n, IfStatement const &impl, QBEContext &ctx)
+{
+    auto if_block = ++ctx.next_label;
+    auto after_if = ++ctx.next_label;
+    int  else_block = 0;
+    auto cond_false = after_if;
+    if (impl.else_branch != nullptr) {
+        else_block = ++ctx.next_label;
+        cond_false = else_block;
+    }
+    int condition_var = TRY_GENERATE(impl.condition, ctx);
+    ctx.text += std::format(L"    jnz %v{}, @lbl_{}, @lbl_{}\n", condition_var, if_block, cond_false);
+    ctx.text += std::format(L"@lbl_{}\n", if_block);
+    TRY_GENERATE(impl.if_branch, ctx);
+    ctx.text += std::format(L"    jmp @lbl_{}\n", after_if);
+    if (impl.else_branch != nullptr) {
+        ctx.text += std::format(L"@lbl_{}\n", else_block);
+        TRY_GENERATE(impl.else_branch, ctx);
+    }
+    ctx.text += std::format(L"@lbl_{}\n", after_if);
+    return 0;
+}
+
+template<>
 GenResult generate_qbe_node(ASTNode const &n, Module const &impl, QBEContext &ctx)
 {
     ctx.text += LR"(type :slice_t = { l, l }

@@ -1,0 +1,15 @@
+public func main() i32
+{
+	x: i32 = 0::i32
+	while x < 10::i32 {
+		putint(x)
+                if (x % 2::i32) == 0::i32 {
+			putln(" even")
+		} else {
+			putln(" odd")
+		}
+		x = x + 1::i32
+	}
+	return 0::i32
+}
+
