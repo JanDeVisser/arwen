@@ -53,6 +53,8 @@ extern size_t arwen$putln(wchar_t const *ptr, uint64_t len);
 extern size_t arwen$eputs(wchar_t const *ptr, uint64_t len);
 extern size_t arwen$eputln(wchar_t const *ptr, uint64_t len);
 extern void   arwen$abort(wchar_t const *ptr, uint64_t len);
+extern size_t arwen$putint(int64_t i);
+extern size_t arwen$putuint(uint64_t i);
 
 #define ALIGNAT(bytes, align) ((bytes + (align - 1)) & ~(align - 1))
 #define AS_SLICE(dynarr) (*(slice_t *) (&dynarr))

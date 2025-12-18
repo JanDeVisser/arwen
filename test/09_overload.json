@@ -1,0 +1,14 @@
+{
+  "name": "09_overload",
+  "comptime_stdout": [],
+  "comptime_stderr": [],
+  "stdout": [
+    "8",
+    "16",
+    "32",
+    "64"
+  ],
+  "stderr": [],
+  "exit": 0,
+  "args": []
+}

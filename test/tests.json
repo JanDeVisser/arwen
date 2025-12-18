@@ -6,5 +6,6 @@
   "05_reassign",
   "06_add_variables",
   "07_while",
-  "08_modulo"
+  "08_modulo",
+  "09_overload"
 ]

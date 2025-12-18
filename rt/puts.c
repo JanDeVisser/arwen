@@ -69,7 +69,7 @@ size_t arwen$eputln(wchar_t const *ptr, uint64_t len)
     abort();
 }
 
-size_t arwen$puti(int64_t i)
+size_t arwen$putint(int64_t i)
 {
     wchar_t buf[32];
     slice_t str = to_string_int64((slice_t) { buf, 32 }, i, 10);
@@ -79,7 +79,7 @@ size_t arwen$puti(int64_t i)
     return write(1, str.ptr, str.size);
 }
 
-size_t arwen$putu(uint64_t i)
+size_t arwen$putuint(uint64_t i)
 {
     wchar_t buf[32];
     slice_t str = to_string_uint64((slice_t) { buf, 32 }, i, 10);

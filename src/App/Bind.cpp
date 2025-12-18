@@ -86,13 +86,15 @@ static BindResults bind_nodes(ASTNodes const &nodes)
 static BindResult bind_declaration(ASTNode const &declaration, ASTNode const &definition)
 {
     assert(definition->ns.has_value());
-    for (auto const &generic_param : get<FunctionDeclaration>(declaration).generics) {
-        auto generic_id = get<Identifier>(generic_param);
-        if (auto const &generic = definition->ns->find_type(generic_id.identifier); generic != nullptr) {
-            assert(is<GenericParameter>(generic));
-            continue;
+    if (declaration->status == ASTStatus::Normalized) {
+        for (auto const &generic_param : get<FunctionDeclaration>(declaration).generics) {
+            auto generic_id = get<Identifier>(generic_param);
+            if (auto const &generic = definition->ns->find_type(generic_id.identifier); generic != nullptr) {
+                assert(is<GenericParameter>(generic));
+                continue;
+            }
+            definition->ns->register_type(generic_id.identifier, TypeRegistry::the().generic_parameter(generic_id.identifier));
         }
-        definition->ns->register_type(generic_id.identifier, TypeRegistry::the().generic_parameter(generic_id.identifier));
     }
     return bind(declaration);
 }
@@ -350,15 +352,6 @@ BindResult bind(ASTNode const &n, Call &impl)
         auto const &def = get<FunctionDefinition>(func_def);
         auto const &decl = get<FunctionDeclaration>(def.declaration);
         if (decl.generics.empty()) {
-            if (def.declaration->bound_type == nullptr) {
-                if (auto const &decl_type_maybe = bind_declaration(def.declaration, func_def); !decl_type_maybe.has_value()) {
-                    return BindError { decl_type_maybe.error() };
-                } else if (!is<FunctionType>(def.declaration->bound_type)) {
-                    return n.bind_error(L"Attempted to call non-function identifier `{}` with type `{}`",
-                               decl.name,
-                               def.declaration->bound_type);
-                }
-            }
             auto const &func_type_descr = get<FunctionType>(def.declaration->bound_type);
             if (type_descr.types.size() != func_type_descr.parameters.size()) {
                 return nullptr;
@@ -430,7 +423,7 @@ BindResult bind(ASTNode const &n, Call &impl)
             if (func_def->status == ASTStatus::Initialized) {
                 func_def = normalize(func_def);
             }
-            bind(func_def);
+            auto const _ = bind(func_def);
             bound_overloads.push_back(func_def);
         }
     }
@@ -663,13 +656,17 @@ BindResult bind(ASTNode const &n, FunctionDefinition &impl)
 {
     assert(n != nullptr);
     auto &parser { *(n.repo) };
+    bool  register_me = impl.declaration->bound_type == nullptr;
     if (auto maybe { bind_declaration(impl.declaration, n) }; !maybe.has_value()) {
         return BindError { maybe.error() };
     }
     auto t = (impl.declaration)->bound_type;
     assert(is<FunctionType>(t));
-    if (auto const &found = n->ns->parent_of()->ns->find_function(impl.name, t); found != nullptr && found != n) {
-        return n.bind_error(L"Duplicate overload for function `{}` with type `{}`", impl.name, t);
+    if (register_me) {
+        if (auto const &found = n->ns->parent_of()->ns->find_function(impl.name, t); found != nullptr && found != n) {
+            return n.bind_error(L"Duplicate overload for function `{}` with type `{}`", impl.name, t);
+        }
+        n->ns->parent_of()->ns->register_function(impl.name, n);
     }
     auto &decl = get<FunctionDeclaration>(impl.declaration);
     if (!decl.generics.empty()) {
@@ -750,8 +747,8 @@ BindResult bind(ASTNode const &n, Program &impl)
             n->ns->register_variable(name, mod);
         }
     }
-    try_bind_nodes(impl.modules | std::ranges::views::values);
     try_bind_nodes(impl.statements);
+    try_bind_nodes(impl.modules | std::ranges::views::values);
     return TypeRegistry::void_;
 }
 
@@ -839,8 +836,9 @@ BindResult bind(ASTNode const &n, UnaryExpression &impl)
 template<>
 BindResult bind(ASTNode const &n, VariableDeclaration &impl)
 {
-    auto my_type = (impl.type_name != nullptr) ? try_bind(impl.type_name) : nullptr;
-    auto init_type = (impl.initializer != nullptr) ? try_bind(impl.initializer) : nullptr;
+    auto  my_type = (impl.type_name != nullptr) ? try_bind(impl.type_name) : nullptr;
+    auto  init_type = (impl.initializer != nullptr) ? try_bind(impl.initializer) : nullptr;
+    auto &parser = *(n.repo);
 
     assert(my_type != nullptr || init_type != nullptr);
 
@@ -863,7 +861,7 @@ BindResult bind(ASTNode const &n, VariableDeclaration &impl)
     if (n.repo->has_variable(impl.name)) {
         return n.bind_error(L"Duplicate variable name `{}`", impl.name);
     }
-    n.repo->register_variable(impl.name, n);
+    parser.register_variable(impl.name, n);
     return my_type;
 }
 

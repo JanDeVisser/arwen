@@ -1,7 +1,7 @@
 public func main() i32
 {
 	x := 42
-	puti(x)	
+	putint(x)
 	endln()
 	return 0::i32
 }

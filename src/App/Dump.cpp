@@ -57,7 +57,7 @@ void dump(ASTNode const &n, Call const &impl, std::wostream &os, int indent)
     dump(impl.arguments, os, indent + 4);
     if (impl.function != nullptr) {
         print_indent(os, indent + 4);
-        os << to_string(impl.function);
+        os << to_string(impl.function) << '\n';
     }
 }
 
@@ -285,6 +285,12 @@ std::wstring to_string(ASTNode const &n, FunctionDeclaration const &impl)
     return os.str();
 }
 
+template<>
+std::wstring to_string(ASTNode const &n, FunctionDefinition const &impl)
+{
+    return impl.name;
+}
+
 template<class N>
     requires std::is_same_v<N, Break>
     || std::is_same_v<N, Continue>
@@ -453,7 +459,7 @@ void dump(ASTNode const &node, std::wostream &os, int indent)
         return;
     }
     print_indent(os, indent);
-    os << to_string(node);
+    header(node, os);
     os << std::endl;
     if (node->ns) {
         print_indent(os, indent);
@@ -464,13 +470,16 @@ void dump(ASTNode const &node, std::wostream &os, int indent)
             print_indent(os, indent + 4);
             os << n << ": " << t->to_string() << "\n";
         }
-        for (auto const &[n, f] : node->ns->functions) {
-            print_indent(os, indent + 4);
-            os << n;
-            if (f->bound_type) {
-                os << ": " << f->bound_type->to_string();
+        for (auto const &[n, overloads] : node->ns->functions) {
+            for (auto const &f : overloads) {
+                print_indent(os, indent + 4);
+                os << n;
+                auto const def = get<FunctionDefinition>(f);
+                if (def.declaration->bound_type) {
+                    os << ": " << def.declaration->bound_type->to_string();
+                }
+                os << "\n";
             }
-            os << "\n";
         }
         for (auto const &[n, v] : node->ns->variables) {
             print_indent(os, indent + 4);

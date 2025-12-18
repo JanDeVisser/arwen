@@ -203,9 +203,7 @@ template<>
 ASTNode normalize(ASTNode const &n, FunctionDefinition const &impl)
 {
     n->init_namespace();
-    n->ns->parent->ns->register_function(impl.name, n);
     auto ret = make_node<FunctionDefinition>(n, impl.name, normalize(impl.declaration), normalize(impl.implementation));
-    ret->ns->parent->ns->register_function(impl.name, ret);
     return ret;
 }
 

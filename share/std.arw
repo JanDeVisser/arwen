@@ -10,11 +10,13 @@ func fputln(fd: i32, s: string) void -> "libarwenrt:arwen$fputln"
 
 func puts(s: string) void -> "libarwenrt:arwen$puts"
 func putln(s: string) void -> "libarwenrt:arwen$putln"
-func puti(i: i64) void -> "libarwenrt:arwen$puti"
-func putw(i: i32) void -> "libarwenrt:arwen$puti"
-func putb(b: bool) void -> "libarwenrt:arwen$puti"
+func putint(i: i64) void -> "libarwenrt:arwen$putint"
+func putint(i: i32) void -> "libarwenrt:arwen$putint"
+func putint(i: i16) void -> "libarwenrt:arwen$putint"
+func putint(i: i8) void -> "libarwenrt:arwen$putint"
+func putb(b: bool) void -> "libarwenrt:arwen$putint"
 func endln() void -> "libarwenrt:arwen$endln"
 
-func eput(s: string) void -> "libarwenrt:arwen$putln"
-func eputln(s: string) void -> "libarwenrt:arwen$putln"
+func eputs(s: string) void -> "libarwenrt:arwen$eputs"
+func eputln(s: string) void -> "libarwenrt:arwen$eputln"
 

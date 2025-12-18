@@ -546,7 +546,13 @@ GenResult generate_qbe_node(ASTNode const &n, Constant const &impl, QBEContext &
             [&var, &ctx, &impl](IntType const &int_type) -> void {
                 switch (int_type.width_bits) {
                 case 8:
+                    ctx.text += std::format(L"{}",
+                        (int_type.is_signed) ? as<int8_t>(*impl.bound_value) : as<uint8_t>(*impl.bound_value));
+                    break;
                 case 16:
+                    ctx.text += std::format(L"{}",
+                        (int_type.is_signed) ? as<int16_t>(*impl.bound_value) : as<uint16_t>(*impl.bound_value));
+                    break;
                 case 32:
                     ctx.text += std::format(L"{}",
                         (int_type.is_signed) ? as<int32_t>(*impl.bound_value) : as<uint32_t>(*impl.bound_value));
@@ -660,7 +666,7 @@ GenResult generate_qbe_node(ASTNode const &n, Identifier const &impl, QBEContext
                 NYI("Identifier");
             } },
         n->bound_type->description);
-    ctx.text += std::format(L"    %v{} = {} load{} %{}$\n", var, code.back(), code, impl.identifier);
+    ctx.text += std::format(L"    %v{} = {} load{} %{}$\n", var, qbe_type(n->bound_type), code, impl.identifier);
     return var;
 }
 

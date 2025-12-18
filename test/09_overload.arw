@@ -1,0 +1,16 @@
+public func main() i32 {
+    x8: i8 = 8::i8
+    x16: i16 = 16::i16
+    x32: i32 = 32::i32
+    x64: i64 = 64::i64
+    putint(x8)
+    endln()
+    putint(x16)
+    endln()
+    putint(x32)
+    endln()
+    putint(x64)
+    endln()
+    return 0::i32
+}
+

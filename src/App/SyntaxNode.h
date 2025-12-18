@@ -150,7 +150,7 @@ using ASTNodes = std::vector<ASTNode>;
 struct Namespace {
     using VariableMap = std::map<std::wstring, ASTNode>;
     using TypeMap = std::map<std::wstring, pType>;
-    using FunctionMap = std::multimap<std::wstring, ASTNode>;
+    using FunctionMap = std::map<std::wstring, ASTNodes>;
     using FunctionIter = FunctionMap::iterator;
     using FunctionConstIter = FunctionMap::const_iterator;
 
@@ -160,22 +160,22 @@ struct Namespace {
     ASTNode     parent { nullptr };
 
     explicit Namespace(ASTNode parent = nullptr);
-    ASTNode           parent_of() const;
-    bool              is_registered(std::wstring const &name) const;
-    pType             find_type(std::wstring const &name) const;
-    bool              has_type(std::wstring const &name) const;
-    void              register_type(std::wstring name, pType type);
-    void              register_function(std::wstring name, ASTNode fnc);
-    bool              has_function(std::wstring const &name) const;
-    void              unregister_function(std::wstring name, ASTNode fnc);
-    ASTNode           find_function(std::wstring const &name, pType const &type) const;
-    ASTNode           find_function_by_arg_list(std::wstring const &name, pType const &type) const;
-    FunctionConstIter find_function_here(std::wstring name, pType const &type) const;
-    ASTNodes          find_overloads(std::wstring const &name, ASTNodes const &type_args) const;
-    bool              has_variable(std::wstring const &name) const;
-    ASTNode           find_variable(std::wstring const &name) const;
-    pType             type_of(std::wstring const &name) const;
-    void              register_variable(std::wstring name, ASTNode node);
+    ASTNode  parent_of() const;
+    bool     is_registered(std::wstring const &name) const;
+    pType    find_type(std::wstring const &name) const;
+    bool     has_type(std::wstring const &name) const;
+    void     register_type(std::wstring name, pType type);
+    void     register_function(std::wstring name, ASTNode fnc);
+    bool     has_function(std::wstring const &name) const;
+    void     unregister_function(std::wstring name, ASTNode const &fnc);
+    ASTNode  find_function(std::wstring const &name, pType const &type) const;
+    ASTNode  find_function_by_arg_list(std::wstring const &name, pType const &type) const;
+    ASTNode  find_function_here(std::wstring name, pType const &type) const;
+    ASTNodes find_overloads(std::wstring const &name, ASTNodes const &type_args) const;
+    bool     has_variable(std::wstring const &name) const;
+    ASTNode  find_variable(std::wstring const &name) const;
+    pType    type_of(std::wstring const &name) const;
+    void     register_variable(std::wstring name, ASTNode node);
 };
 
 struct BinaryExpression {
