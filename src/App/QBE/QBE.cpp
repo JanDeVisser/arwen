@@ -132,6 +132,20 @@ char qbe_type_code(FloatType type)
     }
 }
 
+char qbe_type_code(auto const &type)
+{
+    NYI("qbe_type_code(`{}')", typeid(type).name());
+}
+
+char qbe_type_code(pType const &type)
+{
+    return std::visit(
+        [](auto const &descr) -> char {
+            return qbe_type_code(descr);
+        },
+        type->description);
+}
+
 using QBEOperandValue = std::variant<ASTNode, int>;
 
 struct QBEOperand {
@@ -407,43 +421,9 @@ static GenResult qbe_operator(QBEBinExpr const &expr, QBEContext &ctx)
 
 static GenResult assign(std::wstring_view varname, pType const &type, ASTNode const &rhs, QBEContext &ctx)
 {
-    int var = 0;
-    if (!is<Constant>(rhs) || !qbe_first_class_type(type)) {
-        if (auto res = generate_qbe_node(rhs, ctx); !res) {
-            return res;
-        } else {
-            var = res.value();
-        }
-    }
-    char code = std::visit(
-        overloads {
-            [](IntType const &int_type) -> char {
-                switch (int_type.width_bits) {
-                case 8:
-                    return 'b';
-                case 16:
-                    return 'h';
-                case 32:
-                    return 'w';
-                default:
-                    return 'l';
-                }
-            },
-            [](FloatType const &float_type) -> char {
-                return (float_type.width_bits == 64) ? 'd' : 's';
-            },
-            [](auto const &) -> char {
-                NYI("VariableDeclaration");
-            } },
-        rhs->bound_type->description);
-    ctx.text += std::format(L"    store{} ", code, varname);
-    if (var != 0) {
-        ctx.text += std::format(L"%v{}", var);
-    } else {
-        if (auto res = generate_qbe_node(rhs, ctx); !res) {
-            return res;
-        }
-    }
+    auto rhs_val = TRY_GENERATE_NOT_INLINE(rhs, ctx);
+    ctx.text += std::format(L"    store{} ", qbe_type_code(rhs->bound_type));
+    auto var = TRY_GENERATE_INLINE(rhs_val, ctx);
     ctx.text += std::format(L", %{}$\n", varname);
     return var;
 }
@@ -608,9 +588,6 @@ GenResult generate_qbe_node(ASTNode const &n, FunctionDefinition const &impl, QB
         if (auto res = generate_qbe_node(impl.declaration, ctx); !res) {
             return res;
         }
-        ctx.text += L" {\n@start\n";
-        ctx.next_var = 0;
-        ctx.next_label = 0;
         TRY_GENERATE(impl.implementation, ctx);
         ctx.text += L"}\n\n";
     }
@@ -628,9 +605,13 @@ GenResult generate_qbe_node(ASTNode const &n, FunctionDeclaration const &impl, Q
             ctx.text += L", ";
         }
         first = false;
-        ctx.text += std::format(L"{} {}", qbe_type(param->bound_type), p.name);
+        ctx.text += std::format(L"{} %{}$$", qbe_type(param->bound_type), p.name);
     }
     ctx.text += ')';
+    ctx.text += L" {\n@start\n";
+    ctx.next_var = 0;
+    ctx.next_label = 0;
+    auto _ = generate_qbe_nodes(impl.parameters, ctx);
     return 0;
 }
 
@@ -689,9 +670,13 @@ GenResult generate_qbe_node(ASTNode const &n, Module const &impl, QBEContext &ct
     return 0;
 }
 
-std::expected<void, std::wstring> save_and_assemble(QBEContext const &ctx)
+template<>
+GenResult generate_qbe_node(ASTNode const &n, Parameter const &impl, QBEContext &ctx)
 {
-    return {};
+    auto size = n->bound_type->size_of();
+    ctx.text += std::format(L"    %{}$ = l alloc{} {}\n", impl.name, (size < 8) ? '4' : '8', size);
+    ctx.text += std::format(L"    store{} %{}$$, %{}$\n", qbe_type_code(n->bound_type), impl.name, impl.name);
+    return 0;
 }
 
 template<>
