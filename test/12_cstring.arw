@@ -1,0 +1,9 @@
+func strlen(s: cstring) u64 -> "strlen"
+func putcstr(s: cstring) void -> "puts"
+
+public func main() i32 {
+    s := `Hello, World!`
+    putcstr(s)
+    return 0::i32
+}
+

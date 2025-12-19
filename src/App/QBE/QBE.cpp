@@ -41,6 +41,7 @@ struct QBEContext {
     int                       next_label;
     int                       next_var;
     std::vector<std::wstring> strings;
+    std::vector<std::string>  cstrings;
     fs::path                  file_name;
     bool                      has_exports;
 
@@ -53,6 +54,17 @@ struct QBEContext {
         }
         strings.emplace_back(s);
         return strings.size();
+    }
+
+    int add_cstring(std::string_view s)
+    {
+        for (auto const &[ix, str] : std::ranges::views::enumerate(cstrings)) {
+            if (str == s) {
+                return ix + 1;
+            }
+        }
+        cstrings.emplace_back(s);
+        return cstrings.size();
     }
 };
 
@@ -74,6 +86,9 @@ bool qbe_first_class_type(pType const &type)
             [](BoolType const &) -> bool {
                 return true;
             },
+            [](ZeroTerminatedArray const &) -> bool {
+                return true;
+            },
             [](auto const &) -> bool {
                 return false;
             },
@@ -93,6 +108,9 @@ std::wstring_view qbe_type(pType const &type)
             },
             [](FloatType const &descr) -> std::wstring_view {
                 return (descr.width_bits < 64) ? L"s" : L"d";
+            },
+            [](ZeroTerminatedArray const &) -> std::wstring_view {
+                return L"l";
             },
             [](SliceType const &) -> std::wstring_view {
                 return L":slice_t";
@@ -130,6 +148,11 @@ char qbe_type_code(FloatType type)
     default:
         UNREACHABLE();
     }
+}
+
+char qbe_type_code(ZeroTerminatedArray type)
+{
+    return 'l';
 }
 
 char qbe_type_code(auto const &type)
@@ -523,7 +546,7 @@ GenResult generate_qbe_node(ASTNode const &n, Constant const &impl, QBEContext &
             [&var, &ctx, &impl](BoolType const &) -> void {
                 ctx.text += std::format(L"{}", as<bool>(*impl.bound_value));
             },
-            [&var, &ctx, &impl](IntType const &int_type) -> void {
+            [&ctx, &impl](IntType const &int_type) -> void {
                 switch (int_type.width_bits) {
                 case 8:
                     ctx.text += std::format(L"{}",
@@ -552,6 +575,14 @@ GenResult generate_qbe_node(ASTNode const &n, Constant const &impl, QBEContext &
                     ctx.text += std::format(L"{}", as<double>(*impl.bound_value));
                     break;
                 }
+            },
+            [&ctx, &impl, &var](ZeroTerminatedArray const &zta) -> void {
+                var = ++ctx.next_var;
+                assert(zta.array_of == TypeRegistry::u8);
+                auto cstr = static_cast<char const *>(as<void *>(*impl.bound_value));
+                auto str_id = ctx.add_cstring(static_cast<char const *>(as<void *>(*impl.bound_value)));
+                auto len_id = ++ctx.next_var;
+                ctx.text += std::format(L"$cstr_{}", str_id);
             },
             [&ctx, &impl, &var](SliceType const &slice_type) -> void {
                 var = ++ctx.next_var;
@@ -643,6 +674,9 @@ GenResult generate_qbe_node(ASTNode const &n, Identifier const &impl, QBEContext
             [](FloatType const &float_type) -> std::wstring_view {
                 return (float_type.width_bits == 64) ? L"d" : L"s";
             },
+            [](ZeroTerminatedArray const &) -> std::wstring_view {
+                return L"l";
+            },
             [](auto const &) -> std::wstring_view {
                 NYI("Identifier");
             } },
@@ -690,6 +724,13 @@ GenResult generate_qbe_node(ASTNode const &n, Module const &impl, QBEContext &ct
             ctx.text += std::format(L"w {:d}, ", ch);
         }
         ctx.text += L"w 0 }\n";
+    }
+    for (auto const &[ix, s] : std::ranges::views::enumerate(ctx.cstrings)) {
+        ctx.text += std::format(L"data $cstr_{} = {{ ", ix + 1);
+        for (auto ch : s) {
+            ctx.text += std::format(L"b {:d}, ", ch);
+        }
+        ctx.text += L"b 0 }\n";
     }
     return 0;
 }
@@ -760,6 +801,16 @@ GenResult generate_qbe_node(ASTNode const &n, Program const &impl, QBEContext &c
             std::format("-L{}/lib", Arwen::arwen_dir().string()),
             "-larwenrt",
         };
+        if (has_option("L")) {
+            for (auto const &lib_path : get_option_values("L")) {
+                ld_args.push_back(std::format("-L{}", lib_path));
+            }
+        }
+        if (has_option("l")) {
+            for (auto const &lib : get_option_values("l")) {
+                ld_args.push_back(std::format("-l{}", lib));
+            }
+        }
         for (auto const &o : o_files) {
             ld_args.push_back(o.string());
         }

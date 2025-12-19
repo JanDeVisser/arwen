@@ -1,0 +1,11 @@
+{
+  "name": "12_cstring",
+  "comptime_stdout": [],
+  "comptime_stderr": [],
+  "stdout": [
+    "Hello, World!"
+  ],
+  "stderr": [],
+  "exit": 0,
+  "args": []
+}

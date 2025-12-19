@@ -236,6 +236,11 @@ inline Value make_value(std::string const &val)
     return Value { TypeRegistry::string, Slice { const_cast<void *>(static_cast<void const *>(interned.converted<wchar_t>())), interned.length() } };
 }
 
+inline Value make_cstring(std::string const &val)
+{
+    return Value { TypeRegistry::cstring, make_interned_string(Value::arena, std::string_view { val }) };
+}
+
 template<typename T>
 Value make_value(pType const &type, T const &val)
 {

@@ -5,6 +5,7 @@
  */
 
 #include <cstdint>
+#include <cstring>
 #include <functional>
 
 #include <App/Operator.h>
@@ -30,12 +31,12 @@ ASTNode normalize(ASTNode const &n, BinaryExpression const &impl)
             if (auto const binary_expr = std::get_if<BinaryExpression>(&n->node); binary_expr != nullptr) {
                 if (binary_expr->op == Operator::Sequence) {
                     flatten(binary_expr->lhs);
-                    nodes.push_back(binary_expr->rhs);
+                    nodes.push_back(normalize(binary_expr->rhs));
                 } else {
-                    nodes.push_back(n);
+                    nodes.push_back(normalize(n));
                 }
             } else {
-                nodes.push_back(n);
+                nodes.push_back(normalize(n));
             }
         };
         flatten(n);
@@ -334,36 +335,41 @@ ASTNode normalize(ASTNode const &n, PublicDeclaration const &impl)
 template<>
 ASTNode normalize(ASTNode const &n, QuotedString const &impl)
 {
-    switch (impl.quote_type) {
-    case QuoteType::DoubleQuote: {
-        assert(impl.string[0] == '"' && impl.string.back() == '"');
-        std::wstring s;
+    auto unescape = [](auto const &s) -> std::wstring {
+        std::wstring escaped;
         bool         escape { false };
-        for (auto const ch : impl.string.substr(0, impl.string.length() - 1).substr(1)) {
+        for (auto const ch : s.substr(0, s.length() - 1).substr(1)) {
             if (escape) {
                 switch (ch) {
                 case 'n':
-                    s += '\n';
+                    escaped += '\n';
                     break;
                 case 'r':
-                    s += '\r';
+                    escaped += '\r';
                     break;
                 case 't':
-                    s += '\t';
+                    escaped += '\t';
+                    break;
                 default:
-                    s += ch;
+                    escaped += ch;
                 }
                 escape = false;
             } else {
                 if (ch == '\\') {
                     escape = true;
                 } else {
-                    s += ch;
+                    escaped += ch;
                 }
             }
         }
-        return make_node<Constant>(n, make_value(s));
-    }
+        return escaped;
+    };
+
+    switch (impl.quote_type) {
+    case QuoteType::DoubleQuote:
+        return make_node<Constant>(n, make_value(unescape(impl.string)));
+    case QuoteType::BackQuote:
+        return make_node<Constant>(n, make_cstring(as_utf8(unescape(impl.string))));
     case QuoteType::SingleQuote:
         return make_node<Constant>(n, Value { impl.string[1] });
     default:

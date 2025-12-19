@@ -111,11 +111,15 @@ inline intptr_t push(Stack &stack, Value val)
             [&stack, &val](SliceType const &) -> intptr_t {
                 return push<Slice>(stack, as<Slice>(val));
             },
+            [&stack, &val](ZeroTerminatedArray const &zta) -> intptr_t {
+                assert(zta.array_of == TypeRegistry::u8);
+                return push<void *>(stack, as<void *>(val));
+            },
             [&stack, &val](VoidType const &) -> intptr_t {
                 return push<Void>(stack, Void {});
             },
-            [](auto const &) -> intptr_t {
-                NYI("push<Value>");
+            [&val](auto const &) -> intptr_t {
+                NYI(L"push<Value::{}>", val.type->to_string());
             } },
         val.type->description);
 }

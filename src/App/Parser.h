@@ -36,7 +36,12 @@ struct Parser {
     };
 
     using ArwenLexerTypes = LexerTypes<std::wstring_view, wchar_t, ArwenKeyword>;
-    using ArwenLexer = Lexer<ArwenLexerTypes, ArwenLexerTypes::ScannerPack<ArwenLexerTypes::CScannerPack, ArwenLexerTypes::RawScanner<ArwenComptimeBlock>>>;
+    using ArwenLexer = Lexer<
+        ArwenLexerTypes,
+        ArwenLexerTypes::ScannerPack<
+            ArwenLexerTypes::CScannerPack,
+            ArwenLexerTypes::QuotedStringScanner<ArwenLexerTypes::DefaultQuotes>,
+            ArwenLexerTypes::RawScanner<ArwenComptimeBlock>>>;
     using Token = ArwenLexer::Token;
     using LexerError = ArwenLexer::LexerError;
     using LexerResult = ArwenLexer::LexerResult;

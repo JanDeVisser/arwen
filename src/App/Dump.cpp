@@ -101,6 +101,16 @@ void dump(ASTNode const &n, N const &impl, std::wostream &os, int indent)
 }
 
 template<>
+void dump(ASTNode const &n, ExpressionList const &impl, std::wostream &os, int indent)
+{
+    print_indent(os, indent);
+    os << "#expressions: " << impl.expressions.size() << "\n";
+    for (auto const &expr : impl.expressions) {
+        dump(expr, os, indent + 4);
+    }
+}
+
+template<>
 void dump(ASTNode const &n, ForStatement const &impl, std::wostream &os, int indent)
 {
     dump(impl.range_expr, os, indent + 4);

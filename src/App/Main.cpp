@@ -356,6 +356,7 @@ void usage()
     std::cout << "  --stop-after-parse    Stop after syntactic parsing\n";
     std::cout << "  --trace               Print debug tracing information\n";
     std::cout << "  --verbose             Provide progress information\n";
+    std::cout << "  -Lpath, -llibrary     Passed on to the linker execution\n";
     std::cout << "\n";
     exit(1);
 }

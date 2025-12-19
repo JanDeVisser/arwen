@@ -98,19 +98,23 @@ template<>
 inline char const *make_interned_string(Arena &arena, std::string_view const str)
 {
     auto const utf32 = as_wstring(str);
-    auto const utf8_ptr = arena.allocate(sizeof(InternedStringBlock) + str.length());
+    auto const utf8_ptr = arena.allocate(sizeof(InternedStringBlock) + str.length() + 1);
     auto const utf8_block = static_cast<InternedStringBlock *>(utf8_ptr);
     utf8_block->length = static_cast<int64_t>(str.length());
     utf8_block->encoding = InternedStringBlock::Encoding::UTF8;
     utf8_block->magic = InternedStringBlock::MAGIC;
     auto const utf8_str = static_cast<char *>(utf8_ptr) + sizeof(InternedStringBlock);
-    auto const utf32_ptr = arena.allocate(sizeof(InternedStringBlock) + utf32.length() * sizeof(wchar_t));
+    memcpy(utf8_str, str.data(), str.length());
+    utf8_str[str.length()] = 0;
+
+    auto const utf32_ptr = arena.allocate(sizeof(InternedStringBlock) + utf32.length() * sizeof(wchar_t) + 1);
     auto const utf32_block = static_cast<InternedStringBlock *>(utf32_ptr);
     utf32_block->length = static_cast<int64_t>(utf32.length());
     utf32_block->encoding = InternedStringBlock::Encoding::UTF32;
     utf32_block->magic = InternedStringBlock::MAGIC;
     auto const utf32_str = reinterpret_cast<wchar_t *>(static_cast<char *>(utf32_ptr) + sizeof(InternedStringBlock));
     wcsncpy(utf32_str, utf32.data(), utf32.length());
+    utf32_str[utf32.length()] = 0;
     utf8_block->twin = utf32_str;
     utf32_block->twin = utf8_str;
     return utf8_str;
@@ -120,19 +124,23 @@ template<>
 inline wchar_t const *make_interned_string(Arena &arena, std::wstring_view const str)
 {
     auto const utf8 = as_utf8(str);
-    auto const utf8_ptr = arena.allocate(sizeof(InternedStringBlock) + utf8.length());
+    auto const utf8_ptr = arena.allocate(sizeof(InternedStringBlock) + utf8.length() + 1);
     auto const utf8_block = static_cast<InternedStringBlock *>(utf8_ptr);
     utf8_block->length = static_cast<int64_t>(str.length());
     utf8_block->encoding = InternedStringBlock::Encoding::UTF8;
     utf8_block->magic = InternedStringBlock::MAGIC;
     auto const utf8_str = static_cast<char *>(utf8_ptr) + sizeof(InternedStringBlock);
-    auto const utf32_ptr = arena.allocate(sizeof(InternedStringBlock) + str.length() * sizeof(wchar_t));
+    memcpy(utf8_str, str.data(), str.length());
+    utf8_str[str.length()] = 0;
+
+    auto const utf32_ptr = arena.allocate(sizeof(InternedStringBlock) + str.length() * sizeof(wchar_t) + 1);
     auto const utf32_block = static_cast<InternedStringBlock *>(utf32_ptr);
     utf32_block->length = static_cast<int64_t>(str.length());
     utf32_block->encoding = InternedStringBlock::Encoding::UTF32;
     utf32_block->magic = InternedStringBlock::MAGIC;
     auto const utf32_str = reinterpret_cast<wchar_t *>(static_cast<char *>(utf32_ptr) + sizeof(InternedStringBlock));
     wcsncpy(utf32_str, str.data(), str.length());
+    utf32_str[str.length()] = 0;
     utf8_block->twin = utf32_str;
     utf32_block->twin = utf8_str;
     return utf32_str;
