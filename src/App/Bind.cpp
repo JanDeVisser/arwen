@@ -52,15 +52,19 @@ static BindResults bind_nodes(R const &nodes)
 
     for (auto &n : nodes) {
         auto res = bind(n);
-        if (!ret.has_value()) {
-            if (!res.has_value()) {
+        if (!res.has_value() || res.value() == nullptr) {
+            if (!ret.has_value()) {
                 ret = res.error();
             } else if (res.value() == nullptr) {
                 ret = ASTStatus::Undetermined;
-            } else {
-                types.push_back(res.value());
             }
+            types.push_back(pType { nullptr });
+        } else {
+            types.push_back(res.value());
         }
+    }
+    if (ret.has_value()) {
+        return std::unexpected(ret.value());
     }
     return types;
 }
