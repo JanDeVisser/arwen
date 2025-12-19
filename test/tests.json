@@ -9,5 +9,6 @@
   "08_modulo",
   "09_overload",
   "11_if_else",
-  "12_cstring"
+  "12_cstring",
+  "13_bool_unary"
 ]

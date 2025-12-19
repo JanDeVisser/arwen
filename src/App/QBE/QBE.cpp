@@ -122,7 +122,7 @@ std::wstring_view qbe_type(pType const &type)
         type->description);
 }
 
-char qbe_type_code(IntType type)
+char qbe_type_code(IntType const &type)
 {
     switch (type.width_bits) {
     case 8:
@@ -138,7 +138,7 @@ char qbe_type_code(IntType type)
     }
 }
 
-char qbe_type_code(FloatType type)
+char qbe_type_code(FloatType const &type)
 {
     switch (type.width_bits) {
     case 32:
@@ -150,9 +150,14 @@ char qbe_type_code(FloatType type)
     }
 }
 
-char qbe_type_code(ZeroTerminatedArray type)
+char qbe_type_code(ZeroTerminatedArray const &)
 {
     return 'l';
+}
+
+char qbe_type_code(BoolType const &)
+{
+    return 'w';
 }
 
 char qbe_type_code(auto const &type)
@@ -180,6 +185,11 @@ struct QBEBinExpr {
     QBEOperand lhs;
     Operator   op;
     QBEOperand rhs;
+};
+
+struct QBEUnaryExpr {
+    Operator   op;
+    QBEOperand operand;
 };
 
 #define TRY_GENERATE(n, ctx)                                          \
@@ -442,6 +452,94 @@ static GenResult qbe_operator(QBEBinExpr const &expr, QBEContext &ctx)
         expr.lhs.type->description, expr.rhs.type->description);
 }
 
+template<class T>
+static GenResult qbe_operator(QBEUnaryExpr const &expr, T const &operand, QBEContext &ctx)
+{
+    fatal(L"Invalid operator `{}` `{}` ", expr.operand.type->to_string(), as_wstring(Operator_name(expr.op)));
+}
+
+template<>
+GenResult qbe_operator(QBEUnaryExpr const &expr, BoolType const &, QBEContext &ctx)
+{
+    int var = ++ctx.next_var;
+    switch (expr.op) {
+    case Operator::LogicalInvert:
+        ctx.text += std::format(L"    %v{} = {} xor ", var, qbe_type(TypeRegistry::boolean));
+        TRY_GENERATE_INLINE(expr.operand.value, ctx);
+        var = ++ctx.next_var;
+        ctx.text += std::format(LR"(, 1
+    %v{} = {} and %v{}, 1
+)",
+            var, qbe_type(TypeRegistry::boolean), var - 1);
+        break;
+    default:
+        NYI("QBE mapping for bool operator `{}`", Operator_name(expr.op));
+        break;
+    }
+    return var;
+}
+
+template<>
+GenResult qbe_operator(QBEUnaryExpr const &expr, IntType const &, QBEContext &ctx)
+{
+    int var = ++ctx.next_var;
+    switch (expr.op) {
+    case Operator::Negate:
+        ctx.text += std::format(L"    %v{} = {} neg ", var, qbe_type(expr.operand.type));
+        TRY_GENERATE_INLINE(expr.operand.value, ctx);
+        ctx.text += '\n';
+        break;
+    case Operator::BinaryInvert:
+        ctx.text += std::format(L"    %v{} = {} xor ~0, ", var, qbe_type(TypeRegistry::boolean));
+        TRY_GENERATE_INLINE(expr.operand.value, ctx);
+        var = ++ctx.next_var;
+        ctx.text += std::format(LR"(
+    %v{} = {} and %v{}, ~0
+)",
+            var, qbe_type(TypeRegistry::boolean), var - 1);
+        break;
+    default:
+        NYI("QBE mapping for int operator `{}`", Operator_name(expr.op));
+        break;
+    }
+    return var;
+}
+
+template<>
+GenResult qbe_operator(QBEUnaryExpr const &expr, FloatType const &operand, QBEContext &ctx)
+{
+    int var = ++ctx.next_var;
+    switch (expr.op) {
+    case Operator::Negate:
+        ctx.text += std::format(L"    %v{} = {} neg ", var, qbe_type(expr.operand.type));
+        TRY_GENERATE_INLINE(expr.operand.value, ctx);
+        ctx.text += '\n';
+        break;
+    default:
+        NYI("QBE mapping for float operator `{}`", Operator_name(expr.op));
+        break;
+    }
+    return var;
+}
+
+static GenResult qbe_operator(QBEUnaryExpr const &expr, QBEContext &ctx)
+{
+    if (expr.op == Operator::Idempotent) {
+        if (std::holds_alternative<int>(expr.operand.value)) {
+            return std::get<int>(expr.operand.value);
+        }
+        int var = ++ctx.next_var;
+        ctx.text += std::format(L"    %{} = {} copy ", var, qbe_type(expr.operand.type));
+        TRY_GENERATE_INLINE(expr.operand.value, ctx);
+        return var;
+    }
+    return std::visit(
+        [&expr, &ctx](auto const &descr) {
+            return qbe_operator(expr, descr, ctx);
+        },
+        expr.operand.type->description);
+}
+
 static GenResult assign(std::wstring_view varname, pType const &type, ASTNode const &rhs, QBEContext &ctx)
 {
     auto rhs_val = TRY_GENERATE_NOT_INLINE(rhs, ctx);
@@ -544,7 +642,7 @@ GenResult generate_qbe_node(ASTNode const &n, Constant const &impl, QBEContext &
     std::visit(
         overloads {
             [&var, &ctx, &impl](BoolType const &) -> void {
-                ctx.text += std::format(L"{}", as<bool>(*impl.bound_value));
+                ctx.text += std::format(L"{}", as<bool>(*impl.bound_value) ? 1 : 0);
             },
             [&ctx, &impl](IntType const &int_type) -> void {
                 switch (int_type.width_bits) {
@@ -670,6 +768,9 @@ GenResult generate_qbe_node(ASTNode const &n, Identifier const &impl, QBEContext
                 default:
                     UNREACHABLE();
                 }
+            },
+            [](BoolType const &) -> std::wstring_view {
+                return L"w";
             },
             [](FloatType const &float_type) -> std::wstring_view {
                 return (float_type.width_bits == 64) ? L"d" : L"s";
@@ -863,6 +964,18 @@ GenResult generate_qbe_node(ASTNode const &n, VariableDeclaration const &impl, Q
         return assign(impl.name, n->bound_type, impl.initializer, ctx);
     }
     return 0;
+}
+
+template<>
+GenResult generate_qbe_node(ASTNode const &n, UnaryExpression const &impl, QBEContext &ctx)
+{
+    auto const &rhs_type { impl.operand->bound_type };
+    auto        rhs_value_type { rhs_type->value_type() };
+
+    QBEOperand   operand { TRY_GENERATE_NOT_INLINE(impl.operand, ctx), impl.operand->bound_type };
+    QBEUnaryExpr expr { impl.op, operand };
+    auto         var = qbe_operator(expr, ctx);
+    return var;
 }
 
 template<>

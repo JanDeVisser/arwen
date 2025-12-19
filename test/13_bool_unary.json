@@ -1,0 +1,11 @@
+{
+  "name": "13_bool_unary",
+  "comptime_stdout": [],
+  "comptime_stderr": [],
+  "stdout": [
+    "Correct"
+  ],
+  "stderr": [],
+  "exit": 0,
+  "args": []
+}

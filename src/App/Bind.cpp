@@ -709,7 +709,9 @@ BindResult bind(ASTNode const &n, IfStatement &impl)
             (impl.condition)->bound_type->name);
     }
     try_bind(impl.if_branch);
-    try_bind(impl.else_branch);
+    if (impl.else_branch != nullptr) {
+        try_bind(impl.else_branch);
+    }
     auto if_type = (impl.if_branch)->bound_type;
     if (impl.else_branch == nullptr || (impl.else_branch)->bound_type == if_type) {
         return if_type;

@@ -49,7 +49,7 @@ std::vector<UnaryOperator> unary_ops = {
     { Operator::Idempotent, TypeKind::FloatType, PseudoType::Self },
     { Operator::Negate, TypeKind::IntType, PseudoType::Self },
     { Operator::Negate, TypeKind::FloatType, PseudoType::Self },
-    { Operator::LogicalInvert, TypeRegistry::boolean, TypeRegistry::boolean },
+    { Operator::LogicalInvert, TypeKind::BoolType, PseudoType::Self },
     { Operator::Length, TypeKind::SliceType, TypeRegistry::i64 },
     { Operator::Length, TypeKind::Array, TypeRegistry::i64 },
     { Operator::Length, TypeKind::DynArray, TypeRegistry::i64 },
