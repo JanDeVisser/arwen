@@ -54,9 +54,11 @@ static BindResults bind_nodes(R const &nodes)
         auto res = bind(n);
         if (!res.has_value() || res.value() == nullptr) {
             if (!ret.has_value()) {
-                ret = res.error();
-            } else if (res.value() == nullptr) {
-                ret = ASTStatus::Undetermined;
+                if (!res.has_value()) {
+                    ret = res.error();
+                } else {
+                    ret = ASTStatus::Undetermined;
+                }
             }
             types.push_back(pType { nullptr });
         } else {
@@ -168,13 +170,13 @@ BindResult bind(ASTNode const &n, BinaryExpression &impl)
     auto    lhs_type = try_bind_member(impl.lhs);
 
     if (impl.op == Operator::MemberAccess) {
-        if (lhs_type->kind() != TypeKind::ReferenceType) {
+        if (lhs_type->kind() != TypeKind::ReferenceType && !is<Identifier>(impl.lhs)) {
             return parser.bind_error(
                 n->location,
                 L"Left hand side of member access operator must be value reference");
         }
-        auto const &ref = std::get<ReferenceType>(lhs_type->description);
-        if (ref.referencing->kind() != TypeKind::StructType) {
+        auto lhs_value_type = lhs_type->value_type();
+        if (lhs_value_type->kind() != TypeKind::StructType) {
             return parser.bind_error(
                 n->location,
                 L"Left hand side of member access operator must have struct type");
@@ -184,7 +186,7 @@ BindResult bind(ASTNode const &n, BinaryExpression &impl)
                 n->location,
                 L"Right hand side of member access operator must be identifier");
         } else {
-            auto const &s = std::get<StructType>(ref.referencing->description);
+            auto const &s = std::get<StructType>(lhs_value_type->description);
             for (auto const &f : s.fields) {
                 if (f.name == rhs_id->identifier) {
                     impl.rhs->bound_type = TypeRegistry::the().referencing(f.type);
@@ -203,9 +205,6 @@ BindResult bind(ASTNode const &n, BinaryExpression &impl)
     auto rhs_value_type = rhs_type->value_type();
 
     if (impl.op == Operator::Assign) {
-        if (lhs_type->kind() != TypeKind::ReferenceType) {
-            return parser.bind_error(n->location, L"Cannot assign to non-references");
-        }
         if (lhs_value_type != rhs_value_type) {
             return parser.bind_error(
                 n->location,
@@ -337,6 +336,7 @@ BindResult bind(ASTNode const &n, Call &impl)
 
     auto         arg_types = try_bind(impl.arguments);
     auto const  &type_descr = get<TypeList>(arg_types);
+    auto        &args { get<ExpressionList>(impl.arguments).expressions };
     std::wstring name;
     ASTNodes     type_args {};
     if (auto const *id = get_if<Identifier>(impl.callable); id != nullptr) {
@@ -351,8 +351,7 @@ BindResult bind(ASTNode const &n, Call &impl)
     // }
     //
 
-    auto const &args = get<ExpressionList>(impl.arguments);
-    auto        match_non_generic_function = [&](ASTNode const &func_def) -> std::expected<ASTNode, ASTStatus> {
+    auto match_non_generic_function = [&](ASTNode const &func_def) -> std::expected<ASTNode, ASTStatus> {
         auto const &def = get<FunctionDefinition>(func_def);
         auto const &decl = get<FunctionDeclaration>(def.declaration);
         if (decl.generics.empty()) {
@@ -360,17 +359,29 @@ BindResult bind(ASTNode const &n, Call &impl)
             if (type_descr.types.size() != func_type_descr.parameters.size()) {
                 return nullptr;
             }
-            for (auto [arg, param] : std::views::zip(type_descr.types, func_type_descr.parameters)) {
-                if (arg == param) {
-                    continue;
+            ASTNodes reference_nodes;
+            auto     made_reference_node { false };
+            for (auto [ix, arg_param] : std::views::zip(args, type_descr.types, func_type_descr.parameters) | std::ranges::views::enumerate) {
+                auto [arg, arg_type, param_type] { arg_param };
+                auto arg_value = arg_type->value_type();
+                auto param_value = param_type->value_type();
+                if (arg_value != param_value) {
+                    return nullptr;
                 }
-                if (is<ReferenceType>(arg)) {
-                    auto arg_descr { std::get<ReferenceType>(arg->description) };
-                    if (arg_descr.referencing == param) {
-                        continue;
-                    }
+                if (is<ReferenceType>(param_type) && is<Constant>(arg)) {
+                    return nullptr;
                 }
-                return nullptr;
+                if (is<ReferenceType>(param_type) && !is<ReferenceType>(arg_type)) {
+                    auto reference = normalize(make_node<UnaryExpression>(arg, Operator::AddressOf, arg));
+                    reference_nodes.emplace_back(reference);
+                    made_reference_node = true;
+                } else {
+                    reference_nodes.emplace_back(arg);
+                }
+            }
+            if (made_reference_node) {
+                impl.arguments = normalize(make_node<ExpressionList>(impl.arguments, reference_nodes));
+                try_bind(impl.arguments);
             }
             return func_def;
         }
@@ -390,10 +401,10 @@ BindResult bind(ASTNode const &n, Call &impl)
             for (auto const &[param_name, arg_type] : std::ranges::views::zip(decl.generics, type_args)) {
                 generic_args[std::wstring(identifier(param_name))] = resolve(arg_type);
             }
-            if (decl.parameters.size() != args.expressions.size()) {
+            if (decl.parameters.size() != args.size()) {
                 return nullptr;
             }
-            for (auto const &[param, arg] : std::ranges::views::zip(decl.parameters, args.expressions)) {
+            for (auto const &[param, arg] : std::ranges::views::zip(decl.parameters, args)) {
                 auto const &param_type = param->bound_type;
                 auto const &arg_type = arg->bound_type;
                 for (auto const inferred = arg_type->infer_generic_arguments(param_type); auto const &[name, arg_type] : inferred) {
@@ -467,14 +478,11 @@ BindResult bind(ASTNode const &n, Call &impl)
         }
     }
     if (impl.function != nullptr) {
-        if (auto maybe = bind(impl.function); !maybe.has_value()) {
-            return BindError { maybe.error() };
+        auto const &func { get<FunctionDefinition>(impl.function) };
+        auto const &func_type_descr { get<FunctionType>(func.declaration->bound_type) };
+        auto const &param_types { func_type_descr.parameters };
+        for (auto const &[arg, param_type] : std::ranges::views::zip(args, param_types)) {
         }
-        auto const &func = get<FunctionDefinition>(impl.function);
-        if (auto maybe = bind(func.implementation); !maybe.has_value()) {
-            return BindError { maybe.error() };
-        }
-        auto const &func_type_descr = get<FunctionType>(func.declaration->bound_type);
         return func_type_descr.result;
     }
     if (parser.pass == 0) {
@@ -606,7 +614,7 @@ BindResult bind(ASTNode const &n, Enum &impl)
     }
     auto ret = make_type(impl.name, enoom);
     parser.register_type(impl.name, ret);
-    return ret;
+    return make_type(impl.name, TypeType { .type = ret });
 }
 
 template<>
@@ -624,11 +632,7 @@ BindResult bind(ASTNode const &n, Error &impl)
 template<>
 BindResult bind(ASTNode const &n, ExpressionList &impl)
 {
-    auto ret = TypeRegistry::the().typelist_of(try_bind_nodes(impl.expressions));
-    assert(is<TypeList>(ret));
-    auto l = get<TypeList>(ret);
-    trace(L"Expr bound -> {} {}", l.types.size(), ret);
-    return ret;
+    return TypeRegistry::the().typelist_of(try_bind_nodes(impl.expressions));
 }
 
 template<>
@@ -780,8 +784,9 @@ BindResult bind(ASTNode const &n, Struct &impl)
         try_bind(m);
         fields.emplace_back(get<StructMember>(m).label, m->bound_type);
     }
-    parser.register_type(impl.name, TypeRegistry::the().struct_of(fields));
-    return TypeRegistry::void_;
+    pType type = TypeRegistry::the().struct_of(fields);
+    parser.register_type(impl.name, type);
+    return make_type(impl.name, TypeType { .type = type });
 }
 
 template<>
@@ -810,25 +815,29 @@ BindResult bind(ASTNode const &n, UnaryExpression &impl)
         return TypeRegistry::i64;
     }
     if (impl.op == Operator::AddressOf) {
-        if (!is<ReferenceType>(operand_type)) {
-            return parser.bind_error(n->location, L"Cannot get address of non-references");
+        if (is<ReferenceType>(operand_type)) {
+            return parser.bind_error(n->location, L"Cannot take address of reference");
         }
-        return TypeRegistry::pointer;
+        if (is<Constant>(n)) {
+            return parser.bind_error(n->location, L"Cannot take address of constant");
+        }
+        return TypeRegistry::the().referencing(operand_type);
     }
     for (auto const &[oper, operand, result] : unary_ops) {
         if (impl.op == oper && operand.matches(operand_type)) {
-            return std::visit(overloads {
-                                  [](pType const &result_type) -> pType {
-                                      return result_type;
-                                  },
-                                  [&operand_type](PseudoType const &pseudo_type) -> pType {
-                                      switch (pseudo_type) {
-                                      case PseudoType::Self:
-                                          return operand_type;
-                                      default:
-                                          UNREACHABLE();
-                                      }
-                                  } },
+            return std::visit(
+                overloads {
+                    [](pType const &result_type) -> pType {
+                        return result_type;
+                    },
+                    [&operand_type](PseudoType const &pseudo_type) -> pType {
+                        switch (pseudo_type) {
+                        case PseudoType::Self:
+                            return operand_type;
+                        default:
+                            UNREACHABLE();
+                        }
+                    } },
                 result);
         }
     }

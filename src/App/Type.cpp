@@ -218,6 +218,21 @@ intptr_t StructType::align_of() const
     return ret;
 }
 
+size_t StructType::offset_of(std::wstring_view field_name) const
+{
+    intptr_t offset { 0 };
+    assert(std::ranges::find_if(fields.begin(), fields.end(),
+               [&offset, &field_name](Field const &fld) -> bool {
+                   if (field_name == fld.name) {
+                       return true;
+                   }
+                   offset = alignat(offset, fld.type->align_of()) + fld.type->size_of();
+                   return false;
+               })
+        != fields.end());
+    return offset;
+}
+
 std::wstring OptionalType::to_string() const
 {
     return std::format(L"OptionalOf({})", type_name(type));
@@ -246,6 +261,11 @@ intptr_t ErrorType::size_of() const
 intptr_t ErrorType::align_of() const
 {
     return std::max(success->align_of(), error->align_of());
+}
+
+std::wstring TypeType::to_string() const
+{
+    return std::format(L"TypeOf({})", type->to_string());
 }
 
 std::map<std::wstring, pType> Type::infer_generic_arguments(pType const &param_type) const
@@ -562,6 +582,25 @@ pType TypeRegistry::struct_of(StructType::Fields const &fields)
             std::wstring_view { L"," },
             [](StructType::Field const &f) -> std::wstring { return std::format(L"{}: {}", f.name, f.type->to_string()); }));
     auto ret = make_type(n, StructType { fields });
+    return ret;
+}
+
+pType TypeRegistry::type_of(pType type)
+{
+    assert(type);
+    for (auto const &t : types) {
+        if (std::visit(overloads {
+                           [&type](TypeType const descr) -> bool {
+                               return descr.type == type;
+                           },
+                           [](auto const &) -> bool {
+                               return false;
+                           } },
+                t.description)) {
+            return t.id;
+        }
+    }
+    auto ret = make_type(std::format(L"{}?", type->name), TypeType { type });
     return ret;
 }
 

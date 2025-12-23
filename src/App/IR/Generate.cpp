@@ -113,19 +113,11 @@ void generate_node(Generator &generator, ASTNode const &n, BinaryExpression cons
 
     if (node.op == Operator::MemberAccess) {
         generator.generate(node.lhs);
-        auto const &ref = get<ReferenceType>(lhs->bound_type);
         auto        rhs_id = get<Identifier>(rhs);
-        auto const &s = get<StructType>(ref.referencing);
-        size_t      offset { 0 };
-        for (auto const &f : s.fields) {
-            offset = alignat(offset, f.type->align_of());
-            if (f.name == rhs_id.identifier) {
-                break;
-            }
-            offset += f.type->size_of();
-        }
-        Operation &operation = last_op(generator);
-        auto      &push_var_address = std::get<Operation::PushVarAddress>(operation.op);
+        auto const &s = get<StructType>(lhs->bound_type->value_type());
+        size_t      offset { s.offset_of(rhs_id.identifier) };
+        Operation  &operation = last_op(generator);
+        auto       &push_var_address = std::get<Operation::PushVarAddress>(operation.op);
         push_var_address.payload.type = n->bound_type;
         push_var_address.payload.offset += offset;
         return;

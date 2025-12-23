@@ -1,0 +1,12 @@
+{
+  "name": "14_struct",
+  "comptime_stdout": [],
+  "comptime_stderr": [],
+  "stdout": [
+    "12 by reference",
+    "42 by value"
+  ],
+  "stderr": [],
+  "exit": 0,
+  "args": []
+}

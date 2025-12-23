@@ -132,6 +132,12 @@ DLResult<LibHandle> Resolver::Library::open()
             ret = try_open(fs::path { "share/lib" });
         }
         if (!ret.has_value()) {
+            ret = try_open(fs::path { "/" } / "usr" / "lib");
+        }
+        if (!ret.has_value()) {
+            ret = try_open(fs::path { "/" } / "usr" / "lib64");
+        }
+        if (!ret.has_value()) {
             ret = try_open(fs::current_path());
         }
     } else {

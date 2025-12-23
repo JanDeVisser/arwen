@@ -1,0 +1,18 @@
+func InitWindow(width: i32, height: i32, title: cstring) void -> "libraylib:InitWindow"
+func CloseWindow() void -> "libraylib:CloseWindow"
+func WindowShouldClose() bool -> "libraylib:WindowShouldClose"
+func ClearBackground(color: u64) void -> "libraylib:ClearBackground"
+func BeginDrawing() void -> "libraylib:BeginDrawing"
+func EndDrawing() void -> "libraylib:EndDrawing"
+
+public func main() i32 {
+    InitWindow(800::i32, 600::i32, `Arwen Speedrun`)
+    while (!WindowShouldClose()) {
+        BeginDrawing()
+        ClearBackground(0xFF0000FF::u64)
+        EndDrawing()
+    }
+    CloseWindow()
+    return 0::i32
+}
+

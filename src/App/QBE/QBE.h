@@ -13,7 +13,28 @@
 
 namespace Arwen::QBE {
 
-using GenResult = std::expected<int, std::wstring>;
+enum class AllocType {
+    Unknown,
+    Value,
+    Reference,
+};
+
+struct Alloc {
+    AllocType          type = AllocType::Unknown;
+    std::optional<int> var = {};
+
+    static Alloc value(int var)
+    {
+        return (var > 0) ? Alloc { AllocType::Value, var } : Alloc {};
+    }
+
+    static Alloc ref(int var)
+    {
+        return Alloc { AllocType::Reference, var };
+    }
+};
+
+using GenResult = std::expected<Alloc, std::wstring>;
 GenResult generate_qbe(ASTNode const &node);
 
 }

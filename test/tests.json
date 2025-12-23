@@ -10,5 +10,6 @@
   "09_overload",
   "11_if_else",
   "12_cstring",
-  "13_bool_unary"
+  "13_bool_unary",
+  "14_struct"
 ]

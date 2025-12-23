@@ -46,7 +46,8 @@ namespace Arwen {
     S(EnumType)            \
     S(OptionalType)        \
     S(ErrorType)           \
-    S(StructType)
+    S(StructType)          \
+    S(TypeType)
 
 enum class TypeKind {
 #undef S
@@ -357,6 +358,8 @@ struct StructType {
             return fld.name == field_name;
         });
     }
+
+    size_t offset_of(std::wstring_view field_name) const;
 };
 
 struct OptionalType {
@@ -374,6 +377,21 @@ struct ErrorType {
     std::wstring to_string() const;
     intptr_t     size_of() const;
     intptr_t     align_of() const;
+};
+
+struct TypeType {
+    pType type;
+
+    std::wstring to_string() const;
+    intptr_t     size_of() const
+    {
+        return 0;
+    }
+
+    intptr_t align_of() const
+    {
+        return 0;
+    }
 };
 
 using TypeDescription = std::variant<
@@ -481,6 +499,7 @@ struct TypeRegistry {
     pType       function_of(std::vector<pType> const &parameters, pType result);
     pType       typelist_of(std::vector<pType> const &typelist);
     pType       struct_of(StructType::Fields const &fields);
+    pType       type_of(pType type);
 
     static pType u8;
     static pType u16;

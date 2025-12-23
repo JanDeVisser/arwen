@@ -35,7 +35,6 @@ if( "${CMAKE_SYSTEM_PROCESSOR}"  STREQUAL "x86_64")
   set(IS_X86_64 TRUE)
 endif()
 
-# set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ -lc++abi")
 set(CMAKE_INSTALL_PREFIX ${PROJECT_BINARY_DIR} CACHE PATH "..." FORCE)
 
 set(arwen_NAME arwen)
