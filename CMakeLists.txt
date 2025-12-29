@@ -112,6 +112,7 @@ add_library(
     src/Interp/Native.cpp
     src/Interp/Scope.cpp
     src/Interp/Stack.cpp
+    src/App/QBE/IL.cpp
     src/App/QBE/QBE.cpp
 )
 
