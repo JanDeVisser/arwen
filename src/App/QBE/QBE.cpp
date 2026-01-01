@@ -36,6 +36,8 @@
 
 namespace Arwen::QBE {
 
+using GenResult = std::expected<ILValue, std::wstring>;
+
 Local Local::value(int var)
 {
     return (var > 0) ? Local { LocalType::Value, var } : Local {};
@@ -52,12 +54,12 @@ struct QBEContext {
     fs::path  file_name;
     bool      is_export { false };
     ILProgram program {};
-    size_t    mod_ix;
-    size_t    fnc_ix;
+    size_t    current_file;
+    size_t    current_function;
 
     ILValue add_string(std::wstring_view s)
     {
-        ILFile &file = program.files[mod_ix];
+        auto &file { program.files[current_file] };
         for (auto const &[ix, str] : std::ranges::views::enumerate(file.strings)) {
             if (str == s) {
                 return ILValue::string(ix + 1);
@@ -69,7 +71,7 @@ struct QBEContext {
 
     ILValue add_cstring(std::string_view s)
     {
-        ILFile &file = program.files[mod_ix];
+        auto &file { program.files[current_file] };
         for (auto const &[ix, str] : std::ranges::views::enumerate(file.cstrings)) {
             if (str == s) {
                 return ILValue::cstring(ix + 1);
@@ -81,7 +83,7 @@ struct QBEContext {
 
     void add_type(pType type)
     {
-        ILFile &file = program.files[mod_ix];
+        auto &file { program.files[current_file] };
         for (auto const &t : file.types) {
             if (type == t) {
                 return;
@@ -92,8 +94,15 @@ struct QBEContext {
 
     void add_operation(ILInstructionImpl impl)
     {
-        ILFile     &file = program.files[mod_ix];
-        ILFunction &function = file.functions[fnc_ix];
+        auto &file { program.files[current_file] };
+        auto &function { file.functions[current_function] };
+        if (std::holds_alternative<LabelDef>(impl)) {
+            auto const &label_def = std::get<LabelDef>(impl);
+            if (function.labels.size() < label_def.label + 1) {
+                function.labels.resize(label_def.label + 1);
+            }
+            function.labels[label_def.label] = function.instructions.size();
+        }
         function.instructions.emplace_back(std::move(impl));
     }
 };
@@ -748,9 +757,6 @@ GenResult generate_qbe_node(ASTNode const &n, Call const &impl, QBEContext &ctx)
     auto name = std::visit(
         overloads {
             [](ExternLink const &link) -> std::wstring_view {
-                if (auto colon = link.link_name.rfind(L':'); colon != std::wstring::npos) {
-                    return std::wstring_view { link.link_name }.substr(colon + 1);
-                }
                 return link.link_name;
             },
             [&def](auto const &) -> std::wstring_view {
@@ -884,19 +890,21 @@ GenResult generate_qbe_node(ASTNode const &n, FunctionDefinition const &impl, QB
 template<>
 GenResult generate_qbe_node(ASTNode const &n, FunctionDeclaration const &impl, QBEContext &ctx)
 {
-    auto &file = ctx.program.files[ctx.mod_ix];
-    auto &fnc = file.functions.emplace_back(
+    auto &file { ctx.program.files[ctx.current_file] };
+    auto &function = file.functions.emplace_back(
+        ctx.current_file,
         impl.name,
         qbe_type(impl.return_type->bound_type),
         ctx.is_export);
+    function.id = file.functions.size() - 1;
     ctx.is_export = false;
-    ctx.fnc_ix = ctx.program.files[ctx.mod_ix].functions.size() - 1;
-    file.has_exports = fnc.exported;
+    ctx.current_function = function.id;
+    file.has_exports |= function.exported;
     file.has_main = impl.name == L"main";
     auto first = true;
     for (auto const &param : impl.parameters) {
         auto p = get<Parameter>(param);
-        fnc.parameters.emplace_back(p.name, qbe_type(param->bound_type));
+        function.parameters.emplace_back(p.name, qbe_type(param->bound_type));
     }
     ctx.next_var = 0;
     ctx.next_label = 0;
@@ -998,8 +1006,9 @@ template<>
 GenResult generate_qbe_node(ASTNode const &n, Module const &impl, QBEContext &ctx)
 {
     auto &file = ctx.program.files.emplace_back(impl.name);
-    ctx.mod_ix = ctx.program.files.size() - 1;
-    ctx.fnc_ix = 0;
+    file.id = ctx.program.files.size() - 1;
+    ctx.current_file = file.id;
+    ctx.current_function = std::numeric_limits<size_t>::max();
     if (auto res = generate_qbe_nodes(impl.statements, ctx); !res) {
         return res;
     }
@@ -1045,86 +1054,10 @@ GenResult generate_qbe_node(ASTNode const &n, Parameter const &impl, QBEContext 
 template<>
 GenResult generate_qbe_node(ASTNode const &n, Program const &impl, QBEContext &ctx)
 {
-    fs::path dot_arwen { ".arwen" };
-    fs::create_directory(dot_arwen);
-    std::vector<fs::path> o_files;
-
     ctx.program.name = impl.name;
     for (auto const &[mod_name, mod] : impl.modules) {
         if (auto res = generate_qbe_node(mod, ctx); !res) {
             return res;
-        }
-        auto const &file = ctx.program.files.back();
-        if (file.has_exports) {
-            fs::path file_path = dot_arwen / file.name;
-            file_path.replace_extension("ssa");
-            {
-                fs::path file_path = dot_arwen / file.name;
-                file_path.replace_extension("ssa");
-                std::wofstream os { file_path.string() };
-                os << file;
-            }
-            auto s_file { file_path };
-            s_file.replace_extension("s");
-            auto o_file { file_path };
-            o_file.replace_extension("o");
-
-            info("[QBE] Compiling `{}`", file_path.string());
-            Util::Process qbe { "qbe", "-o", s_file.string(), file_path.string() };
-            if (auto res = qbe.execute(); !res.has_value()) {
-                return std::unexpected(std::format(L"qbe execution failed: {}", as_wstring(res.error().description)));
-            } else if (res.value() != 0) {
-                return std::unexpected(std::format(L"qbe failed: {}", as_wstring(qbe.stderr())));
-            }
-            Util::Process as { "as", "-o", o_file.string(), s_file.string() };
-            if (auto res = as.execute(); !res.has_value()) {
-                return std::unexpected(std::format(L"as execution failed: {}", as_wstring(res.error().description)));
-            } else if (res.value() != 0) {
-                return std::unexpected(std::format(L"as failed: {}", as_wstring(as.stderr())));
-            }
-            if (!has_option("keep-assembly")) {
-                fs::remove(file_path);
-            }
-            o_files.push_back(o_file);
-        }
-    }
-
-    if (!o_files.empty()) {
-        fs::path program_path { as_utf8(impl.name) };
-        program_path.replace_extension();
-        info("[QBE] Linking `{}`", program_path.string());
-
-        std::vector<std::string> ld_args {
-            "-o",
-            fs::path { as_utf8(impl.name) }.replace_extension("").string(),
-            // "-no-pie",
-            std::format("-L{}/lib", Arwen::arwen_dir().string()),
-            "-larwenrt", "-lm", "-lpthread", "-ldl"
-        };
-        if (has_option("L")) {
-            for (auto const &lib_path : get_option_values("L")) {
-                ld_args.push_back(std::format("-L{}", lib_path));
-            }
-        }
-        if (has_option("l")) {
-            for (auto const &lib : get_option_values("l")) {
-                ld_args.push_back(std::format("-l{}", lib));
-            }
-        }
-        for (auto const &o : o_files) {
-            ld_args.push_back(o.string());
-        }
-
-        Util::Process link { "cc", ld_args };
-        if (auto res = link.execute(); !res.has_value()) {
-            return std::unexpected(std::format(L"Linker execution failed: {}", as_wstring(res.error().description)));
-        } else if (res.value() != 0) {
-            return std::unexpected(std::format(L"Linking failed: {}", as_wstring(link.stderr())));
-        }
-        if (!has_option("keep-objects")) {
-            for (auto const &o : o_files) {
-                fs::remove(o);
-            }
         }
     }
     return ILValue::null();
@@ -1215,9 +1148,95 @@ GenResult generate_qbe_node(ASTNode const &n, QBEContext &ctx)
         n->node);
 }
 
-GenResult generate_qbe(ASTNode const &n)
+std::expected<ILProgram, std::wstring> generate_qbe(ASTNode const &node)
 {
     QBEContext ctx {};
-    return generate_qbe_node(n, ctx);
+    if (auto res = generate_qbe_node(node, ctx); res.has_value()) {
+        return ctx.program;
+    } else {
+        return std::unexpected(res.error());
+    }
+}
+
+std::expected<void, std::wstring> compile_qbe(ILProgram const &program)
+{
+    fs::path dot_arwen { ".arwen" };
+    fs::create_directory(dot_arwen);
+    std::vector<fs::path> o_files;
+
+    for (auto const &file : program.files) {
+        if (file.has_exports) {
+            fs::path file_path = dot_arwen / file.name;
+            file_path.replace_extension("ssa");
+            {
+                fs::path file_path = dot_arwen / file.name;
+                file_path.replace_extension("ssa");
+                std::wofstream os { file_path.string() };
+                os << file;
+            }
+            auto s_file { file_path };
+            s_file.replace_extension("s");
+            auto o_file { file_path };
+            o_file.replace_extension("o");
+
+            info("[QBE] Compiling `{}`", file_path.string());
+            Util::Process qbe { "qbe", "-o", s_file.string(), file_path.string() };
+            if (auto res = qbe.execute(); !res.has_value()) {
+                return std::unexpected(std::format(L"qbe execution failed: {}", as_wstring(res.error().description)));
+            } else if (res.value() != 0) {
+                return std::unexpected(std::format(L"qbe failed: {}", as_wstring(qbe.stderr())));
+            }
+            Util::Process as { "as", "-o", o_file.string(), s_file.string() };
+            if (auto res = as.execute(); !res.has_value()) {
+                return std::unexpected(std::format(L"as execution failed: {}", as_wstring(res.error().description)));
+            } else if (res.value() != 0) {
+                return std::unexpected(std::format(L"as failed: {}", as_wstring(as.stderr())));
+            }
+            if (!has_option("keep-assembly")) {
+                fs::remove(file_path);
+            }
+            o_files.push_back(o_file);
+        }
+    }
+
+    if (!o_files.empty()) {
+        fs::path program_path { as_utf8(program.name) };
+        program_path.replace_extension();
+        info("[QBE] Linking `{}`", program_path.string());
+
+        std::vector<std::string> ld_args {
+            "-o",
+            fs::path { as_utf8(program.name) }.replace_extension("").string(),
+            // "-no-pie",
+            std::format("-L{}/lib", Arwen::arwen_dir().string()),
+            "-larwenrt", "-lm", "-lpthread", "-ldl"
+        };
+        if (has_option("L")) {
+            for (auto const &lib_path : get_option_values("L")) {
+                ld_args.push_back(std::format("-L{}", lib_path));
+            }
+        }
+        if (has_option("l")) {
+            for (auto const &lib : get_option_values("l")) {
+                ld_args.push_back(std::format("-l{}", lib));
+            }
+        }
+        for (auto const &o : o_files) {
+            ld_args.push_back(o.string());
+        }
+
+        Util::Process link { "cc", ld_args };
+        if (auto res = link.execute(); !res.has_value()) {
+            return std::unexpected(std::format(L"Linker execution failed: {}", as_wstring(res.error().description)));
+        } else if (res.value() != 0) {
+            return std::unexpected(std::format(L"Linking failed: {}", as_wstring(link.stderr())));
+        }
+        if (!has_option("keep-objects")) {
+            for (auto const &o : o_files) {
+                fs::remove(o);
+            }
+        }
+    }
+    return {};
 }
 }

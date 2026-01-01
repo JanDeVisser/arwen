@@ -105,18 +105,19 @@ std::optional<std::wstring> load_files(std::vector<fs::path> const &files)
 struct Builder {
     using Source = std::variant<fs::path, std::vector<fs::path>>;
 
-    fs::path     arw_dir;
-    Source       source;
-    std::string  program_name;
-    Parser       parser {};
-    std::wstring source_text;
-    bool         verbose { false };
-    IR::IRNodes  ir {};
+    fs::path       arw_dir;
+    Source         source;
+    std::string    program_name;
+    Parser         parser {};
+    QBE::ILProgram program;
+    std::wstring   source_text;
+    bool           verbose { false };
+    IR::IRNodes    ir {};
 
     bool analyze()
     {
         if (!parse()) {
-            std::cerr << "Syntactic parsing failed\n";
+            log_error("Syntactic parsing failed");
             return false;
         }
         if (has_option("stop-after-parse")) {
@@ -125,6 +126,12 @@ struct Builder {
         if (!normalize() || !bind()) {
             log_error("Semantic analysis failed");
             return false;
+        }
+        if (auto res = QBE::generate_qbe(parser.program); !res) {
+            log_error(L"QBE generation error: {}", res.error());
+            return false;
+        } else {
+            program = std::move(res.value());
         }
         if (has_option("stop-after-analysis")) {
             return false;
@@ -149,15 +156,19 @@ struct Builder {
         if (!analyze()) {
             return false;
         }
-        IR::generate_ir(parser.program, ir);
         if (has_option("list")) {
-            save(ir);
+            for (auto const &file : program.files) {
+                std::wcerr << file.name << ".ssa:\n\n";
+                std::wcerr << file << '\n';
+            }
         }
-        auto v = execute_ir(ir);
-        if (v.type != TypeRegistry::i32) {
-            return 0;
+        QBE::VM vm { program };
+        if (auto res = execute_qbe(vm); !res.has_value()) {
+            fatal(L"Evaluation failed: {}", res.error());
+        } else {
+            auto ret = res.value().coerce(TypeRegistry::i32).value_or(Value { TypeRegistry::i32, -1 });
+            return as<int32_t>(ret);
         }
-        return as<int32_t>(v);
     }
 
     int run()
@@ -290,7 +301,7 @@ struct Builder {
         return X86_64::generate_x86_64(ir);
 #endif
 #endif
-        if (auto res = QBE::generate_qbe(parser.program); !res) {
+        if (auto res = QBE::compile_qbe(program); !res) {
             log_error(L"QBE generation error: {}", res.error());
             return false;
         }

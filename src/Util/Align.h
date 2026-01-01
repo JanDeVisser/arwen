@@ -27,7 +27,8 @@ intptr_t alignat(intptr_t bytes)
 
 inline intptr_t alignat(intptr_t bytes, intptr_t align)
 {
-    assert(align > 0 && (align & (align - 1)) == 0); // Align must be power of 2
+    assert_with_msg((align > 0 && (align & (align - 1)) == 0),
+        "Align must be power of 2, and {} is not", align);
     return (bytes + (align - 1)) & ~(align - 1);
 }
 

@@ -14,6 +14,7 @@
 
 #include <Util/Logging.h>
 
+#include <App/Operator.h>
 #include <App/SyntaxNode.h>
 
 namespace Arwen::QBE {
@@ -80,31 +81,31 @@ enum class ILInstructionType {
     VaStart,
 };
 
-#define ILOPERATIONS(S) \
-    S(Add, add)         \
-    S(And, and)         \
-    S(Div, div)         \
-    S(Mul, mul)         \
-    S(Neg, neg)         \
-    S(Or, or)           \
-    S(Mod, rem)         \
-    S(Sar, sar)         \
-    S(Shl, shl)         \
-    S(Shr, shr)         \
-    S(Sub, sub)         \
-    S(UDiv, udiv)       \
-    S(UMod, urem)       \
-    S(Xor, xor)         \
-    S(Equals, eq)       \
-    S(NotEqual, ne)     \
-    S(GreaterEqual, ge) \
-    S(Greater, gt)      \
-    S(LessEqual, le)    \
-    S(Less, lt)
+#define ILOPERATIONS(S)                         \
+    S(Add, add, Operator::Add)                  \
+    S(And, and, Operator::BinaryAnd)            \
+    S(Div, div, Operator::Divide)               \
+    S(Mul, mul, Operator::Multiply)             \
+    S(Neg, neg, Operator::Negate)               \
+    S(Or, or, Operator::BinaryOr)               \
+    S(Mod, rem, Operator::Modulo)               \
+    S(Sar, sar, Operator::ShiftRight)           \
+    S(Shl, shl, Operator::ShiftLeft)            \
+    S(Shr, shr, Operator::ShiftRight)           \
+    S(Sub, sub, Operator::Subtract)             \
+    S(UDiv, udiv, Operator::Divide)             \
+    S(UMod, urem, Operator::Modulo)             \
+    S(Xor, xor, Operator::BinaryXor)            \
+    S(Equals, eq, Operator::Equals)             \
+    S(NotEqual, ne, Operator::NotEqual)         \
+    S(GreaterEqual, ge, Operator::GreaterEqual) \
+    S(Greater, gt, Operator::Greater)           \
+    S(LessEqual, le, Operator::LessEqual)       \
+    S(Less, lt, Operator::Less)
 
 enum class ILOperation {
 #undef S
-#define S(Op, Str) Op,
+#define S(Op, Str, ArwenOp) Op,
     ILOPERATIONS(S)
 #undef S
 };
@@ -351,22 +352,34 @@ struct ILInstruction {
     }
 };
 
+struct ILFunction;
+struct ILFile;
+struct ILProgram;
+
+template<class N>
+concept ir_node = std::is_same_v<N, ILFile>
+    || std::is_same_v<N, ILFunction>;
+
 struct ILParameter {
     std::wstring name;
     ILType       type;
 };
 
 struct ILFunction {
+    size_t                     file_id;
     std::wstring               name;
     ILType                     return_type;
     bool                       exported { false };
+    size_t                     id;
     std::vector<ILParameter>   parameters;
     std::vector<ILInstruction> instructions;
+    std::vector<size_t>        labels;
     friend std::wostream      &operator<<(std::wostream &os, ILFunction const &function);
 };
 
 struct ILFile {
     std::wstring              name;
+    size_t                    id;
     std::vector<pType>        types;
     std::vector<std::wstring> strings;
     std::vector<std::string>  cstrings;
@@ -381,7 +394,47 @@ struct ILProgram {
     std::vector<ILFile> files;
 };
 
-using GenResult = std::expected<ILValue, std::wstring>;
-GenResult generate_qbe(ASTNode const &node);
+using ILVariables = std::map<std::wstring, Value>;
+
+struct Frame {
+    constexpr static size_t         STACK_SIZE = 64 * 1024;
+    struct VM                      &vm;
+    ILFile const                   &file;
+    ILFunction const               &function;
+    std::array<uint8_t, STACK_SIZE> stack {};
+    size_t                          stack_pointer { 0 };
+    ILVariables                     variables {};
+    std::vector<Value>              locals {};
+    size_t                          ip { 0 };
+
+    void *allocate(size_t bytes, size_t alignment);
+    void *allocate(pType const &type);
+    void  release(void *ptr);
+};
+
+using pFrame = Ptr<Frame, struct VM>;
+
+struct VM {
+    ILProgram const         &program;
+    std::vector<Frame>       frames;
+    std::vector<ILVariables> globals;
+
+    VM(ILProgram const &program);
+    size_t       size() const;
+    bool         empty() const;
+    pFrame       new_frame(ILFile const &file, ILFunction const &function);
+    void         release_frame();
+    Frame const &operator[](size_t ix) const;
+    Frame       &operator[](size_t ix);
+};
+
+using ExecutionResult = std::expected<Value, std::wstring>;
+
+std::expected<ILProgram, std::wstring> generate_qbe(ASTNode const &node);
+std::expected<void, std::wstring>      compile_qbe(ILProgram const &program);
+ExecutionResult                        execute_qbe(VM &vm, ILFile const &file, ILFunction const &function, std::vector<Value> const &args);
+ExecutionResult                        execute_qbe(VM &vm);
+std::wostream                         &operator<<(std::wostream &os, ILFunction const &function);
+std::wostream                         &operator<<(std::wostream &os, ILFile const &file);
 
 }

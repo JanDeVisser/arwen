@@ -43,9 +43,9 @@ std::wostream &operator<<(std::wostream &os, ILOperation const &op)
 {
     switch (op) {
 #undef S
-#define S(Op, Str)        \
-    case ILOperation::Op: \
-        os << #Str;       \
+#define S(Op, Str, ArwenOp) \
+    case ILOperation::Op:   \
+        os << #Str;         \
         break;
         ILOPERATIONS(S)
 #undef S
@@ -121,7 +121,11 @@ std::wostream &operator<<(std::wostream &os, CallDef const &impl)
         || std::get<ILBaseType>(impl.target.type) != ILBaseType::V) {
         os << impl.target << " = " << impl.target.type << ' ';
     }
-    os << "call $" << impl.name << '(';
+    std::wstring_view n { impl.name };
+    if (auto colon = n.rfind(L':'); colon != std::wstring_view::npos) {
+        n = std::wstring_view { n }.substr(colon + 1);
+    }
+    os << "call $" << n << '(';
     auto first { true };
     for (auto const &arg : impl.args) {
         if (!first) {

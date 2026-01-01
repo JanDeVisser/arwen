@@ -35,6 +35,16 @@ public:
         }
     }
 
+    template<typename... Args>
+    Ptr(Repo *repo, Args &&...args)
+        : repo(repo)
+    {
+        assert(repo != nullptr);
+        repo->emplace_back(std::forward<Args>(args)...);
+        id = repo->size() - 1;
+        repo->back().id = *this;
+    }
+
     Ptr(std::nullptr_t const &)
         : repo(nullptr)
         , id()
@@ -70,6 +80,13 @@ public:
     }
 
     T const &operator*() const
+    {
+        assert(repo != nullptr);
+        assert(id.has_value() && id.value() < repo->size());
+        return (*repo)[id.value()];
+    }
+
+    T &operator*()
     {
         assert(repo != nullptr);
         assert(id.has_value() && id.value() < repo->size());

@@ -39,6 +39,9 @@ pType Atom::type() const
 #undef S
                 TypeRegistry::f32,
             TypeRegistry::f64,
+            TypeRegistry::string,
+            TypeRegistry::string_builder,
+            TypeRegistry::void_,
             TypeRegistry::pointer
         };
     }
@@ -209,7 +212,9 @@ static Atom evaluate_op(Atom const &lhs, Atom const &rhs, Func const &func)
                 return Atom { func(lhs_value, rhs_value) };
             },
             [](auto lhs_value, auto rhs_value) -> Atom {
-                fatal("Operator only applicable to numbers");
+                fatal("Operator only applicable to numbers, not to `{}` and `{}`",
+                    typeid(decltype(lhs_value)).name(),
+                    typeid(decltype(rhs_value)).name());
             } },
         lhs.payload, rhs.payload);
 }
@@ -284,8 +289,29 @@ Atom evaluate_Subscript(Atom const &lhs, Atom const &rhs)
 
 Atom evaluate_Add(Atom const &lhs, Atom const &rhs)
 {
-    return evaluate_op(lhs, rhs,
-        [](auto x, auto y) { return x + y; });
+    return std::visit(
+        overloads {
+            [](std::integral auto lhs_value, std::integral auto rhs_value) -> Atom {
+                return Atom { lhs_value + rhs_value };
+            },
+            [](std::integral auto lhs_value, std::floating_point auto rhs_value) -> Atom {
+                return Atom { lhs_value + rhs_value };
+            },
+            [](std::floating_point auto lhs_value, std::integral auto rhs_value) -> Atom {
+                return Atom { lhs_value + rhs_value };
+            },
+            [](std::floating_point auto lhs_value, std::floating_point auto rhs_value) -> Atom {
+                return Atom { lhs_value + rhs_value };
+            },
+            [](void *lhs_value, std::integral auto rhs_value) -> Atom {
+                return Atom { static_cast<void *>(static_cast<uint8_t *>(lhs_value) + static_cast<intptr_t>(rhs_value)) };
+            },
+            [](auto lhs_value, auto rhs_value) -> Atom {
+                fatal("Operator only applicable to numbers, not to `{}` and `{}`",
+                    typeid(decltype(lhs_value)).name(),
+                    typeid(decltype(rhs_value)).name());
+            } },
+        lhs.payload, rhs.payload);
 }
 
 Atom evaluate_Subtract(Atom const &lhs, Atom const &rhs)
@@ -842,6 +868,8 @@ static Value evaluate_on_atoms(Value const &lhs, Operator op, Value const &rhs)
 
 Value evaluate(Value const &lhs, Operator op, Value const &rhs)
 {
+    std::wstringstream s;
+    s << lhs.to_string() << Operator_name(op) << rhs.to_string() << "=";
     switch (op) {
     case Operator::Add: {
         if (lhs.type == TypeRegistry::string && rhs.type->kind() == TypeKind::IntType) {
@@ -886,15 +914,18 @@ Value evaluate(Value const &lhs, Operator op, Value const &rhs)
             return len;
         }
         default:
-	    break;
+            break;
         }
     }
     case Operator::Sizeof:
         return Value { static_cast<int64_t>(lhs.type->size_of()) };
     default:
-	break;
+        break;
     }
-    return evaluate_on_atoms(lhs, op, rhs);
+    auto ret = evaluate_on_atoms(lhs, op, rhs);
+    s << ret.to_string();
+    trace(L"{}", s.str());
+    return ret;
 }
 
 Value evaluate(Operator op, Value const &operand)

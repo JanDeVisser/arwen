@@ -276,7 +276,7 @@ inline wostream &operator<<(wostream &os, Atom const &atom)
                 os << std::boolalpha << b;
             },
             [&os](Slice const &v) -> void {
-                os << static_cast<wchar_t *>(v.ptr);
+                os << 'L' << static_cast<wchar_t *>(v.ptr);
             },
             [&os](DynamicArray const &v) -> void {
                 UNREACHABLE();
@@ -285,7 +285,7 @@ inline wostream &operator<<(wostream &os, Atom const &atom)
                 UNREACHABLE();
             },
             [&os](auto const &v) -> void {
-                os << v;
+                os << '?' << v;
             },
         },
         atom.payload);
