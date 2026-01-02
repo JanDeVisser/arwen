@@ -174,9 +174,6 @@ std::wostream &operator<<(std::wostream &os, ExprDef const &impl)
         }
     }
     op << impl.op;
-    if (impl.op >= ILOperation::GreaterEqual) {
-        op << static_cast<ILOperation>(static_cast<uint16_t>(t) & 0xFC);
-    }
     os << "    " << impl.target << " = " << impl.target.type << " " << op.str() << " " << impl.lhs << ", " << impl.rhs;
     return os;
 }
