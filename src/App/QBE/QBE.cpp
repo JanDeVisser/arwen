@@ -685,7 +685,7 @@ static GenResult qbe_operator(QBEUnaryExpr const &expr, QBEContext &ctx)
 
 static GenResult assign(ILValue const &lhs, ASTNode const &rhs, QBEContext &ctx)
 {
-    QBE_ASSERT((std::holds_alternative<Local>(lhs.inner) && std::get<Local>(lhs.inner).type == LocalType::Reference), ctx);
+    // QBE_ASSERT((std::holds_alternative<Local>(lhs.inner) && std::get<Local>(lhs.inner).type == LocalType::Reference), ctx);
     auto rhs_val = TRY_GENERATE(rhs, ctx);
     ctx.add_operation(
         StoreDef {
@@ -745,9 +745,9 @@ GenResult generate_qbe_node(ASTNode const &n, Call const &impl, QBEContext &ctx)
     for (auto const &[arg, param] : std::ranges::views::zip(get<ExpressionList>(impl.arguments).expressions, decl.parameters)) {
         if (is<ReferenceType>(param->bound_type)) {
             QBE_ASSERT(is<ReferenceType>(arg->bound_type), ctx);
-            args.emplace_back(dereference(TRY_GENERATE(arg, ctx), ctx));
-        } else {
             args.emplace_back(TRY_GENERATE(arg, ctx).value);
+        } else {
+            args.emplace_back(dereference(TRY_GENERATE(arg, ctx), ctx));
         }
     }
     ILValue ret { ILValue::null() };

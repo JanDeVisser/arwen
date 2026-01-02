@@ -181,6 +181,9 @@ void store(pFrame const &frame, pType type, void *target, ILValue const &src_ref
     if (type == TypeRegistry::string) {
         src = make_from_buffer(type, as<void *>(src));
     }
+    if (std::holds_alternative<Local>(src_ref.inner) && std::get<Local>(src_ref.inner).type == LocalType::Reference) {
+        src = make_from_buffer(type, as<void *>(src));
+    }
     void *src_ptr = address_of(src);
     assert(src_ptr != nullptr);
     trace(L"memcpy({}, {} @{}, {})", target, src, src_ptr, type->to_string());
@@ -356,8 +359,8 @@ template<>
 ExecResult execute(ILFunction const &il, pFrame const &frame, LoadDef const &instruction)
 {
     auto type { type_from_qbe_type(instruction.target.type) };
-    auto src = as<intptr_t>(get(frame, instruction.pointer));
-    assign(frame, instruction.target, make_from_buffer(type, (void *) (src)));
+    auto src = as<void *>(get(frame, instruction.pointer));
+    assign(frame, instruction.target, make_from_buffer(type, src));
     ++frame->ip;
     return {};
 }
