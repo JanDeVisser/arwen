@@ -33,7 +33,7 @@ std::wostream &operator<<(std::wostream &os, ILType const &type)
                 os << inner;
             },
             [&os](std::wstring const &inner) {
-                os << ':' << inner;
+                os << inner;
             } },
         type);
     return os;
@@ -135,6 +135,9 @@ std::wostream &operator<<(std::wostream &os, CallDef const &impl)
         os << arg.type << " " << arg;
     }
     os << ")";
+    if (n != impl.name) {
+        os << " # " << impl.name;
+    }
     return os;
 }
 
@@ -156,7 +159,7 @@ std::wostream &operator<<(std::wostream &os, ExprDef const &impl)
     assert(std::holds_alternative<ILBaseType>(impl.target.type));
     auto t = std::get<ILBaseType>(impl.target.type);
     if (impl.op >= ILOperation::Equals) {
-        os << 'c';
+        op << 'c';
         if (impl.op >= ILOperation::GreaterEqual) {
             switch (t) {
             case ILBaseType::UB:
@@ -174,6 +177,9 @@ std::wostream &operator<<(std::wostream &os, ExprDef const &impl)
         }
     }
     op << impl.op;
+    if (impl.op >= ILOperation::Equals) {
+        op << impl.lhs.type;
+    }
     os << "    " << impl.target << " = " << impl.target.type << " " << op.str() << " " << impl.lhs << ", " << impl.rhs;
     return os;
 }
@@ -239,7 +245,17 @@ std::wostream &operator<<(std::wostream &os, RetDef const &impl)
 
 std::wostream &operator<<(std::wostream &os, StoreDef const &impl)
 {
-    os << "    store" << impl.expr.type << ' ' << impl.expr << ", " << impl.target;
+    os << "    store";
+    std::visit(
+        overloads {
+            [&os](ILBaseType const &base_type) -> void {
+                os << static_cast<ILBaseType>(static_cast<uint8_t>(base_type) & 0xFC);
+            },
+            [](auto const &) {
+                UNREACHABLE();
+            } },
+        impl.expr.type);
+    os << ' ' << impl.expr << ", " << impl.target;
     return os;
 }
 
@@ -254,5 +270,4 @@ std::wostream &operator<<(std::wostream &os, VaStartDef const &impl)
     os << "    vastart " << impl.arglist;
     return os;
 }
-
 }

@@ -33,6 +33,11 @@ def check_stream(script, what, stream):
 
 
 def test_compile(name, script):
+    try:
+        os.remove(name)
+    except FileNotFoundError:
+        pass
+
     with open("stdout", "w+") as out, open("stderr", "w+") as err:
         # cmdline = [os.path.join(".compiled", name)]
         cmdline = [
@@ -86,7 +91,7 @@ def test_compile(name, script):
 def test_eval(name, script):
     with open("stdout", "w+") as out, open("stderr", "w+") as err:
         # cmdline = [os.path.join(".compiled", name)]
-        cmdline = ["../build/bin/arwen", "--list", "eval", f"{name}.arw"]
+        cmdline = ["../build/bin/arwen", "eval", f"{name}.arw"]
         cmdline.extend(script["args"])
         ex = subprocess.call(cmdline, stdout=out, stderr=err)
         out.seek(0)

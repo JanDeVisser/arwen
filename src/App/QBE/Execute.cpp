@@ -51,7 +51,7 @@ pType type_from_qbe_type(ILBaseType const &t)
 pType type_from_qbe_type(std::wstring const &t)
 {
     trace(L"type_from_qbe_type `{}`", t);
-    if (t == L"slice_t") {
+    if (t == L":slice_t") {
         return TypeRegistry::string;
     }
     UNREACHABLE();
@@ -72,8 +72,11 @@ bool is_pointer(ILValue const &value)
         && (std::get<ILBaseType>(value.type) == ILBaseType::L);
 }
 
-void *Frame::allocate(size_t bytes, size_t alignment)
+intptr_t Frame::allocate(size_t bytes, size_t alignment)
 {
+    if (bytes == 0) {
+        return stack_pointer;
+    }
     intptr_t ptr { alignat(stack_pointer, alignment) };
     if (ptr + bytes > STACK_SIZE) {
         fatal("Stack overflow");
@@ -81,29 +84,28 @@ void *Frame::allocate(size_t bytes, size_t alignment)
     auto ret = stack.data() + ptr;
     stack_pointer = ptr + bytes;
     trace("Allocated {} bytes aligned at {}. New stack pointer {}", bytes, alignment, stack_pointer);
-    return ret;
+    return ptr;
 }
 
-void *Frame::allocate(pType const &type)
+intptr_t Frame::allocate(pType const &type)
 {
     if (type->size_of() == 0) {
-        return nullptr;
+        return stack_pointer;
     }
     trace(L"Allocating `{}`, size {}, align {}", type->to_string(), type->size_of(), type->align_of());
     return allocate(type->size_of(), type->align_of());
 }
 
-void Frame::release(void *ptr)
+void Frame::release(intptr_t ptr)
 {
-    auto const *p = static_cast<uint8_t *>(ptr);
-    if (p < stack.data()) {
+    if (ptr < 0) {
         fatal("Stack underflow");
     }
-    if (p - stack.data() > stack_pointer) {
+    if (ptr > stack_pointer) {
         fatal("Releasing unallocated stack space");
     }
-    auto bytes = stack_pointer - (p - stack.data());
-    stack_pointer = p - stack.data();
+    auto bytes = stack_pointer - ptr;
+    stack_pointer = ptr;
     trace("Released {} bytes. New stack pointer {}", bytes, stack_pointer);
 }
 
@@ -133,7 +135,7 @@ void assign(pFrame const &frame, ILValue const &val_ref, Value const &v)
 
 Value get(pFrame const &frame, ILValue const &val_ref)
 {
-    return std::visit(
+    auto ret = std::visit(
         overloads {
             [&frame](Local const &local) -> Value {
                 if (frame->locals.size() < local.var + 1) {
@@ -150,6 +152,15 @@ Value get(pFrame const &frame, ILValue const &val_ref)
                     return v;
                 }
                 fatal(L"No variable with name `{}` in frame", variable.name);
+                return {};
+            },
+            [&frame](ILValue::Parameter const &param) -> Value {
+                if (frame->arguments.contains(param.name)) {
+                    auto v = frame->arguments[param.name];
+                    trace(L"{} <- %{}$$", v.to_string(), param.name);
+                    return v;
+                }
+                fatal(L"No argument with name `{}` in frame", param.name);
                 return {};
             },
             [&frame](ILValue::Global const &global) -> Value {
@@ -173,16 +184,30 @@ Value get(pFrame const &frame, ILValue const &val_ref)
                 UNREACHABLE();
             } },
         val_ref.inner);
+    if (ret.type == TypeRegistry::boolean) {
+        ret = Value { TypeRegistry::i32, (as<bool>(ret) ? 1 : 0) };
+    }
+    return ret;
+}
+
+Value get(pFrame const &frame, ILValue const &val_ref, ILType const &type)
+{
+    auto const &t = type_from_qbe_type(type);
+    Value       v = get(frame, val_ref);
+    if (v.type == TypeRegistry::pointer && t != v.type) {
+        v = make_from_buffer(t, frame->stack.data() + as<intptr_t>(v));
+    }
+    return v;
 }
 
 void store(pFrame const &frame, pType type, void *target, ILValue const &src_ref)
 {
     Value src = get(frame, src_ref);
     if (type == TypeRegistry::string) {
-        src = make_from_buffer(type, as<void *>(src));
+        src = make_from_buffer(type, frame->stack.data() + as<intptr_t>(src));
     }
     if (std::holds_alternative<Local>(src_ref.inner) && std::get<Local>(src_ref.inner).type == LocalType::Reference) {
-        src = make_from_buffer(type, as<void *>(src));
+        src = make_from_buffer(type, frame->stack.data() + as<intptr_t>(src));
     }
     void *src_ptr = address_of(src);
     assert(src_ptr != nullptr);
@@ -227,14 +252,12 @@ Frame &VM::operator[](size_t ix)
     return frames[ix];
 }
 
-using pFrame = Ptr<Frame, VM>;
-
 struct ExecError {
     std::wstring message;
 };
 
 using ExecTermination = std::variant<Value, ExecError>;
-using ExecResult = std::expected<void, ExecTermination>;
+using ExecResult = std::expected<ILValue, ExecTermination>;
 
 template<typename InstrDef>
 ExecResult execute(ILFunction const &il, pFrame const &frame, InstrDef const &instruction)
@@ -245,23 +268,23 @@ ExecResult execute(ILFunction const &il, pFrame const &frame, InstrDef const &in
 template<>
 ExecResult execute(ILFunction const &il, pFrame const &frame, AllocDef const &instruction)
 {
-    void *ptr = frame->allocate(instruction.bytes, instruction.alignment);
-    assign(frame, instruction.target, ptr);
+    intptr_t ptr = frame->allocate(instruction.bytes, instruction.alignment);
+    assign(frame, instruction.target, Value { TypeRegistry::pointer, ptr });
     ++frame->ip;
-    return {};
+    return instruction.target;
 }
 
 template<>
 ExecResult execute(ILFunction const &il, pFrame const &frame, BlitDef const &instruction)
 {
     assert(is_pointer(instruction.src) && is_pointer(instruction.dest));
-    auto src = static_cast<uint8_t *>(as<void *>(get(frame, instruction.src)));
-    auto dest = static_cast<uint8_t *>(as<void *>(get(frame, instruction.dest)));
+    auto src = frame->stack.data() + as<intptr_t>(get(frame, instruction.src));
+    auto dest = frame->stack.data() + as<intptr_t>(get(frame, instruction.dest));
     for (auto ix = 0; ix < instruction.bytes; ++ix) {
         *(uint8_t *) (dest + ix) = *(uint8_t *) (src + ix);
     }
     ++frame->ip;
-    return {};
+    return instruction.dest;
 }
 
 ExecResult native_call(ILFunction const &il, pFrame const &frame, CallDef const &instruction)
@@ -273,20 +296,21 @@ ExecResult native_call(ILFunction const &il, pFrame const &frame, CallDef const 
         depth += alignat(type->size_of(), 8);
         types.push_back(type);
     }
-    auto  return_type = type_from_qbe_type(instruction.target.type);
-    void *args = frame->allocate(depth, 8);
-    for (char *ptr = static_cast<char *>(args); auto const &arg : instruction.args) {
+    auto     return_type = type_from_qbe_type(instruction.target.type);
+    intptr_t args = frame->allocate(depth, 8);
+    for (uint8_t *ptr = frame->stack.data() + args; auto const &arg : instruction.args) {
         auto type = type_from_qbe_type(arg.type);
         store(frame, type, ptr, arg);
         ptr += alignat(type->size_of(), 8);
     }
-    void *ret_ptr = frame->allocate(return_type);
+    intptr_t ret = frame->allocate(return_type);
+    uint8_t *ret_ptr = frame->stack.data() + ret;
     trace(L"Native call: {} -> {}", instruction.name, return_type);
-    if (native_call(as_utf8(instruction.name), args, types, ret_ptr, return_type)) {
+    if (native_call(as_utf8(instruction.name), frame->stack.data() + args, types, static_cast<void *>(ret_ptr), return_type)) {
         assign(frame, instruction.target, make_from_buffer(return_type, ret_ptr));
         frame->release(args);
         ++frame->ip;
-        return {};
+        return instruction.target;
     }
     return std::unexpected(ExecError {});
 }
@@ -297,7 +321,22 @@ ExecResult execute(ILFunction const &il, pFrame const &frame, CallDef const &ins
     if (auto colon = instruction.name.rfind(L':'); colon != std::wstring_view::npos) {
         return native_call(il, frame, instruction);
     }
-    NYI("Can only execute native functions");
+    for (auto const &fnc : frame->file.functions) {
+        std::vector<Value> args;
+        for (auto const &arg : instruction.args) {
+            args.push_back(get(frame, arg));
+        }
+        if (fnc.name == instruction.name) {
+            if (auto res = execute_qbe(frame->vm, frame->file, fnc, args); !res.has_value()) {
+                return std::unexpected(ExecError { res.error() });
+            } else {
+                assign(frame, instruction.target, res.value());
+            }
+            ++frame->ip;
+            return instruction.target;
+        }
+    }
+    fatal(L"Function `{}` not found", instruction.name);
 }
 
 template<>
@@ -305,7 +344,7 @@ ExecResult execute(ILFunction const &il, pFrame const &frame, CopyDef const &ins
 {
     assign(frame, instruction.target, get(frame, instruction.expr));
     ++frame->ip;
-    return {};
+    return instruction.target;
 }
 
 template<>
@@ -326,9 +365,10 @@ ExecResult execute(ILFunction const &il, pFrame const &frame, ExprDef const &ins
     default:
         UNREACHABLE();
     }
-    assign(frame, instruction.target, evaluate(lhs, arwen_op, rhs));
+    auto v = evaluate(lhs, arwen_op, rhs);
+    assign(frame, instruction.target, v);
     ++frame->ip;
-    return {};
+    return instruction.target;
 }
 
 template<>
@@ -359,17 +399,17 @@ template<>
 ExecResult execute(ILFunction const &il, pFrame const &frame, LoadDef const &instruction)
 {
     auto type { type_from_qbe_type(instruction.target.type) };
-    auto src = as<void *>(get(frame, instruction.pointer));
+    auto src = frame->stack.data() + as<intptr_t>(get(frame, instruction.pointer));
     assign(frame, instruction.target, make_from_buffer(type, src));
     ++frame->ip;
-    return {};
+    return instruction.target;
 }
 
 template<>
 ExecResult execute(ILFunction const &il, pFrame const &frame, RetDef const &instruction)
 {
     if (instruction.expr) {
-        return std::unexpected(get(frame, instruction.expr.value()));
+        return std::unexpected(get(frame, instruction.expr.value(), il.return_type));
     }
     return std::unexpected(Value {});
 }
@@ -378,10 +418,10 @@ template<>
 ExecResult execute(ILFunction const &il, pFrame const &frame, StoreDef const &instruction)
 {
     auto type { type_from_qbe_type(instruction.target.type) };
-    auto target = as<void *>(get(frame, instruction.target));
+    auto target = frame->stack.data() + as<intptr_t>(get(frame, instruction.target));
     store(frame, type, target, instruction.expr);
     ++frame->ip;
-    return {};
+    return instruction.target;
 }
 
 ExecResult execute(ILFunction const &il, pFrame const &frame, ILInstruction const &instruction)
@@ -396,6 +436,21 @@ ExecResult execute(ILFunction const &il, pFrame const &frame, ILInstruction cons
 ExecutionResult execute_qbe(VM &vm, ILFile const &file, ILFunction const &function, std::vector<Value> const &args)
 {
     auto frame { vm.new_frame(file, function) };
+    for (auto const &[arg, param] : std::ranges::views::zip(args, function.parameters)) {
+        frame->arguments[param.name] = arg;
+    }
+    for (auto const &[ix, s] : std::ranges::views::enumerate(file.strings)) {
+        auto n = std::format(L"str_{}", ix + 1);
+        if (!vm.globals[file.id].contains(n)) {
+            vm.globals[file.id][n] = Value { (void *) s.data() };
+        }
+    }
+    for (auto const &[ix, s] : std::ranges::views::enumerate(file.cstrings)) {
+        auto n = std::format(L"cstr_{}", ix + 1);
+        if (!vm.globals[file.id].contains(n)) {
+            vm.globals[file.id][n] = Value { (void *) s.data() };
+        }
+    }
     while (true) {
         trace(L"function `{}`[{}] ip {}", function.name, function.instructions.size(), frame->ip);
         if (auto res = execute(function, frame, function.instructions[frame->ip]); !res.has_value()) {
@@ -408,8 +463,11 @@ ExecutionResult execute_qbe(VM &vm, ILFile const &file, ILFunction const &functi
                         return std::unexpected(error.message);
                     } },
                 res.error());
+        } else {
+            if (frame->ip >= function.instructions.size()) {
+                return get(frame, res.value(), function.return_type);
+            }
         }
-        assert(frame->ip < function.instructions.size());
     }
 }
 
@@ -419,15 +477,6 @@ ExecutionResult execute_qbe(VM &vm)
         if (file.has_main) {
             for (auto const &function : file.functions) {
                 if (function.name == L"main") {
-                    trace("Setting globals");
-                    for (auto const &[ix, s] : std::ranges::views::enumerate(file.strings)) {
-                        trace(L"str_{} = {} @{}", ix + 1, s, (void *) s.data());
-                        vm.globals[file_ix][std::format(L"str_{}", ix + 1)] = Value { (void *) s.data() };
-                    }
-                    for (auto const &[ix, s] : std::ranges::views::enumerate(file.cstrings)) {
-                        trace("cstr_{} = {} @{}", ix + 1, s, (void *) s.data());
-                        vm.globals[file_ix][std::format(L"cstr_{}", ix + 1)] = Value { (void *) s.data() };
-                    }
                     return execute_qbe(vm, file, function, {});
                 }
             }

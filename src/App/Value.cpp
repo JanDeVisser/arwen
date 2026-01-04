@@ -220,6 +220,31 @@ static Atom evaluate_op(Atom const &lhs, Atom const &rhs, Func const &func)
 }
 
 template<typename Func>
+static Atom evaluate_relational_op(Atom const &lhs, Atom const &rhs, Func const &func)
+{
+    return std::visit(
+        overloads {
+            [&func](std::integral auto lhs_value, std::integral auto rhs_value) -> Atom {
+                return Atom { static_cast<bool>(func(lhs_value, rhs_value)) };
+            },
+            [&func](std::integral auto lhs_value, std::floating_point auto rhs_value) -> Atom {
+                return Atom { static_cast<bool>(func(lhs_value, rhs_value)) };
+            },
+            [&func](std::floating_point auto lhs_value, std::integral auto rhs_value) -> Atom {
+                return Atom { static_cast<bool>(func(lhs_value, rhs_value)) };
+            },
+            [&func](std::floating_point auto lhs_value, std::floating_point auto rhs_value) -> Atom {
+                return Atom { static_cast<bool>(func(lhs_value, rhs_value)) };
+            },
+            [](auto lhs_value, auto rhs_value) -> Atom {
+                fatal("Operator only applicable to numbers, not to `{}` and `{}`",
+                    typeid(decltype(lhs_value)).name(),
+                    typeid(decltype(rhs_value)).name());
+            } },
+        lhs.payload, rhs.payload);
+}
+
+template<typename Func>
 static Atom evaluate_bitwise_op(Atom const &lhs, Atom const &rhs, Func const &func)
 {
     return std::visit(
@@ -343,6 +368,7 @@ Atom evaluate_Modulo(Atom const &lhs, Atom const &rhs)
     return std::visit(
         overloads {
             [](std::integral auto lhs_value, std::integral auto rhs_value) -> Atom {
+                info("{} Mod {} = {} {}", lhs_value, rhs_value, lhs_value % rhs_value, typeid(decltype(lhs_value % rhs_value)).name());
                 return Atom { lhs_value % rhs_value };
             },
             [](std::integral auto lhs_value, std::floating_point auto rhs_value) -> Atom {
@@ -362,37 +388,37 @@ Atom evaluate_Modulo(Atom const &lhs, Atom const &rhs)
 
 Atom evaluate_Equals(Atom const &lhs, Atom const &rhs)
 {
-    return evaluate_op(lhs, rhs,
+    return evaluate_relational_op(lhs, rhs,
         [](auto x, auto y) { return x == y; });
 }
 
 Atom evaluate_NotEqual(Atom const &lhs, Atom const &rhs)
 {
-    return evaluate_op(lhs, rhs,
+    return evaluate_relational_op(lhs, rhs,
         [](auto x, auto y) { return x != y; });
 }
 
 Atom evaluate_Less(Atom const &lhs, Atom const &rhs)
 {
-    return evaluate_op(lhs, rhs,
+    return evaluate_relational_op(lhs, rhs,
         [](auto x, auto y) { return x < y; });
 }
 
 Atom evaluate_LessEqual(Atom const &lhs, Atom const &rhs)
 {
-    return evaluate_op(lhs, rhs,
+    return evaluate_relational_op(lhs, rhs,
         [](auto x, auto y) { return x <= y; });
 }
 
 Atom evaluate_Greater(Atom const &lhs, Atom const &rhs)
 {
-    return evaluate_op(lhs, rhs,
+    return evaluate_relational_op(lhs, rhs,
         [](auto x, auto y) { return x > y; });
 }
 
 Atom evaluate_GreaterEqual(Atom const &lhs, Atom const &rhs)
 {
-    return evaluate_op(lhs, rhs,
+    return evaluate_relational_op(lhs, rhs,
         [](auto x, auto y) { return x >= y; });
 }
 
@@ -869,7 +895,7 @@ static Value evaluate_on_atoms(Value const &lhs, Operator op, Value const &rhs)
 Value evaluate(Value const &lhs, Operator op, Value const &rhs)
 {
     std::wstringstream s;
-    s << lhs.to_string() << Operator_name(op) << rhs.to_string() << "=";
+    s << lhs.to_string() << ' ' << Operator_name(op) << ' ' << rhs.to_string() << " = ";
     switch (op) {
     case Operator::Add: {
         if (lhs.type == TypeRegistry::string && rhs.type->kind() == TypeKind::IntType) {
@@ -923,8 +949,8 @@ Value evaluate(Value const &lhs, Operator op, Value const &rhs)
         break;
     }
     auto ret = evaluate_on_atoms(lhs, op, rhs);
-    s << ret.to_string();
-    trace(L"{}", s.str());
+    s << ' ' << ret.to_string();
+    info(L"{}", s.str());
     return ret;
 }
 

@@ -203,27 +203,30 @@ void assert_msg(std::string_view const &file, size_t line, std::string_view cons
     if (condition) {
         return;
     }
-    logmsg({ file, line, function, LogLevel::Fatal }, message, std::forward<Args const &>(args)...);
-    abort();
+    fatal_msg(file, line, function, message, std::forward<Args const &>(args)...);
 }
 
 #ifdef assert
 #undef assert
 #endif
 
-#define trace(fmt, ...) trace_msg(__FILE__, __LINE__, __func__, fmt __VA_OPT__(, ) __VA_ARGS__)
-#define info(fmt, ...) info_msg(__FILE__, __LINE__, __func__, fmt __VA_OPT__(, ) __VA_ARGS__)
-#define warning(fmt, ...) warning_msg(__FILE__, __LINE__, __func__, fmt __VA_OPT__(, ) __VA_ARGS__)
-#define log_error(fmt, ...) error_msg(__FILE__, __LINE__, __func__, fmt __VA_OPT__(, ) __VA_ARGS__)
-#define fatal(fmt, ...) fatal_msg(__FILE__, __LINE__, __func__, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define trace(fmt, ...) Util::trace_msg(__FILE__, __LINE__, __func__, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define info(fmt, ...) Util::info_msg(__FILE__, __LINE__, __func__, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define warning(fmt, ...) Util::warning_msg(__FILE__, __LINE__, __func__, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define log_error(fmt, ...) Util::error_msg(__FILE__, __LINE__, __func__, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define fatal(fmt, ...) Util::fatal_msg(__FILE__, __LINE__, __func__, fmt __VA_OPT__(, ) __VA_ARGS__)
 #define assert(condition)                                                                    \
     do {                                                                                     \
         bool __c = (condition);                                                              \
         Util::assert_msg(__FILE__, __LINE__, __func__, __c, "Assertion error: " #condition); \
     } while (0)
-#define assert_with_msg(condition, fmt, ...) assert_msg(__FILE__, __LINE__, __func__, condition, "Assertion error: " #condition ": " fmt __VA_OPT__(, ) __VA_ARGS__)
+#define assert_with_msg(condition, fmt, ...) Util::assert_msg(__FILE__, __LINE__, __func__, condition, "Assertion error: " #condition ": " fmt __VA_OPT__(, ) __VA_ARGS__)
 
-#define UNREACHABLE() std::unreachable()
-#define NYI(fmt, ...) fatal_msg(__FILE__, __LINE__, __func__, "Not Yet Implemented: " fmt __VA_OPT__(, ) __VA_ARGS__)
+#define UNREACHABLE()                                                                    \
+    do {                                                                                 \
+        std::cerr << __FILE__ << ':' << __LINE__ << ' ' << __func__ << " Unreachable\n"; \
+        std::unreachable();                                                              \
+    } while (0)
+#define NYI(fmt, ...) Util::fatal_msg(__FILE__, __LINE__, __func__, "Not Yet Implemented: " fmt __VA_OPT__(, ) __VA_ARGS__)
 
 }

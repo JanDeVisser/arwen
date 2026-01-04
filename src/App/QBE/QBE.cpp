@@ -25,14 +25,12 @@
 
 #include <App/Config.h>
 #include <App/Operator.h>
+#include <App/SyntaxNode.h>
 #include <App/Type.h>
 #include <App/Value.h>
 
-#include <App/IR/IR.h>
-
 #include <App/Parser.h>
 #include <App/QBE/QBE.h>
-#include <App/SyntaxNode.h>
 
 namespace Arwen::QBE {
 
@@ -335,17 +333,34 @@ GenResult generate_qbe_nodes(ASTNodes const &nodes, QBEContext &ctx)
 static ILValue dereference(QBEOperand const &operand, QBEContext &ctx)
 {
     auto value = operand.value;
-    if (std::holds_alternative<Local>(value.inner)) {
-        if (auto local = std::get<Local>(value.inner); local.type == LocalType::Reference && qbe_first_class_type(operand.node->bound_type)) {
-            value = ILValue::local(++ctx.next_var, value.type);
-            ctx.add_operation(
-                LoadDef {
-                    .pointer = ILValue::local(local.var, ILBaseType::L),
-                    .target = value,
-                });
-        }
-    }
-    return value;
+    return std::visit(
+        overloads {
+            [&ctx, &value, &operand](Local local) -> ILValue {
+                if (local.type == LocalType::Reference && qbe_first_class_type(operand.node->bound_type)) {
+                    value = ILValue::local(++ctx.next_var, value.type);
+                    ctx.add_operation(
+                        LoadDef {
+                            .pointer = ILValue::local(local.var, ILBaseType::L),
+                            .target = value,
+                        });
+                }
+                return value;
+            },
+            [&ctx, &value, &operand](ILValue::Variable variable) -> ILValue {
+                if (qbe_first_class_type(operand.node->bound_type)) {
+                    value = ILValue::local(++ctx.next_var, qbe_type(operand.node->bound_type));
+                    ctx.add_operation(
+                        LoadDef {
+                            .pointer = ILValue::variable(variable.name),
+                            .target = value,
+                        });
+                }
+                return value;
+            },
+            [&value](auto) -> ILValue {
+                return value;
+            } },
+        value.inner);
 }
 
 static ILValue binexpr(QBEBinExpr const &expr, ILOperation op, ILType type, QBEContext &ctx)
@@ -409,13 +424,13 @@ static void check_division_by_zero(ILValue const &rhs, QBEContext &ctx)
     ctx.add_operation(
         JnzDef {
             zero,
-            carry_on,
             abort_mission,
+            carry_on,
         });
     ctx.add_operation(LabelDef { abort_mission });
     ILValue div_by_zero_id = ctx.add_string(division_by_zero);
     CallDef call_def = {
-        L"arwen$abort",
+        L"libarwenrt:arwen$abort",
         ILValue::null(),
     };
     call_def.args.push_back(div_by_zero_id);
@@ -433,6 +448,7 @@ GenResult qbe_operator(QBEBinExpr const &expr, IntType const &lhs, IntType const
         check_division_by_zero(rhs_value, ctx);
     }
     ILOperation op;
+    ILType      type { lhs_value.type };
     switch (expr.op) {
     case Operator::Add:
         op = ILOperation::Add;
@@ -451,26 +467,35 @@ GenResult qbe_operator(QBEBinExpr const &expr, IntType const &lhs, IntType const
         break;
     case Operator::Equals:
         op = ILOperation::Equals;
+        type = ILBaseType::W;
         break;
     case Operator::Greater:
         op = ILOperation::Greater;
+        type = ILBaseType::W;
         break;
     case Operator::GreaterEqual:
         op = ILOperation::GreaterEqual;
+        type = ILBaseType::W;
         break;
     case Operator::Less:
         op = ILOperation::Less;
+        type = ILBaseType::W;
         break;
     case Operator::LessEqual:
         op = ILOperation::LessEqual;
+        type = ILBaseType::W;
         break;
     case Operator::Modulo:
         op = (lhs.is_signed) ? ILOperation::Mod : ILOperation::UMod;
+        type = ILBaseType::W;
+        break;
     case Operator::Multiply:
         op = ILOperation::Mul;
+        type = ILBaseType::W;
         break;
     case Operator::NotEqual:
         op = ILOperation::NotEqual;
+        type = ILBaseType::W;
         break;
     case Operator::ShiftLeft:
         op = ILOperation::Shl;
@@ -485,7 +510,7 @@ GenResult qbe_operator(QBEBinExpr const &expr, IntType const &lhs, IntType const
         NYI("QBE mapping for int operator `{}`", Operator_name(expr.op));
         break;
     }
-    return binexpr(expr, op, lhs_value.type, ctx);
+    return binexpr(expr, op, type, ctx);
 }
 
 template<>
@@ -723,6 +748,29 @@ GenResult generate_qbe_node(ASTNode const &n, BinaryExpression const &impl, QBEC
 template<>
 GenResult generate_qbe_node(ASTNode const &n, Block const &impl, QBEContext &ctx)
 {
+    if (ctx.program.name.empty()) {
+        ctx.program.name = std::format(L"anonymous-{}", n.id.value_or(0));
+    }
+    if (ctx.program.files.empty()) {
+        auto &file = ctx.program.files.emplace_back(ctx.program.name);
+        file.id = ctx.program.files.size() - 1;
+        ctx.current_file = file.id;
+        ctx.current_function = 0;
+    }
+    auto &file = ctx.program.files[ctx.current_file];
+    if (ctx.current_function >= file.functions.size()) {
+        auto &file { ctx.program.files[ctx.current_file] };
+        auto &function = file.functions.emplace_back(
+            ctx.current_file,
+            file.name,
+            qbe_type(n->bound_type),
+            false);
+        function.id = file.functions.size() - 1;
+        ctx.is_export = false;
+        ctx.current_function = function.id;
+        ctx.next_var = 0;
+        ctx.next_label = 0;
+    }
     ctx.add_operation(
         LabelDef {
             ++ctx.next_label,
@@ -861,7 +909,7 @@ GenResult generate_qbe_node(ASTNode const &n, Constant const &impl, QBEContext &
                         ILValue::integer(slice.size, ILBaseType::L),
                         ILValue::local(len_id, ILBaseType::L),
                     });
-                return ILValue::local(var, L"slice_t");
+                return ILValue::local(var, L":slice_t");
             },
             [](auto const &descr) -> ILValue {
                 UNREACHABLE();
@@ -941,13 +989,7 @@ std::wostream &operator<<(std::wostream &os, ILFunction const &function)
 template<>
 GenResult generate_qbe_node(ASTNode const &n, Identifier const &impl, QBEContext &ctx)
 {
-    auto var = ILValue::local_ref(++ctx.next_var);
-    ctx.add_operation(
-        CopyDef {
-            ILValue::variable(impl.identifier),
-            var,
-        });
-    return var;
+    return ILValue::variable(impl.identifier);
 }
 
 template<>
@@ -1067,8 +1109,9 @@ template<>
 GenResult generate_qbe_node(ASTNode const &n, PublicDeclaration const &impl, QBEContext &ctx)
 {
     ctx.is_export = true;
-    Defer _ { [&ctx]() { ctx.is_export = false; } };
-    return generate_qbe_node(impl.declaration, ctx);
+    auto ret = generate_qbe_node(impl.declaration, ctx);
+    ctx.is_export = false;
+    return ret;
 }
 
 template<>

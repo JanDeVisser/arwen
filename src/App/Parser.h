@@ -79,10 +79,14 @@ struct Parser {
     ASTNodeImpl       &operator[](size_t ix) { return nodes[ix]; }
 
     template<class N, typename... Args>
-    ASTNode make_node(TokenLocation const &loc, Args... args)
+    ASTNode make_node(TokenLocation loc, Args... args)
     {
-        ASTNode ret = this->make_node<N>(args...);
-        ret->location = loc;
+        nodes.push_back(ASTNodeImpl::make<N>(args...));
+        ASTNode ret = { this };
+        auto   &n = nodes.back();
+        n.id = ret;
+        // ASTNode ret = this->make_node<N>(args...);
+        n.location = std::move(loc);
         return ret;
     }
 
@@ -97,11 +101,12 @@ struct Parser {
     }
 
     template<class N>
-    ASTNode copy_node(TokenLocation const &loc, N impl)
+    ASTNode copy_node(TokenLocation loc, N impl)
     {
         nodes.push_back(ASTNodeImpl::make<N>(std::move(impl)));
         ASTNode ret = { this };
         nodes.back().id = ret;
+        nodes.back().location = std::move(loc);
         trace(L"[C] {}", ret);
         return ret;
     }
@@ -249,7 +254,9 @@ ASTNode parse(Parser &parser, std::wstring const &text, std::string_view name = 
     parser.lexer.push_source(text);
 
     ASTNode ret;
+    auto    old_level = parser.level;
     if constexpr (std::is_same_v<Node, Block>) {
+        parser.level = Parser::ParseLevel::Block;
         ret = parser.make_node<Node>();
     } else {
         assert(!name.empty());
@@ -258,6 +265,7 @@ ASTNode parse(Parser &parser, std::wstring const &text, std::string_view name = 
     ASTNodes statements;
     if (auto t = parser.parse_statements(statements); !t.matches(TokenKind::EndOfFile)) {
         parser.append(t, "Expected end of file");
+        parser.level = old_level;
         return nullptr;
     }
     if (!statements.empty()) {
@@ -277,8 +285,10 @@ ASTNode parse(Parser &parser, std::wstring const &text, std::string_view name = 
                 },
                 [](auto &n) { UNREACHABLE(); } },
             ret->node);
+        parser.level = old_level;
         return ret;
     }
+    parser.level = old_level;
     return nullptr;
 }
 

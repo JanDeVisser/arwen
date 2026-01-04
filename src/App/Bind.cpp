@@ -15,9 +15,7 @@
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
 
-#include <App/IR/IR.h>
-
-#include <Interp/Interpreter.h>
+#include <App/QBE/QBE.h>
 
 namespace Arwen {
 
@@ -524,18 +522,28 @@ BindResult bind(ASTNode const &n, Comptime &impl)
     }
 
     if (impl.output.empty()) {
-        Interpreter::IRNodes script_ir {};
-        IR::generate_ir(impl.statements, script_ir);
-        if (trace_on()) {
-            trace("Compile time block IR:");
-            IR::list(script_ir, std::wcerr);
-            trace("---------------------------------------------------");
+        if (auto res = QBE::generate_qbe(impl.statements); !res.has_value()) {
+            return parser.bind_error(n->location, res.error());
+        } else {
+            auto  program = res.value();
+            auto &file = program.files[0];
+            auto &function = file.functions[0];
+            if (trace_on()) {
+                trace("Compile time block IR:");
+                std::wcerr << file;
+                trace("---------------------------------------------------");
+            }
+            QBE::VM vm { program };
+            if (auto exec_res = execute_qbe(vm, file, function, {}); !res.has_value()) {
+                return parser.bind_error(n->location, res.error());
+            } else {
+                auto const output_val = exec_res.value();
+                auto const output_slice = as<Slice>(output_val);
+                impl.output = std::wstring { static_cast<wchar_t *>(output_slice.ptr), static_cast<size_t>(output_slice.size) };
+                trace("@comptime block executed");
+                trace(L"@comptime output: {}", impl.output);
+            }
         }
-        auto       output_val = Interpreter::execute_ir(script_ir);
-        auto const output_slice = as<Slice>(output_val);
-        impl.output = std::wstring { static_cast<wchar_t *>(output_slice.ptr), static_cast<size_t>(output_slice.size) };
-        trace("@comptime block executed");
-        trace(L"@comptime output: {}", impl.output);
     }
 
     if (auto parsed_output = parse<Block>(*(n.repo), impl.output); parsed_output) {
@@ -909,14 +917,6 @@ BindResult bind(ASTNode const &node)
 {
     assert(node != nullptr);
     Parser &parser = *(node.repo);
-    trace(L"[->B] {}", node);
-    Defer _ { [&node]() {
-        auto h = node.hunt();
-        if (h != node) {
-            trace(L"[->{} B {}]", node.id.value(), h.id.value());
-        }
-        trace(L"[B->] {}", node.hunt());
-    } };
     assert(node->status >= ASTStatus::Normalized);
     if (node->status == ASTStatus::Bound) {
         return node->bound_type;
@@ -939,9 +939,6 @@ BindResult bind(ASTNode const &node)
             },
             node->node);
         auto const &n = node.hunt();
-        if (n != node) {
-            trace(L"[{} => {}]", node.id.value(), n.id.value());
-        }
         if (n->ns.has_value()) {
             parser.pop_namespace();
         }

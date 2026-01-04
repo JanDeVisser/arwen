@@ -229,16 +229,19 @@ ASTNode Parser::parse_statement()
             ASTNodes block;
             auto     old_level = level;
             level = ParseLevel::Block;
-            Defer defer { [this, old_level]() { level = old_level; } };
             if (auto const end_token = parse_statements(block); !end_token.matches_symbol('}')) {
                 append(t, "Unexpected end of block");
+                level = old_level;
                 return {};
             } else {
                 if (block.empty()) {
+                    level = old_level;
                     return make_node<Void>(t.location + end_token.location);
                 }
+                level = old_level;
                 return make_node<Block>(t.location + end_token.location, block);
             }
+            level = old_level;
         }
         case '=':
             if (lexer.has_lookback(1)
@@ -841,111 +844,118 @@ ASTNode Parser::parse_for()
 ASTNode Parser::parse_func()
 {
     auto func = lexer.lex();
+    auto old_level = level;
     level = ParseLevel::Function;
-    {
-        Defer        _ { [this] { level = ParseLevel::Block; } };
-        std::wstring name;
-        if (auto res = lexer.expect_identifier(); !res.has_value()) {
-            append(res.error(), "Expected function name");
-            return {};
-        } else {
-            name = text_of(res.value());
-        }
+    std::wstring name;
+    if (auto res = lexer.expect_identifier(); !res.has_value()) {
+        append(res.error(), "Expected function name");
+        level = old_level;
+        return {};
+    } else {
+        name = text_of(res.value());
+    }
 
-        ASTNodes generics;
-        if (lexer.accept_symbol('<')) {
-            while (true) {
-                if (lexer.accept_symbol('>')) {
-                    break;
-                }
-                std::wstring  generic_name;
-                TokenLocation start;
-                if (auto res = lexer.expect_identifier(); !res.has_value()) {
-                    append(res.error(), "Expected generic name");
-                    return {};
-                } else {
-                    generics.emplace_back(make_node<Identifier>(res.value().location, text_of(res.value())));
-                }
-                if (lexer.accept_symbol('>')) {
-                    break;
-                }
-                if (auto res = lexer.expect_symbol(','); !res.has_value()) {
-                    append(res.error(), "Expected ',' in function signature generic list");
-                }
-            }
-        }
-
-        if (auto res = lexer.expect_symbol('('); !res.has_value()) {
-            append(res.error(), "Expected '(' in function definition");
-        }
-        ASTNodes params;
+    ASTNodes generics;
+    if (lexer.accept_symbol('<')) {
         while (true) {
-            if (lexer.accept_symbol(')')) {
+            if (lexer.accept_symbol('>')) {
                 break;
             }
-            std::wstring  param_name;
+            std::wstring  generic_name;
             TokenLocation start;
             if (auto res = lexer.expect_identifier(); !res.has_value()) {
-                append(res.error(), "Expected parameter name");
+                append(res.error(), "Expected generic name");
+                level = old_level;
                 return {};
             } else {
-                param_name = text_of(res.value());
-                start = res.value().location;
+                generics.emplace_back(make_node<Identifier>(res.value().location, text_of(res.value())));
             }
-            if (auto res = lexer.expect_symbol(':'); !res.has_value()) {
-                append(res.error(), "Expected ':' in function parameter declaration");
-            }
-            auto          param_type = parse_type();
-            TokenLocation end;
-            if (param_type == nullptr) {
-                append(lexer.peek(), "Expected parameter type");
-                return {};
-            }
-            params.emplace_back(make_node<Parameter>(start + param_type->location, param_name, param_type));
-            if (lexer.accept_symbol(')')) {
+            if (lexer.accept_symbol('>')) {
                 break;
             }
             if (auto res = lexer.expect_symbol(','); !res.has_value()) {
-                append(res.error(), "Expected ',' in function signature");
+                append(res.error(), "Expected ',' in function signature generic list");
             }
-        }
-        auto          return_type = parse_type();
-        TokenLocation return_type_loc;
-        if (return_type == nullptr) {
-            append(lexer.peek(), "Expected return type");
-            return {};
-        }
-        auto decl = make_node<FunctionDeclaration>(
-            func.location + return_type->location,
-            name,
-            generics,
-            params,
-            return_type);
-        if (lexer.accept_keyword(ArwenKeyword::ExternLink)) {
-            if (auto res = lexer.expect(TokenKind::QuotedString); !res.has_value() || res.value().quoted_string().quote_type != QuoteType::DoubleQuote) {
-                append(res.error(), "Expected extern function name");
-                return {};
-            } else {
-                auto name = text_of(res.value());
-                if (name.length() <= 2) {
-                    append(res.value(), "Invalid extern function name");
-                }
-                name = name.substr(0, name.size() - 1).substr(1);
-                return make_node<FunctionDefinition>(
-                    decl->location + res.value().location,
-                    get<FunctionDeclaration>(decl).name,
-                    decl,
-                    make_node<ExternLink>(res.value().location, std::wstring { name }));
-            }
-        }
-        if (auto impl = parse_statement(); impl != nullptr) {
-            return make_node<FunctionDefinition>(
-                decl->location + impl->location,
-                get<FunctionDeclaration>(decl).name,
-                decl,
-                impl);
         }
     }
+
+    if (auto res = lexer.expect_symbol('('); !res.has_value()) {
+        append(res.error(), "Expected '(' in function definition");
+    }
+    ASTNodes params;
+    while (true) {
+        if (lexer.accept_symbol(')')) {
+            break;
+        }
+        std::wstring  param_name;
+        TokenLocation start;
+        if (auto res = lexer.expect_identifier(); !res.has_value()) {
+            append(res.error(), "Expected parameter name");
+            level = old_level;
+            return {};
+        } else {
+            param_name = text_of(res.value());
+            start = res.value().location;
+        }
+        if (auto res = lexer.expect_symbol(':'); !res.has_value()) {
+            append(res.error(), "Expected ':' in function parameter declaration");
+        }
+        auto          param_type = parse_type();
+        TokenLocation end;
+        if (param_type == nullptr) {
+            append(lexer.peek(), "Expected parameter type");
+            level = old_level;
+            return {};
+        }
+        params.emplace_back(make_node<Parameter>(start + param_type->location, param_name, param_type));
+        if (lexer.accept_symbol(')')) {
+            break;
+        }
+        if (auto res = lexer.expect_symbol(','); !res.has_value()) {
+            append(res.error(), "Expected ',' in function signature");
+        }
+    }
+    auto          return_type = parse_type();
+    TokenLocation return_type_loc;
+    if (return_type == nullptr) {
+        append(lexer.peek(), "Expected return type");
+        level = old_level;
+        return {};
+    }
+    auto decl = make_node<FunctionDeclaration>(
+        func.location + return_type->location,
+        name,
+        generics,
+        params,
+        return_type);
+    if (lexer.accept_keyword(ArwenKeyword::ExternLink)) {
+        if (auto res = lexer.expect(TokenKind::QuotedString); !res.has_value() || res.value().quoted_string().quote_type != QuoteType::DoubleQuote) {
+            append(res.error(), "Expected extern function name");
+            level = old_level;
+            return {};
+        } else {
+            auto name = text_of(res.value());
+            if (name.length() <= 2) {
+                append(res.value(), "Invalid extern function name");
+            }
+            name = name.substr(0, name.size() - 1).substr(1);
+            level = old_level;
+            return make_node<FunctionDefinition>(
+                decl->location + res.value().location,
+                get<FunctionDeclaration>(decl).name,
+                decl,
+                make_node<ExternLink>(res.value().location, std::wstring { name }));
+        }
+    }
+    if (auto impl = parse_statement(); impl != nullptr) {
+        level = old_level;
+        return make_node<FunctionDefinition>(
+            decl->location + impl->location,
+            get<FunctionDeclaration>(decl).name,
+            decl,
+            impl);
+    }
+    level = old_level;
     return {};
 }
 

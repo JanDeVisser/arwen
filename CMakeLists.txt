@@ -12,7 +12,7 @@ endif()
 set(CMAKE_C_STANDARD 23)
 set(CMAKE_CXX_STANDARD 26)
 
-# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-all-candidates")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fno-omit-frame-pointer -O1")
 
 if (APPLE)
     set(IS_APPLE TRUE)
@@ -105,13 +105,6 @@ add_library(
     src/App/SyntaxNode.cpp
     src/App/Type.cpp
     src/App/Value.cpp
-    src/App/IR/Generate.cpp
-    src/App/IR/IR.cpp
-    src/Interp/Execute.cpp
-    src/Interp/Interpreter.cpp
-    src/Interp/Native.cpp
-    src/Interp/Scope.cpp
-    src/Interp/Stack.cpp
     src/App/QBE/Execute.cpp
     src/App/QBE/IL.cpp
     src/App/QBE/Native.cpp
@@ -127,53 +120,24 @@ target_link_libraries(
         m
 )
 
-if (IS_APPLE)
-
-add_library(
-    ArwenCodeGen
-    STATIC
-    src/Arch/AssemblyWriter.cpp
-    src/Arch/Arm64/Arm64.cpp
-    src/Arch/Arm64/GenOp.cpp
-)
-
-endif()
-
-if (IS_LINUX)
-add_library(
-    ArwenCodeGen
-    STATIC
-    src/Arch/AssemblyWriter.cpp
-    src/Arch/Linux/x86_64/X86_64.cpp
-    src/Arch/Linux/x86_64/GenOp.cpp
-  )
-endif()
-
 add_subdirectory(rt)
 
 include_directories(. src)
 
-target_link_libraries(
-        ArwenCodeGen
-        PRIVATE
-        ArwenLang
-      )
-
 add_executable(
         arwen
-        src/App/Debugger.cpp
         src/App/Main.cpp
 )
 
 target_link_libraries(
         arwen
         PRIVATE
-        ArwenCodeGen
+        ArwenLang
 )
 
 #add_compile_options("-fno-inline-functions")
 
-install(TARGETS Util ArwenLang ArwenCodeGen arwen
+install(TARGETS Util ArwenLang arwen
         ARCHIVE DESTINATION lib
         RUNTIME DESTINATION bin
         LIBRARY DESTINATION lib

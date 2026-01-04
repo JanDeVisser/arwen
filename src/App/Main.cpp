@@ -28,9 +28,7 @@
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
 
-#include <App/IR/IR.h>
-
-#include <Interp/Interpreter.h>
+#include <App/QBE/QBE.h>
 
 #if 0
 #ifdef IS_ARM64
@@ -41,17 +39,11 @@
 #endif
 #endif
 
-#include <App/QBE/QBE.h>
-
 namespace Arwen {
 
 extern int debugger_main();
 
 using namespace Util;
-using namespace Interpreter;
-using namespace Arwen::IR;
-
-using Interp = Arwen::Interpreter::Interpreter;
 
 std::optional<std::wstring> load_file(fs::path const &file)
 {
@@ -112,7 +104,6 @@ struct Builder {
     QBE::ILProgram program;
     std::wstring   source_text;
     bool           verbose { false };
-    IR::IRNodes    ir {};
 
     bool analyze()
     {
@@ -427,7 +418,8 @@ int main(int argc, char const **argv)
             return builder_maybe->eval();
         }
     } else if (strcmp(argv[arg_ix], "debug") == 0 && argc - arg_ix == 1) {
-        return debugger_main();
+        std::cerr << "Debugger not yet implemented...\n";
+        return 1;
     } else {
         usage();
     }

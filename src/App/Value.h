@@ -83,15 +83,48 @@ struct Atom {
 };
 
 template<typename T>
-T const &as(Atom const &atom)
+T as(Atom const &atom)
 {
-    return std::get<T>(atom.payload);
+    T ret { std::get<T>(atom.payload) };
+    return ret;
 }
 
-template<typename T>
-T &as(Atom &atom)
+template<>
+inline bool as(Atom const &atom)
 {
-    return std::get<T>(atom.payload);
+    return std::visit(
+        [](auto val) -> bool {
+            if constexpr (std::integral<decltype(val)>) {
+                return val != 0;
+            }
+            if constexpr (std::is_same_v<decltype(val), bool>) {
+                return val;
+            }
+            if constexpr (std::is_same_v<decltype(val), void *>) {
+                return val != nullptr;
+            }
+            fatal("Cannot convert `{}` to boolean", typeid(decltype(val)).name());
+        },
+        atom.payload);
+}
+
+template<std::integral T>
+T as(Atom const &atom)
+{
+    return std::visit(
+        [](auto val) -> T {
+            if constexpr (std::integral<decltype(val)>) {
+                return static_cast<T>(val);
+            }
+            if constexpr (std::is_same_v<decltype(val), bool>) {
+                return (val) ? static_cast<T>(1) : static_cast<T>(0);
+            }
+            if constexpr (std::is_same_v<decltype(val), void *>) {
+                return static_cast<T>(reinterpret_cast<intptr_t>(val));
+            }
+            fatal("Cannot convert `{}` to integer", typeid(decltype(val)).name());
+        },
+        atom.payload);
 }
 
 inline void *address_of(Atom &atom)
@@ -174,34 +207,17 @@ struct Value {
 };
 
 template<typename T>
-T &as(Value &val)
+T as(Value const &val)
 {
     return std::visit(
         overloads {
-            [](std::monostate &) -> T & {
+            [](std::monostate const &) -> T {
                 fatal("Cannot convert empty value to type `{}`", typeid(T).name());
             },
-            [](Atom &atom) -> T & {
+            [](Atom const &atom) -> T {
                 return as<T>(atom);
             },
-            [](Value::Values &) -> T & {
-                UNREACHABLE();
-            } },
-        val.payload);
-}
-
-template<typename T>
-T const &as(Value const &val)
-{
-    return std::visit(
-        overloads {
-            [](std::monostate const &) -> T const & {
-                fatal("Cannot convert empty value to type `{}`", typeid(T).name());
-            },
-            [](Atom const &atom) -> T const & {
-                return as<T>(atom);
-            },
-            [](Value::Values const &) -> T const & {
+            [](Value::Values const &) -> T {
                 UNREACHABLE();
             } },
         val.payload);

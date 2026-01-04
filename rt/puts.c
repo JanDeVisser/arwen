@@ -19,6 +19,7 @@ size_t arwen$fputs(int fd, wchar_t const *ptr, uint64_t len)
 {
     slice_t utf8 = to_utf8((slice_t) { (void *) ptr, len });
     size_t  ret = write(fd, utf8.ptr, utf8.size);
+    free(utf8.ptr);
     return ret;
 }
 

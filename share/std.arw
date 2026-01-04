@@ -20,3 +20,5 @@ func endln() void -> "libarwenrt:arwen$endln"
 func eputs(s: string) void -> "libarwenrt:arwen$eputs"
 func eputln(s: string) void -> "libarwenrt:arwen$eputln"
 
+func abort(s: string) void -> "libarwenrt:arwen$abort"
+

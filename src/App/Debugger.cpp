@@ -6,14 +6,7 @@
 
 #include <iostream>
 
-#include <Interp/Interpreter.h>
-
 namespace Arwen {
-
-using namespace Interpreter;
-using namespace IR;
-
-using Interp = Arwen::Interpreter::Interpreter;
 
 std::optional<std::wstring> get_command_string()
 {
@@ -81,7 +74,7 @@ int debugger_main()
 {
     log_error("The debugger doesn't work yet");
     return 0;
-#if 0    
+#if 0
     struct Context {
         std::wstring file_name;
         std::wstring contents;

@@ -177,7 +177,6 @@ DLResult<void_t> Resolver::Library::get_function(std::string const &function_nam
     if (m_functions.contains(function_name)) {
         return m_functions[function_name];
     }
-    dlerror();
     trace("dlsym('{}', '{}')", to_string(), function_name);
     if (auto const function = dlsym(m_handle.handle, function_name.c_str()); function != nullptr) {
         auto const func_ptr = reinterpret_cast<void_t>(function);

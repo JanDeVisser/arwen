@@ -404,12 +404,13 @@ struct Frame {
     std::array<uint8_t, STACK_SIZE> stack {};
     size_t                          stack_pointer { 0 };
     ILVariables                     variables {};
+    ILVariables                     arguments {};
     std::vector<Value>              locals {};
     size_t                          ip { 0 };
 
-    void *allocate(size_t bytes, size_t alignment);
-    void *allocate(pType const &type);
-    void  release(void *ptr);
+    intptr_t allocate(size_t bytes, size_t alignment);
+    intptr_t allocate(pType const &type);
+    void     release(intptr_t ptr);
 };
 
 using pFrame = Ptr<Frame, struct VM>;
