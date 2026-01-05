@@ -9,6 +9,19 @@
 
 namespace Arwen::QBE {
 
+ILBaseType basetype(ILType const &type)
+{
+    return std::visit(
+        overloads {
+            [](ILBaseType const &base_type) -> ILBaseType {
+                return static_cast<ILBaseType>(static_cast<uint8_t>(base_type) & 0xFC);
+            },
+            [](auto const &) -> ILBaseType {
+                UNREACHABLE();
+            } },
+        type);
+}
+
 std::wostream &operator<<(std::wostream &os, ILBaseType const &type)
 {
     switch (type) {
@@ -178,7 +191,7 @@ std::wostream &operator<<(std::wostream &os, ExprDef const &impl)
     }
     op << impl.op;
     if (impl.op >= ILOperation::Equals) {
-        op << impl.lhs.type;
+        op << basetype(impl.lhs.type);
     }
     os << "    " << impl.target << " = " << impl.target.type << " " << op.str() << " " << impl.lhs << ", " << impl.rhs;
     return os;
@@ -245,17 +258,7 @@ std::wostream &operator<<(std::wostream &os, RetDef const &impl)
 
 std::wostream &operator<<(std::wostream &os, StoreDef const &impl)
 {
-    os << "    store";
-    std::visit(
-        overloads {
-            [&os](ILBaseType const &base_type) -> void {
-                os << static_cast<ILBaseType>(static_cast<uint8_t>(base_type) & 0xFC);
-            },
-            [](auto const &) {
-                UNREACHABLE();
-            } },
-        impl.expr.type);
-    os << ' ' << impl.expr << ", " << impl.target;
+    os << "    store" << basetype(impl.expr.type) << ' ' << impl.expr << ", " << impl.target;
     return os;
 }
 

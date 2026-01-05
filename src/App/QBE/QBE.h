@@ -62,6 +62,8 @@ using ILType = std::variant<ILBaseType, std::wstring>;
 std::wostream &operator<<(std::wostream &os, ILBaseType const &type);
 std::wostream &operator<<(std::wostream &os, ILType const &type);
 
+ILBaseType basetype(ILType const &type);
+
 enum class ILInstructionType {
     Alloc,
     Blit,
