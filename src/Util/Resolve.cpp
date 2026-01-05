@@ -67,6 +67,9 @@ fs::path Resolver::Library::platform_image(std::string const &image)
     if (image.empty()) {
         return "";
     }
+    if (image == "libc") {
+        return "";
+    }
     fs::path platform_image { image };
 #ifdef __APPLE__
     platform_image.replace_extension("dylib");
@@ -79,9 +82,10 @@ fs::path Resolver::Library::platform_image(std::string const &image)
 DLResult<LibHandle> Resolver::Library::try_open(fs::path const &dir) const
 {
     char const *p { nullptr };
+    auto        image = platform_image(m_image);
     std::string path_string;
-    if (!m_image.empty()) {
-        fs::path const path { dir / platform_image(m_image) };
+    if (!image.empty()) {
+        fs::path const path { dir / image };
         trace("Attempting to open library '{}'", path.string());
         path_string = path.string();
         p = path_string.c_str();

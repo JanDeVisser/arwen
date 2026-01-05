@@ -1,5 +1,5 @@
-func strlen(s: cstring) u64 -> "strlen"
-func putcstr(s: cstring) void -> "puts"
+func strlen(s: cstring) u64 -> "libc:strlen"
+func putcstr(s: cstring) void -> "libc:puts"
 
 public func main() i32 {
     s := `Hello, World!`
