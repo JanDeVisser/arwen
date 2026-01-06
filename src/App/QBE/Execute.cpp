@@ -74,6 +74,31 @@ bool is_pointer(ILValue const &value)
 
 intptr_t Frame::allocate(size_t bytes, size_t alignment)
 {
+    return vm.allocate(bytes, alignment);
+}
+
+intptr_t Frame::allocate(pType const &type)
+{
+    return vm.allocate(type);
+}
+
+void Frame::release(intptr_t ptr)
+{
+    vm.release(ptr);
+}
+
+uint8_t *Frame::ptr(intptr_t p)
+{
+    return vm.stack.data() + p;
+}
+
+uint8_t *Frame::ptr(Value const &v)
+{
+    return ptr(as<ptrdiff_t>(v));
+}
+
+intptr_t VM::allocate(size_t bytes, size_t alignment)
+{
     if (bytes == 0) {
         return stack_pointer;
     }
@@ -81,13 +106,12 @@ intptr_t Frame::allocate(size_t bytes, size_t alignment)
     if (ptr + bytes > STACK_SIZE) {
         fatal("Stack overflow");
     }
-    auto ret = stack.data() + ptr;
     stack_pointer = ptr + bytes;
     trace("Allocated {} bytes aligned at {}. New stack pointer {}", bytes, alignment, stack_pointer);
     return ptr;
 }
 
-intptr_t Frame::allocate(pType const &type)
+intptr_t VM::allocate(pType const &type)
 {
     if (type->size_of() == 0) {
         return stack_pointer;
@@ -96,7 +120,7 @@ intptr_t Frame::allocate(pType const &type)
     return allocate(type->size_of(), type->align_of());
 }
 
-void Frame::release(intptr_t ptr)
+void VM::release(intptr_t ptr)
 {
     if (ptr < 0) {
         fatal("Stack underflow");
@@ -126,6 +150,10 @@ void assign(pFrame const &frame, ILValue const &val_ref, Value const &v)
             [frame, &v](ILValue::Variable const &variable) {
                 trace(L"{} -> %{}$", v.to_string(), variable.name);
                 frame->variables[variable.name] = v;
+            },
+            [frame, &v](ILValue::Parameter const &parameter) {
+                trace(L"{} -> %{}$", v.to_string(), parameter.name);
+                frame->variables[parameter.name] = v;
             },
             [](auto const &inner) {
                 UNREACHABLE();
@@ -195,7 +223,7 @@ Value get(pFrame const &frame, ILValue const &val_ref, ILType const &type)
     auto const &t = type_from_qbe_type(type);
     Value       v = get(frame, val_ref);
     if (v.type == TypeRegistry::pointer && t != v.type) {
-        v = make_from_buffer(t, frame->stack.data() + as<intptr_t>(v));
+        v = make_from_buffer(t, frame->ptr(v));
     }
     return v;
 }
@@ -204,10 +232,10 @@ void store(pFrame const &frame, pType type, void *target, ILValue const &src_ref
 {
     Value src = get(frame, src_ref);
     if (type == TypeRegistry::string) {
-        src = make_from_buffer(type, frame->stack.data() + as<intptr_t>(src));
+        src = make_from_buffer(type, frame->ptr(src));
     }
     if (std::holds_alternative<Local>(src_ref.inner) && std::get<Local>(src_ref.inner).type == LocalType::Reference) {
-        src = make_from_buffer(type, frame->stack.data() + as<intptr_t>(src));
+        src = make_from_buffer(type, frame->ptr(src));
     }
     void *src_ptr = address_of(src);
     assert(src_ptr != nullptr);
@@ -278,8 +306,8 @@ template<>
 ExecResult execute(ILFunction const &il, pFrame const &frame, BlitDef const &instruction)
 {
     assert(is_pointer(instruction.src) && is_pointer(instruction.dest));
-    auto src = frame->stack.data() + as<intptr_t>(get(frame, instruction.src));
-    auto dest = frame->stack.data() + as<intptr_t>(get(frame, instruction.dest));
+    auto src = frame->ptr(get(frame, instruction.src));
+    auto dest = frame->ptr(get(frame, instruction.dest));
     for (auto ix = 0; ix < instruction.bytes; ++ix) {
         *(uint8_t *) (dest + ix) = *(uint8_t *) (src + ix);
     }
@@ -298,15 +326,15 @@ ExecResult native_call(ILFunction const &il, pFrame const &frame, CallDef const 
     }
     auto     return_type = type_from_qbe_type(instruction.target.type);
     intptr_t args = frame->allocate(depth, 8);
-    for (uint8_t *ptr = frame->stack.data() + args; auto const &arg : instruction.args) {
+    for (uint8_t *ptr = frame->ptr(args); auto const &arg : instruction.args) {
         auto type = type_from_qbe_type(arg.type);
         store(frame, type, ptr, arg);
         ptr += alignat(type->size_of(), 8);
     }
     intptr_t ret = frame->allocate(return_type);
-    uint8_t *ret_ptr = frame->stack.data() + ret;
+    uint8_t *ret_ptr = frame->ptr(ret);
     trace(L"Native call: {} -> {}", instruction.name, return_type);
-    if (native_call(as_utf8(instruction.name), frame->stack.data() + args, types, static_cast<void *>(ret_ptr), return_type)) {
+    if (native_call(as_utf8(instruction.name), frame->ptr(args), types, static_cast<void *>(ret_ptr), return_type)) {
         assign(frame, instruction.target, make_from_buffer(return_type, ret_ptr));
         frame->release(args);
         ++frame->ip;
@@ -399,7 +427,7 @@ template<>
 ExecResult execute(ILFunction const &il, pFrame const &frame, LoadDef const &instruction)
 {
     auto type { type_from_qbe_type(instruction.target.type) };
-    auto src = frame->stack.data() + as<intptr_t>(get(frame, instruction.pointer));
+    auto src = frame->ptr(get(frame, instruction.pointer));
     assign(frame, instruction.target, make_from_buffer(type, src));
     ++frame->ip;
     return instruction.target;
@@ -418,7 +446,7 @@ template<>
 ExecResult execute(ILFunction const &il, pFrame const &frame, StoreDef const &instruction)
 {
     auto type { type_from_qbe_type(instruction.target.type) };
-    auto target = frame->stack.data() + as<intptr_t>(get(frame, instruction.target));
+    auto target = frame->ptr(get(frame, instruction.target));
     store(frame, type, target, instruction.expr);
     ++frame->ip;
     return instruction.target;
@@ -451,20 +479,24 @@ ExecutionResult execute_qbe(VM &vm, ILFile const &file, ILFunction const &functi
             vm.globals[file.id][n] = Value { (void *) s.data() };
         }
     }
+    auto base_pointer = vm.stack_pointer;
     while (true) {
         trace(L"function `{}`[{}] ip {}", function.name, function.instructions.size(), frame->ip);
         if (auto res = execute(function, frame, function.instructions[frame->ip]); !res.has_value()) {
             return std::visit(
                 overloads {
-                    [](Value const &ret_value) -> ExecutionResult {
+                    [&vm, &base_pointer](Value const &ret_value) -> ExecutionResult {
+                        vm.release(base_pointer);
                         return ret_value;
                     },
-                    [](ExecError const &error) -> ExecutionResult {
+                    [&vm, &base_pointer](ExecError const &error) -> ExecutionResult {
+                        vm.release(base_pointer);
                         return std::unexpected(error.message);
                     } },
                 res.error());
         } else {
             if (frame->ip >= function.instructions.size()) {
+                vm.release(base_pointer);
                 return get(frame, res.value(), function.return_type);
             }
         }

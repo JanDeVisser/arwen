@@ -14,7 +14,7 @@ import sys
 
 
 def check_stream(script, what, stream):
-    ret = 0
+    ret = []
     written = [line.strip() for line in stream]
     written = "\n".join(written)
     expected = (
@@ -27,14 +27,15 @@ def check_stream(script, what, stream):
     if written != expected and not re.match(
         f"(\\[.*Fatal.*\\]\\ )?{expected}", written
     ):
-        print("%s: '%s' != '%s'" % (script["name"], written, expected))
-        ret = 1
+        ret.append(f"{script['name']}: '{written}' != '{expected}'")
     return ret
 
 
 def test_compile(name, script):
     try:
         os.remove(name)
+        os.remove("stdout")
+        os.remove("stderr")
     except FileNotFoundError:
         pass
 
@@ -51,16 +52,26 @@ def test_compile(name, script):
         out.seek(0)
         err.seek(0)
 
-        error = check_stream(script, script["comptime_stdout"], out)
-        error += check_stream(script, script["comptime_stderr"], err)
-    os.remove("stdout")
-    os.remove("stderr")
-    if error == 0:
-        print("\033[32m[  OK  ]\033[0m ", end="")
+        error = []
+        error.extend(check_stream(script, script["comptime_stdout"], out))
+        error.extend(check_stream(script, script["comptime_stderr"], err))
+
+    if len(error) == 0:
+        if os.access(f"./{name}", os.R_OK or os.X_OK):
+            print("\033[32m[  OK  ]\033[0m ", end="")
+        else:
+            print("\033[31m[FAILED]\033[0m \033[93m[  XX  ] [  XX  ]\033[0m")
+            with open("stdout", "r") as out, open("stderr", "r") as err:
+                print(out.read(), end="")
+                print(err.read(), end="")
+            return False
     else:
-        print("\033[31m[FAILED]\033[0m ", end="")
+        print("\033[31m[FAILED]\033[0m \033[93m[  XX  ] [  XX  ]\033[0m")
+        print(error)
         return False
 
+    os.remove("stdout")
+    os.remove("stderr")
     with open("stdout", "w+") as out, open("stderr", "w+") as err:
         # cmdline = [os.path.join(".compiled", name)]
         cmdline = [f"./{name}"]
@@ -69,23 +80,23 @@ def test_compile(name, script):
         out.seek(0)
         err.seek(0)
 
-        error = 0
+        error = []
         if "exit" in script:
             expected = script["exit"]
             if ex != expected and ex != expected + 256 and ex != expected - 256:
-                print("%s: Exit code %s != %s" % (name, ex, script["exit"]))
-                error += 1
-        error += check_stream(script, script["stdout"], out)
-        error += check_stream(script, script["stderr"], err)
+                error.append(f"{name}: Exit code {ex} != {script['exit']}")
+        error.extend(check_stream(script, script["stdout"], out))
+        error.extend(check_stream(script, script["stderr"], err))
 
     os.remove("stdout")
     os.remove("stderr")
-    if error == 0:
+    if len(error) == 0:
         print("\033[32m[  OK  ]\033[0m ", end="")
     else:
-        print("\033[31m[FAILED]\033[0m ", end="")
+        print("\033[31m[FAILED]\033[0m \033[93m[  XX  ]\033[0m")
+        print(error)
 
-    return error == 0
+    return len(error) == 0
 
 
 def test_eval(name, script):
@@ -97,25 +108,25 @@ def test_eval(name, script):
         out.seek(0)
         err.seek(0)
 
-        error = 0
+        error = []
         if "exit" in script:
             expected = script["exit"]
             if ex != expected and ex != expected + 256 and ex != expected - 256:
-                print("%s: Exit code %s != %s" % (name, ex, script["exit"]))
-                error += 1
+                error.append(f"{name}: Exit code {ex} != {script['exit']}")
         o = script["comptime_stdout"]
         o.extend(script["stdout"])
-        error += check_stream(script, o, out)
+        error.extend(check_stream(script, o, out))
         e = script["comptime_stderr"]
         e.extend(script["stderr"])
-        error += check_stream(script, e, err)
+        error.extend(check_stream(script, e, err))
 
     os.remove("stdout")
     os.remove("stderr")
-    if error == 0:
+    if len(error) == 0:
         print("\033[32m[  OK  ]\033[0m ", end="\r\n")
     else:
         print("\033[31m[FAILED]\033[0m ", end="\r\n")
+        print(error)
 
     return error == 0
 
@@ -128,14 +139,16 @@ def test_script(name):
         script = json.load(fd)
 
     print(f"{name:<25}", end="")
+    ok = True
     if "no-compile" not in script:
-        test_compile(name, script)
+        ok = test_compile(name, script)
     else:
         print("\033[93m[  XX  ] [  XX  ]\033[0m ", end="")
-    if "no-eval" not in script:
-        test_eval(name, script)
-    else:
-        print("\033[93m[  XX  ]\033[0m ", end="\r\n")
+    if ok:
+        if "no-eval" not in script:
+            test_eval(name, script)
+        else:
+            print("\033[93m[  XX  ]\033[0m ", end="\r\n")
     return True
 
 

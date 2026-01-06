@@ -46,7 +46,7 @@ std::wostream &operator<<(std::wostream &os, ILType const &type)
                 os << inner;
             },
             [&os](std::wstring const &inner) {
-                os << inner;
+                os << 'L';
             } },
         type);
     return os;
@@ -145,7 +145,16 @@ std::wostream &operator<<(std::wostream &os, CallDef const &impl)
             os << ", ";
         }
         first = false;
-        os << arg.type << " " << arg;
+        std::visit(
+            overloads {
+                [&os](ILBaseType const &bt) {
+                    os << bt;
+                },
+                [&os](std::wstring const &t) {
+                    os << t;
+                } },
+            arg.type);
+        os << " " << arg;
     }
     os << ")";
     if (n != impl.name) {
@@ -223,7 +232,7 @@ std::wostream &operator<<(std::wostream &os, LabelDef const &impl)
 
 std::wostream &operator<<(std::wostream &os, LoadDef const &impl)
 {
-    os << "    " << impl.target << " = " << impl.target.type << " load" << impl.pointer.type << " " << impl.pointer;
+    os << "    " << impl.target << " = " << impl.target.type << " load" << impl.target.type << " " << impl.pointer;
     return os;
 }
 

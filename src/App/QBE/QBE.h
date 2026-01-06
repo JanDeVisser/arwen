@@ -161,9 +161,10 @@ struct ILValue {
         return { ILType { std::move(td) }, Literal { std::move(literal) } };
     }
 
-    static ILValue variable(std::wstring name)
+    template<typename TypeDesc>
+    static ILValue variable(std::wstring name, TypeDesc td)
     {
-        return { ILType { ILBaseType::L }, Variable { std::move(name) } };
+        return { ILType { std::move(td) }, Variable { std::move(name) } };
     }
 
     template<typename TypeDesc>
@@ -399,28 +400,30 @@ struct ILProgram {
 using ILVariables = std::map<std::wstring, Value>;
 
 struct Frame {
-    constexpr static size_t         STACK_SIZE = 64 * 1024;
-    struct VM                      &vm;
-    ILFile const                   &file;
-    ILFunction const               &function;
-    std::array<uint8_t, STACK_SIZE> stack {};
-    size_t                          stack_pointer { 0 };
-    ILVariables                     variables {};
-    ILVariables                     arguments {};
-    std::vector<Value>              locals {};
-    size_t                          ip { 0 };
+    struct VM         &vm;
+    ILFile const      &file;
+    ILFunction const  &function;
+    ILVariables        variables {};
+    ILVariables        arguments {};
+    std::vector<Value> locals {};
+    size_t             ip { 0 };
 
     intptr_t allocate(size_t bytes, size_t alignment);
     intptr_t allocate(pType const &type);
     void     release(intptr_t ptr);
+    uint8_t *ptr(intptr_t p);
+    uint8_t *ptr(Value const &v);
 };
 
 using pFrame = Ptr<Frame, struct VM>;
 
 struct VM {
-    ILProgram const         &program;
-    std::vector<Frame>       frames;
-    std::vector<ILVariables> globals;
+    constexpr static size_t         STACK_SIZE = 64 * 1024;
+    ILProgram const                &program;
+    std::vector<Frame>              frames;
+    std::vector<ILVariables>        globals;
+    std::array<uint8_t, STACK_SIZE> stack;
+    size_t                          stack_pointer { 0 };
 
     VM(ILProgram const &program);
     size_t       size() const;
@@ -429,6 +432,9 @@ struct VM {
     void         release_frame();
     Frame const &operator[](size_t ix) const;
     Frame       &operator[](size_t ix);
+    intptr_t     allocate(size_t bytes, size_t alignment);
+    intptr_t     allocate(pType const &type);
+    void         release(intptr_t ptr);
 };
 
 using ExecutionResult = std::expected<Value, std::wstring>;
