@@ -148,7 +148,7 @@ std::wostream &operator<<(std::wostream &os, CallDef const &impl)
         std::visit(
             overloads {
                 [&os](ILBaseType const &bt) {
-                    os << bt;
+                    os << basetype(bt);
                 },
                 [&os](std::wstring const &t) {
                     os << t;
