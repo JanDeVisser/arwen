@@ -22,13 +22,75 @@ ILBaseType basetype(ILType const &type)
         type);
 }
 
+int align_of(ILBaseType const &type)
+{
+    switch (type) {
+#undef S
+#define S(T, Code, Str, Align, Size) \
+    case ILBaseType::T:              \
+        return Align;                \
+        break;
+        ILBASETYPES(S)
+#undef S
+    default:
+        UNREACHABLE();
+    }
+}
+
+int align_of(std::wstring const &type)
+{
+    if (type == L":slice_t") {
+        return TypeRegistry::string->align_of();
+    }
+    NYI(L"Alignment of non-base type `{}`", type);
+}
+
+int size_of(ILBaseType const &type)
+{
+    switch (type) {
+#undef S
+#define S(T, Code, Str, Align, Size) \
+    case ILBaseType::T:              \
+        return Size;                 \
+        break;
+        ILBASETYPES(S)
+#undef S
+    default:
+        UNREACHABLE();
+    }
+}
+
+int size_of(std::wstring const &type)
+{
+    if (type == L":slice_t") {
+        return TypeRegistry::string->align_of();
+    }
+    NYI(L"Size of non-base type `{}`", type);
+}
+
+int align_of(ILType const &type)
+{
+    return std::visit([](auto const &t) -> int {
+        return align_of(t);
+    },
+        type);
+}
+
+int size_of(ILType const &type)
+{
+    return std::visit([](auto const &t) -> int {
+        return size_of(t);
+    },
+        type);
+}
+
 std::wostream &operator<<(std::wostream &os, ILBaseType const &type)
 {
     switch (type) {
 #undef S
-#define S(T, Code, Str) \
-    case ILBaseType::T: \
-        os << #Str;     \
+#define S(T, Code, Str, Align, Size) \
+    case ILBaseType::T:              \
+        os << #Str;                  \
         break;
         ILBASETYPES(S)
 #undef S
@@ -110,7 +172,18 @@ std::wostream &operator<<(std::wostream &os, ILValue const &value)
             },
             [&os](int64_t const &i) {
                 os << i;
-            } },
+            },
+            [&os](std::vector<ILValue> const &seq) {
+                auto first { true };
+                for (auto const &v : seq) {
+                    if (!first) {
+                        os << ", ";
+                    }
+                    first = false;
+                    os << v;
+                }
+            },
+        },
         value.inner);
     return os;
 }

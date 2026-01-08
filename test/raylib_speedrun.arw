@@ -16,11 +16,7 @@ public func main() i32 {
     InitWindow(800::i32, 600::i32, `Arwen Speedrun`)
     while (!WindowShouldClose()) {
         BeginDrawing()
-        color: Color
-        color.r = 0xFF::u8
-        color.g = 0::u8
-        color.b = 0::u8
-        color.a = 0xFF::u8
+        color: Color = { 0xFF::u8, 0::u8, 0::u8, 0xFF::u8 }
         ClearBackground(color)
         EndDrawing()
     }

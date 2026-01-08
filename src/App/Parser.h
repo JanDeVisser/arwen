@@ -130,6 +130,7 @@ struct Parser {
     std::optional<OperatorDef>         check_prefix_op();
     std::optional<OperatorDef>         check_postfix_op();
     ASTNode                            parse_type();
+    ASTNode                            parse_braced_initializer();
     ASTNode                            parse_break_continue();
     ASTNode                            parse_defer();
     ASTNode                            parse_embed();

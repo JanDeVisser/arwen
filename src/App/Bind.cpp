@@ -203,7 +203,7 @@ BindResult bind(ASTNode n, BinaryExpression &impl)
     auto rhs_value_type = rhs_type->value_type();
 
     if (impl.op == Operator::Assign) {
-        if (lhs_value_type != rhs_value_type) {
+        if (!lhs_value_type->compatible(rhs_value_type)) {
             return parser.bind_error(
                 n->location,
                 L"Cannot assign a value of type `{}` to a variable of type `{}`",
@@ -868,18 +868,10 @@ BindResult bind(ASTNode n, VariableDeclaration &impl)
     if (my_type == nullptr) {
         my_type = init_type;
     }
-    if (init_type != nullptr) {
-        if (my_type != init_type) {
-            auto coerced = coerce(impl.initializer, my_type);
-            if (coerced == nullptr) {
-                return n.bind_error(
-                    L"Type mismatch between declared type `{}` of `{}` and type of initializer value `{}`",
-                    my_type->name, impl.name, init_type->name);
-            }
-            impl.initializer = coerced;
-            init_type = impl.initializer->bound_type;
-            assert(my_type == init_type);
-        }
+    if (init_type != nullptr && !init_type->compatible(my_type)) {
+        return n.bind_error(
+            L"Type mismatch between declared type `{}` of `{}` and type of initializer value `{}`",
+            my_type->name, impl.name, init_type->name);
     }
     if (n.repo->has_variable(impl.name)) {
         return n.bind_error(L"Duplicate variable name `{}`", impl.name);

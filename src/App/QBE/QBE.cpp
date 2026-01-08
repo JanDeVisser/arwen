@@ -325,6 +325,12 @@ struct QBEUnaryExpr {
                 return __res;                                         \
             } else {                                                  \
                 __var = __res.value();                                \
+                if (__var.align == 0) {                               \
+                    __var.align = __n->bound_type->align_of();        \
+                }                                                     \
+                if (__var.size == 0) {                                \
+                    __var.size = __n->bound_type->size_of();          \
+                }                                                     \
             }                                                         \
             (QBEOperand) { __var, __n };                              \
         })
@@ -754,15 +760,44 @@ static GenResult qbe_operator(QBEUnaryExpr const &expr, QBEContext &ctx)
         value_type->description);
 }
 
+static void assign(ILValue const &lhs, ILValue const &rhs, QBEContext &ctx)
+{
+    std::visit(
+        overloads {
+            [&ctx, &lhs](ILValues const &values) {
+                auto    lhs_ptr { lhs };
+                ILValue prev_lhs;
+                auto    prev_size { 0 };
+                for (auto const &value : values) {
+                    if (prev_size > 0) {
+                        lhs_ptr = ILValue::local(++ctx.next_var, ILBaseType::L);
+                        ctx.add_operation(
+                            ExprDef {
+                                prev_lhs,
+                                ILValue::integer(alignat(prev_size, value.align), ILBaseType::L),
+                                ILOperation::Add,
+                                lhs_ptr,
+                            });
+                    }
+                    assign(lhs_ptr, value, ctx);
+                    prev_size = value.size;
+                    prev_lhs = lhs_ptr;
+                }
+            },
+            [&ctx, &lhs, &rhs](auto const &v) {
+                ctx.add_operation(
+                    StoreDef {
+                        rhs,
+                        lhs,
+                    });
+            } },
+        rhs.inner);
+}
+
 static GenResult assign(ILValue const &lhs, ASTNode const &rhs, QBEContext &ctx)
 {
-    // QBE_ASSERT((std::holds_alternative<Local>(lhs.inner) && std::get<Local>(lhs.inner).type == LocalType::Reference), ctx);
-    auto rhs_val = TRY_GENERATE(rhs, ctx);
-    ctx.add_operation(
-        StoreDef {
-            rhs_val.value,
-            lhs,
-        });
+    auto rhs_value { TRY_GENERATE(rhs, ctx) };
+    assign(lhs, rhs_value.value, ctx);
     return lhs;
 }
 
@@ -967,6 +1002,23 @@ template<>
 GenResult generate_qbe_node(ASTNode const &n, Dummy const &impl, QBEContext &ctx)
 {
     return ILValue::null();
+}
+
+template<>
+GenResult generate_qbe_node(ASTNode const &n, ExpressionList const &impl, QBEContext &ctx)
+{
+    ILValues values;
+    int      align = 0;
+    int      size = 0;
+    for (auto const &expr : impl.expressions) {
+        values.emplace_back(dereference(TRY_GENERATE(expr, ctx), ctx));
+        if (size > 0) {
+            size = alignat(size, values.back().align);
+        }
+        size += values.back().size;
+        align = std::max(align, values.back().align);
+    }
+    return ILValue::sequence(values, align, size);
 }
 
 template<>

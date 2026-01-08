@@ -1,4 +1,4 @@
-/*
+/*ty
  * Copyright (c) 2025, Jan de Visser <jan@finiandarcy.com>
  *
  * SPDX-License-Identifier: MIT
@@ -266,6 +266,117 @@ intptr_t ErrorType::align_of() const
 std::wstring TypeType::to_string() const
 {
     return std::format(L"TypeOf({})", type->to_string());
+}
+
+bool Type::is(TypeKind kind) const
+{
+    return description.index() == static_cast<int>(kind);
+}
+
+TypeKind Type::kind() const
+{
+    return static_cast<TypeKind>(description.index());
+}
+
+std::wstring Type::to_string() const
+{
+    return std::format(
+        L"{}: {}",
+        name,
+        std::visit(overloads {
+                       [](std::monostate const &) -> std::wstring {
+                           UNREACHABLE();
+                           return L"";
+                       },
+                       [](auto const &descr) -> std::wstring {
+                           return descr.to_string();
+                       } },
+            description));
+}
+
+intptr_t Type::size_of() const
+{
+    return std::visit(overloads {
+                          [](std::monostate const &) -> intptr_t {
+                              UNREACHABLE();
+                              return 0;
+                          },
+                          [](auto const &descr) -> intptr_t {
+                              return descr.size_of();
+                          } },
+        description);
+}
+
+intptr_t Type::align_of() const
+{
+    return std::visit(overloads {
+                          [](std::monostate const &) -> intptr_t {
+                              UNREACHABLE();
+                              return 0;
+                          },
+                          [](auto const &descr) -> intptr_t {
+                              return descr.align_of();
+                          } },
+        description);
+}
+
+bool Type::compatible(pType const &other) const
+{
+    if (id == other.id) {
+        return true;
+    }
+    auto left = (description.index() <= other->description.index()) ? id : other;
+    auto right = (description.index() <= other->description.index()) ? other : id;
+    return std::visit(
+        overloads {
+            [this, &other](TypeList const &list, SliceType const &slice) -> bool {
+                return std::ranges::all_of(list.types, [&slice](auto const &t) {
+                    return t->compatible(slice.slice_of);
+                });
+            },
+            [this, &other](TypeList const &list, DynArray const &dynarr) -> bool {
+                return std::ranges::all_of(list.types, [&dynarr](auto const &t) {
+                    return t->compatible(dynarr.array_of);
+                });
+            },
+            [this, &other](TypeList const &list, Array const &arr) -> bool {
+                if (list.types.size() != arr.size) {
+                    return false;
+                }
+                return std::ranges::all_of(list.types, [&arr](auto const &t) {
+                    return t->compatible(arr.array_of);
+                });
+            },
+            [this, &other](TypeList const &list, ZeroTerminatedArray const &arr) -> bool {
+                return std::ranges::all_of(list.types, [&arr](auto const &t) {
+                    return t->compatible(arr.array_of);
+                });
+            },
+            [this, &other](TypeList const &list, StructType const &strukt) -> bool {
+                if (list.types.size() != strukt.fields.size()) {
+                    return false;
+                }
+                return std::ranges::all_of(std::ranges::views::zip(list.types, strukt.fields), [](auto const &tuple) {
+                    return std::get<0>(tuple)->compatible(std::get<1>(tuple).type);
+                });
+            },
+            [](auto const &, std::monostate const &) -> bool {
+                UNREACHABLE();
+                return 0;
+            },
+            [this, &other](auto const &, auto const &) -> bool {
+                return id == other->id;
+            } },
+        left->description, right->description);
+}
+
+pType Type::value_type() const
+{
+    auto val_type { id };
+    if (val_type->kind() == TypeKind::ReferenceType) {
+        val_type = std::get<ReferenceType>(val_type->description).referencing;
+    }
+    return val_type;
 }
 
 std::map<std::wstring, pType> Type::infer_generic_arguments(pType const &param_type) const

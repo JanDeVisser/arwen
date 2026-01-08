@@ -397,7 +397,7 @@ ASTNode Parser::parse_primary()
         append(token, "Unexpected keyword '{}' parsing primary expression", ArwenKeyword_name(token.keyword()));
         return {};
     case TokenKind::Symbol: {
-        if (token.symbol_code() == L'(') {
+        if (token.symbol_code() == '(') {
             lexer.lex();
             if (lexer.accept_symbol(')')) {
                 return make_node<Void>(token.location);
@@ -407,6 +407,14 @@ ASTNode Parser::parse_primary()
                 append(err.error(), "Expected ')'");
                 return {};
             }
+            break;
+        }
+        if (token.symbol_code() == '{') {
+            lexer.lex();
+            if (lexer.accept_symbol('}')) {
+                return make_node<Void>(token.location);
+            }
+            ret = parse_braced_initializer();
             break;
         }
         if (auto const op_maybe = check_prefix_op(); op_maybe) {
@@ -578,6 +586,16 @@ std::optional<Parser::OperatorDef> Parser::check_postfix_op()
         return def;
     }
     return {};
+}
+
+ASTNode Parser::parse_braced_initializer()
+{
+    auto ret = parse_expression();
+    if (auto err = lexer.expect_symbol('}'); !err.has_value()) {
+        append(err.error(), "Expected '}'");
+        return {};
+    }
+    return ret;
 }
 
 ASTNode Parser::parse_type()

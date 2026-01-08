@@ -35,24 +35,24 @@ struct Local {
     static Local ref(int var);
 };
 
-#define ILBASETYPES(S) \
-    S(V, 0x00, void)   \
-    S(B, 0x04, b)      \
-    S(SB, 0x05, sb)    \
-    S(UB, 0x06, ub)    \
-    S(H, 0x08, h)      \
-    S(SH, 0x09, sh)    \
-    S(UH, 0x0A, uh)    \
-    S(W, 0x10, w)      \
-    S(SW, 0x11, sw)    \
-    S(UW, 0x12, uw)    \
-    S(L, 0x20, l)      \
-    S(S, 0x40, s)      \
-    S(D, 0x80, d)
+#define ILBASETYPES(S)     \
+    S(V, 0x00, void, 0, 0) \
+    S(B, 0x04, b, 1, 1)    \
+    S(SB, 0x05, sb, 1, 1)  \
+    S(UB, 0x06, ub, 1, 1)  \
+    S(H, 0x08, h, 2, 2)    \
+    S(SH, 0x09, sh, 2, 2)  \
+    S(UH, 0x0A, uh, 2, 2)  \
+    S(W, 0x10, w, 4, 4)    \
+    S(SW, 0x11, sw, 4, 4)  \
+    S(UW, 0x12, uw, 4, 4)  \
+    S(L, 0x20, l, 8, 8)    \
+    S(S, 0x40, s, 4, 4)    \
+    S(D, 0x80, d, 8, 8)
 
 enum class ILBaseType {
 #undef S
-#define S(T, Code, Str) T = Code,
+#define S(T, Code, Str, Align, Size) T = Code,
     ILBASETYPES(S)
 #undef S
 };
@@ -63,6 +63,8 @@ std::wostream &operator<<(std::wostream &os, ILBaseType const &type);
 std::wostream &operator<<(std::wostream &os, ILType const &type);
 
 ILBaseType basetype(ILType const &type);
+int        align_of(ILType const &type);
+int        size_of(ILType const &type);
 
 enum class ILInstructionType {
     Alloc,
@@ -136,23 +138,26 @@ struct ILValue {
         Variable,
         Parameter,
         int64_t,
-        double>;
+        double,
+        std::vector<ILValue>>;
 
     template<typename TypeDesc>
     static ILValue local(int var, TypeDesc td)
     {
-        return { ILType { std::move(td) }, Local::value(var) };
+        ILType t { std::move(td) };
+        return { t, Local::value(var), align_of(t), size_of(t) };
     }
 
     static ILValue local_ref(int var)
     {
-        return { ILType { ILBaseType::L }, Local::ref(var) };
+        ILType t { ILBaseType::L };
+        return { t, Local::ref(var), align_of(t), size_of(t) };
     }
 
     template<typename TypeDesc>
     static ILValue global(std::wstring name, TypeDesc td)
     {
-        return { ILType { std::move(td) }, Global { std::move(name) } };
+        return { ILType { std::move(td) }, Global { std::move(name) }, 8, 8 };
     }
 
     template<typename TypeDesc>
@@ -164,7 +169,7 @@ struct ILValue {
     template<typename TypeDesc>
     static ILValue variable(std::wstring name, TypeDesc td)
     {
-        return { ILType { std::move(td) }, Variable { std::move(name) } };
+        return { ILType { std::move(td) }, Variable { std::move(name) }, 8, 8 };
     }
 
     template<typename TypeDesc>
@@ -186,13 +191,20 @@ struct ILValue {
     template<typename TypeDesc>
     static ILValue float_val(double d, TypeDesc td)
     {
-        return { ILType { std::move(td) }, d };
+        ILType t { std::move(td) };
+        return { t, d, align_of(t), size_of(t) };
     }
 
     template<typename TypeDesc>
     static ILValue integer(int64_t i, TypeDesc td)
     {
-        return { ILType { std::move(td) }, i };
+        ILType t { std::move(td) };
+        return { t, i, align_of(t), size_of(t) };
+    }
+
+    static ILValue sequence(std::vector<ILValue> values, int align, int size)
+    {
+        return { ILType { ILBaseType::V }, std::move(values), align, size };
     }
 
     static ILValue null()
@@ -202,7 +214,11 @@ struct ILValue {
 
     ILType       type;
     ILValueInner inner;
+    int          align;
+    int          size;
 };
+
+using ILValues = std::vector<ILValue>;
 
 std::wostream &operator<<(std::wostream &os, ILValue const &value);
 std::wostream &operator<<(std::wostream &os, ILOperation const &op);

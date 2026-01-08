@@ -414,67 +414,13 @@ struct Type {
     {
     }
 
-    bool is(TypeKind kind) const
-    {
-        return description.index() == static_cast<int>(kind);
-    }
-
-    TypeKind kind() const
-    {
-        return static_cast<TypeKind>(description.index());
-    }
-
-    std::wstring to_string() const
-    {
-        return std::format(
-            L"{}: {}",
-            name,
-            std::visit(overloads {
-                           [](std::monostate const &) -> std::wstring {
-                               UNREACHABLE();
-                               return L"";
-                           },
-                           [](auto const &descr) -> std::wstring {
-                               return descr.to_string();
-                           } },
-                description));
-    }
-
-    intptr_t size_of() const
-    {
-        return std::visit(overloads {
-                              [](std::monostate const &) -> intptr_t {
-                                  UNREACHABLE();
-                                  return 0;
-                              },
-                              [](auto const &descr) -> intptr_t {
-                                  return descr.size_of();
-                              } },
-            description);
-    }
-
-    intptr_t align_of() const
-    {
-        return std::visit(overloads {
-                              [](std::monostate const &) -> intptr_t {
-                                  UNREACHABLE();
-                                  return 0;
-                              },
-                              [](auto const &descr) -> intptr_t {
-                                  return descr.align_of();
-                              } },
-            description);
-    }
-
-    pType value_type() const
-    {
-        auto val_type { id };
-        if (val_type->kind() == TypeKind::ReferenceType) {
-            val_type = std::get<ReferenceType>(val_type->description).referencing;
-        }
-        return val_type;
-    }
-
+    bool                          is(TypeKind kind) const;
+    TypeKind                      kind() const;
+    std::wstring                  to_string() const;
+    intptr_t                      size_of() const;
+    intptr_t                      align_of() const;
+    pType                         value_type() const;
+    bool                          compatible(pType const &other) const;
     std::map<std::wstring, pType> infer_generic_arguments(pType const &param_type) const;
 };
 

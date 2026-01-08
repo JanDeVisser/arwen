@@ -1,0 +1,14 @@
+struct Foo {
+    foo: i64,
+    bar: i64,
+}
+
+public func main() i32
+{
+    foo: Foo = { 69, 420 }
+    putint(foo.foo)
+    puts(" ")
+    putint(foo.bar)
+    endln()
+    return 0::i32
+}
