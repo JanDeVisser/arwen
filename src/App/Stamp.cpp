@@ -13,13 +13,13 @@
 namespace Arwen {
 
 template<class N>
-ASTNode stamp(ASTNode const &n, N &impl)
+ASTNode stamp(ASTNode n, N &impl)
 {
     return n;
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, BinaryExpression &impl)
+ASTNode stamp(ASTNode n, BinaryExpression &impl)
 {
     impl.lhs = stamp(impl.lhs);
     impl.rhs = stamp(impl.rhs);
@@ -27,7 +27,7 @@ ASTNode stamp(ASTNode const &n, BinaryExpression &impl)
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, Block &impl)
+ASTNode stamp(ASTNode n, Block &impl)
 {
     ASTNodes stamped;
     for (auto const &stmt : impl.statements) {
@@ -43,7 +43,7 @@ ASTNode stamp(ASTNode const &n, Block &impl)
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, Call &impl)
+ASTNode stamp(ASTNode n, Call &impl)
 {
     impl.callable = stamp(impl.callable);
     impl.arguments = stamp(impl.arguments);
@@ -51,14 +51,14 @@ ASTNode stamp(ASTNode const &n, Call &impl)
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, DeferStatement &impl)
+ASTNode stamp(ASTNode n, DeferStatement &impl)
 {
     impl.statement = stamp(impl.statement);
     return n;
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, Enum &impl)
+ASTNode stamp(ASTNode n, Enum &impl)
 {
     ASTNodes vals {};
     for (auto const &v : impl.values) {
@@ -70,7 +70,7 @@ ASTNode stamp(ASTNode const &n, Enum &impl)
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, EnumValue &impl)
+ASTNode stamp(ASTNode n, EnumValue &impl)
 {
     impl.value = stamp(impl.value);
     impl.payload = stamp(impl.payload);
@@ -78,21 +78,21 @@ ASTNode stamp(ASTNode const &n, EnumValue &impl)
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, Error &impl)
+ASTNode stamp(ASTNode n, Error &impl)
 {
     impl.expression = stamp(impl.expression);
     return n;
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, ExpressionList &impl)
+ASTNode stamp(ASTNode n, ExpressionList &impl)
 {
     impl.expressions = stamp(impl.expressions);
     return n;
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, ForStatement &impl)
+ASTNode stamp(ASTNode n, ForStatement &impl)
 {
     impl.range_expr = stamp(impl.range_expr);
     impl.statement = stamp(impl.statement);
@@ -100,7 +100,7 @@ ASTNode stamp(ASTNode const &n, ForStatement &impl)
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, FunctionDeclaration &impl)
+ASTNode stamp(ASTNode n, FunctionDeclaration &impl)
 {
     impl.generics = stamp(impl.generics);
     impl.parameters = stamp(impl.parameters);
@@ -109,7 +109,7 @@ ASTNode stamp(ASTNode const &n, FunctionDeclaration &impl)
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, FunctionDefinition &impl)
+ASTNode stamp(ASTNode n, FunctionDefinition &impl)
 {
     impl.declaration = stamp(impl.declaration);
     impl.implementation = stamp(impl.implementation);
@@ -117,7 +117,7 @@ ASTNode stamp(ASTNode const &n, FunctionDefinition &impl)
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, IfStatement &impl)
+ASTNode stamp(ASTNode n, IfStatement &impl)
 {
     impl.condition = stamp(impl.condition);
     impl.if_branch = stamp(impl.if_branch);
@@ -126,63 +126,63 @@ ASTNode stamp(ASTNode const &n, IfStatement &impl)
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, LoopStatement &impl)
+ASTNode stamp(ASTNode n, LoopStatement &impl)
 {
     impl.statement = stamp(impl.statement);
     return n;
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, Parameter &impl)
+ASTNode stamp(ASTNode n, Parameter &impl)
 {
     impl.type_name = stamp(impl.type_name);
     return n;
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, PublicDeclaration &impl)
+ASTNode stamp(ASTNode n, PublicDeclaration &impl)
 {
     impl.declaration = stamp(impl.declaration);
     return n;
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, Return &impl)
+ASTNode stamp(ASTNode n, Return &impl)
 {
     impl.expression = stamp(impl.expression);
     return n;
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, StampedIdentifier &impl)
+ASTNode stamp(ASTNode n, StampedIdentifier &impl)
 {
     impl.arguments = stamp(impl.arguments);
     return n;
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, Struct &impl)
+ASTNode stamp(ASTNode n, Struct &impl)
 {
     impl.members = stamp(impl.members);
     return n;
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, StructMember &impl)
+ASTNode stamp(ASTNode n, StructMember &impl)
 {
     impl.member_type = stamp(impl.member_type);
     return n;
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, UnaryExpression &impl)
+ASTNode stamp(ASTNode n, UnaryExpression &impl)
 {
     impl.operand = stamp(impl.operand);
     return n;
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, VariableDeclaration &impl)
+ASTNode stamp(ASTNode n, VariableDeclaration &impl)
 {
     impl.type_name = stamp(impl.type_name);
     impl.initializer = stamp(impl.initializer);
@@ -190,7 +190,7 @@ ASTNode stamp(ASTNode const &n, VariableDeclaration &impl)
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, WhileStatement &impl)
+ASTNode stamp(ASTNode n, WhileStatement &impl)
 {
     impl.condition = stamp(impl.condition);
     impl.statement = stamp(impl.statement);
@@ -198,13 +198,13 @@ ASTNode stamp(ASTNode const &n, WhileStatement &impl)
 }
 
 template<>
-ASTNode stamp(ASTNode const &n, Yield &impl)
+ASTNode stamp(ASTNode n, Yield &impl)
 {
     impl.statement = stamp(impl.statement);
     return n;
 }
 
-ASTNode stamp(ASTNode const &n)
+ASTNode stamp(ASTNode n)
 {
     if (n == nullptr) {
         return nullptr;
@@ -224,10 +224,10 @@ ASTNode stamp(ASTNode const &n)
     return ret;
 }
 
-ASTNodes stamp(ASTNodes const &nodes)
+ASTNodes stamp(ASTNodes nodes)
 {
     ASTNodes stamped;
-    for (auto const &n : nodes) {
+    for (auto n : nodes) {
         stamped.emplace_back(stamp(n));
     }
     return stamped;

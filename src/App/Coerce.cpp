@@ -14,7 +14,7 @@
 namespace Arwen {
 
 template<typename T>
-ASTNode coerce(ASTNode const &n, T const &, pType const &target)
+ASTNode coerce(ASTNode n, T const &, pType const &target)
 {
     assert(n->bound_type);
     if (target == n->bound_type) {
@@ -23,7 +23,7 @@ ASTNode coerce(ASTNode const &n, T const &, pType const &target)
     return {};
 }
 
-ASTNode coerce(ASTNode const &n, pType const &target)
+ASTNode coerce(ASTNode n, pType const &target)
 {
     return std::visit(
         [&n, &target](auto const &impl) -> ASTNode {

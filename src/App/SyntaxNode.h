@@ -683,12 +683,12 @@ void         dump(ASTNodes const &nodes, std::wostream &os, int indent = 0);
 void         header(ASTNode const &node, std::wostream &os);
 std::wstring to_string(ASTNode const &node);
 pType        resolve(ASTNode const &type_node);
-ASTNode      normalize(ASTNode const &node);
-ASTNodes     normalize(ASTNodes const &nodes);
-BindResult   bind(ASTNode const &node);
-ASTNode      coerce(ASTNode const &node, pType const &type);
-ASTNode      stamp(ASTNode const &node);
-ASTNodes     stamp(ASTNodes const &nodes);
+ASTNode      normalize(ASTNode node);
+ASTNodes     normalize(ASTNodes nodes);
+BindResult   bind(ASTNode node);
+ASTNode      coerce(ASTNode node, pType const &type);
+ASTNode      stamp(ASTNode node);
+ASTNodes     stamp(ASTNodes nodes);
 
 }
 

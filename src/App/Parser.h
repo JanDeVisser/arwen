@@ -224,7 +224,7 @@ struct Parser {
 };
 
 template<typename Node, typename... Args>
-ASTNode make_node(ASTNode const &from, Args... args)
+ASTNode make_node(ASTNode from, Args... args)
 {
     ASTNode ret = from.repo->make_node<Node>(from->location, args...);
     if (from->ns) {
@@ -237,7 +237,7 @@ ASTNode make_node(ASTNode const &from, Args... args)
 }
 
 template<typename Node>
-ASTNode copy_node(ASTNode const &from, Node impl)
+ASTNode copy_node(ASTNode from, Node impl)
 {
     auto ret = from.repo->copy_node<Node>(from->location, std::move(impl));
     if (from->ns) {

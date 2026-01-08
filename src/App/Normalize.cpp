@@ -16,22 +16,23 @@
 namespace Arwen {
 
 template<class N>
-ASTNode normalize(ASTNode const &n, N const &impl)
+ASTNode normalize(ASTNode n, N const &impl)
 {
     return n;
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, BinaryExpression const &impl)
+ASTNode normalize(ASTNode n, BinaryExpression const &impl)
 {
-    auto make_expression_list = [&n]() -> ASTNode {
+    auto make_expression_list = [n]() -> ASTNode {
         ASTNodes                     nodes;
         std::function<void(ASTNode)> flatten;
-        flatten = [&nodes, &flatten](ASTNode const &n) {
+        flatten = [&nodes, &flatten](ASTNode n) {
             if (auto const binary_expr = std::get_if<BinaryExpression>(&n->node); binary_expr != nullptr) {
-                if (binary_expr->op == Operator::Sequence) {
-                    flatten(binary_expr->lhs);
-                    nodes.push_back(normalize(binary_expr->rhs));
+                auto binexp = *binary_expr;
+                if (binexp.op == Operator::Sequence) {
+                    flatten(binexp.lhs);
+                    nodes.push_back(normalize(binexp.rhs));
                 } else {
                     nodes.push_back(normalize(n));
                 }
@@ -43,7 +44,7 @@ ASTNode normalize(ASTNode const &n, BinaryExpression const &impl)
         return make_node<ExpressionList>(n, nodes);
     };
 
-    auto const_evaluate = [&n](ASTNode const &lhs, Operator op, ASTNode const &rhs) -> ASTNode {
+    auto const_evaluate = [n](ASTNode lhs, Operator op, ASTNode rhs) -> ASTNode {
         auto const &lhs_const = std::get_if<Constant>(&lhs->node);
         if (lhs_const == nullptr || !lhs_const->bound_value) {
             return make_node<BinaryExpression>(n, lhs, op, rhs);
@@ -96,7 +97,7 @@ ASTNode normalize(ASTNode const &n, BinaryExpression const &impl)
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, Block const &impl)
+ASTNode normalize(ASTNode n, Block const &impl)
 {
     const_cast<ASTNode &>(n)->init_namespace();
     auto ret = make_node<Block>(n, normalize(impl.statements));
@@ -104,13 +105,13 @@ ASTNode normalize(ASTNode const &n, Block const &impl)
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, BoolConstant const &impl)
+ASTNode normalize(ASTNode n, BoolConstant const &impl)
 {
     return make_node<Constant>(n, Value { impl.value });
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, Comptime const &impl)
+ASTNode normalize(ASTNode n, Comptime const &impl)
 {
     Parser &parser = *(n.repo);
     auto    script = parse<Block>(parser, impl.script_text);
@@ -131,13 +132,13 @@ ASTNode normalize(ASTNode const &n, Comptime const &impl)
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, DeferStatement const &impl)
+ASTNode normalize(ASTNode n, DeferStatement const &impl)
 {
     return make_node<DeferStatement>(n, normalize(impl.statement));
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, Embed const &impl)
+ASTNode normalize(ASTNode n, Embed const &impl)
 {
     auto fname = as_utf8(impl.file_name);
     if (auto contents_maybe = read_file_by_name<wchar_t>(fname); contents_maybe.has_value()) {
@@ -150,24 +151,24 @@ ASTNode normalize(ASTNode const &n, Embed const &impl)
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, EnumValue const &impl)
+ASTNode normalize(ASTNode n, EnumValue const &impl)
 {
     return make_node<EnumValue>(n, impl.label, normalize(impl.value), normalize(impl.payload));
 }
 
-ASTNode normalize(ASTNode const &n, Enum const &impl)
+ASTNode normalize(ASTNode n, Enum const &impl)
 {
     return make_node<Enum>(n, impl.name, normalize(impl.underlying_type), normalize(impl.values));
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, Error const &impl)
+ASTNode normalize(ASTNode n, Error const &impl)
 {
     return make_node<Error>(n, normalize(impl.expression));
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, ExpressionList const &impl)
+ASTNode normalize(ASTNode n, ExpressionList const &impl)
 {
     for (auto const &expr : impl.expressions) {
         assert(expr->status == ASTStatus::Normalized);
@@ -179,7 +180,7 @@ ASTNode normalize(ASTNode const &n, ExpressionList const &impl)
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, ForStatement const &impl)
+ASTNode normalize(ASTNode n, ForStatement const &impl)
 {
     n->init_namespace();
     auto range_expr = normalize(impl.range_expr);
@@ -190,7 +191,7 @@ ASTNode normalize(ASTNode const &n, ForStatement const &impl)
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, FunctionDeclaration const &impl)
+ASTNode normalize(ASTNode n, FunctionDeclaration const &impl)
 {
     return make_node<FunctionDeclaration>(
         n,
@@ -201,7 +202,7 @@ ASTNode normalize(ASTNode const &n, FunctionDeclaration const &impl)
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, FunctionDefinition const &impl)
+ASTNode normalize(ASTNode n, FunctionDefinition const &impl)
 {
     n->init_namespace();
     auto ret = make_node<FunctionDefinition>(n, impl.name, normalize(impl.declaration), normalize(impl.implementation));
@@ -209,7 +210,7 @@ ASTNode normalize(ASTNode const &n, FunctionDefinition const &impl)
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, IfStatement const &impl)
+ASTNode normalize(ASTNode n, IfStatement const &impl)
 {
     return make_node<IfStatement>(
         n,
@@ -219,7 +220,7 @@ ASTNode normalize(ASTNode const &n, IfStatement const &impl)
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, Import const &impl)
+ASTNode normalize(ASTNode n, Import const &impl)
 {
     auto fname = impl.file_name;
     for (auto ix = 0; ix < fname.length(); ++ix) {
@@ -243,7 +244,7 @@ ASTNode normalize(ASTNode const &n, Import const &impl)
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, Include const &impl)
+ASTNode normalize(ASTNode n, Include const &impl)
 {
     auto fname = as_utf8(impl.file_name);
     if (auto contents_maybe = read_file_by_name<wchar_t>(fname); contents_maybe.has_value()) {
@@ -260,26 +261,26 @@ ASTNode normalize(ASTNode const &n, Include const &impl)
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, LoopStatement const &impl)
+ASTNode normalize(ASTNode n, LoopStatement const &impl)
 {
     return make_node<LoopStatement>(n, impl.label, normalize(impl.statement));
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, Module const &impl)
+ASTNode normalize(ASTNode n, Module const &impl)
 {
     n->init_namespace();
     return make_node<Module>(n, impl.name, impl.source, normalize(impl.statements));
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, Nullptr const &)
+ASTNode normalize(ASTNode n, Nullptr const &)
 {
     return make_node<Constant>(n, Value { nullptr });
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, Number const &impl)
+ASTNode normalize(ASTNode n, Number const &impl)
 {
     switch (impl.number_type) {
     case NumberType::Decimal: {
@@ -302,13 +303,13 @@ ASTNode normalize(ASTNode const &n, Number const &impl)
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, Parameter const &impl)
+ASTNode normalize(ASTNode n, Parameter const &impl)
 {
     return make_node<Parameter>(n, impl.name, normalize(impl.type_name));
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, Program const &impl)
+ASTNode normalize(ASTNode n, Program const &impl)
 {
     n->init_namespace();
     for (auto const &t : TypeRegistry::the().types) {
@@ -327,13 +328,13 @@ ASTNode normalize(ASTNode const &n, Program const &impl)
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, PublicDeclaration const &impl)
+ASTNode normalize(ASTNode n, PublicDeclaration const &impl)
 {
     return make_node<PublicDeclaration>(n, impl.name, normalize(impl.declaration));
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, QuotedString const &impl)
+ASTNode normalize(ASTNode n, QuotedString const &impl)
 {
     auto unescape = [](auto const &s) -> std::wstring {
         std::wstring escaped;
@@ -378,25 +379,25 @@ ASTNode normalize(ASTNode const &n, QuotedString const &impl)
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, Return const &impl)
+ASTNode normalize(ASTNode n, Return const &impl)
 {
     return make_node<Return>(n, normalize(impl.expression));
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, StructMember const &impl)
+ASTNode normalize(ASTNode n, StructMember const &impl)
 {
     return make_node<StructMember>(n, impl.label, normalize(impl.member_type));
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, Struct const &impl)
+ASTNode normalize(ASTNode n, Struct const &impl)
 {
     return make_node<Struct>(n, impl.name, normalize(impl.members));
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, TypeSpecification const &impl)
+ASTNode normalize(ASTNode n, TypeSpecification const &impl)
 {
     auto description = std::visit(
         overloads {
@@ -433,7 +434,7 @@ ASTNode normalize(ASTNode const &n, TypeSpecification const &impl)
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, UnaryExpression const &impl)
+ASTNode normalize(ASTNode n, UnaryExpression const &impl)
 {
     auto normalized_operand = normalize(impl.operand);
     if (auto *operand_const = get_if<Constant>(normalized_operand); operand_const != nullptr) {
@@ -451,7 +452,7 @@ ASTNode normalize(ASTNode const &n, UnaryExpression const &impl)
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, VariableDeclaration const &impl)
+ASTNode normalize(ASTNode n, VariableDeclaration const &impl)
 {
     return make_node<VariableDeclaration>(
         n,
@@ -462,20 +463,20 @@ ASTNode normalize(ASTNode const &n, VariableDeclaration const &impl)
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, WhileStatement const &impl)
+ASTNode normalize(ASTNode n, WhileStatement const &impl)
 {
     return make_node<WhileStatement>(n, impl.label, normalize(impl.condition), normalize(impl.statement));
 }
 
 template<>
-ASTNode normalize(ASTNode const &n, Yield const &impl)
+ASTNode normalize(ASTNode n, Yield const &impl)
 {
     return make_node<Yield>(n, impl.label, normalize(impl.statement));
 }
 
 /* ======================================================================== */
 
-ASTNode normalize(ASTNode const &node)
+ASTNode normalize(ASTNode node)
 {
     if (node == nullptr) {
         return nullptr;
@@ -502,7 +503,7 @@ ASTNode normalize(ASTNode const &node)
     return ret;
 }
 
-ASTNodes normalize(ASTNodes const &nodes)
+ASTNodes normalize(ASTNodes nodes)
 {
     ASTNodes normalized {};
     for (size_t ix = 0; ix < nodes.size(); ++ix) {

@@ -1,7 +1,14 @@
+struct Color {
+    r: u8,        // Color red value
+    g: u8,        // Color green value
+    b: u8,        // Color blue value
+    a: u8,        // Color alpha value
+}
+
 func InitWindow(width: i32, height: i32, title: cstring) void -> "libraylib:InitWindow"
 func CloseWindow() void -> "libraylib:CloseWindow"
 func WindowShouldClose() bool -> "libraylib:WindowShouldClose"
-func ClearBackground(color: u64) void -> "libraylib:ClearBackground"
+func ClearBackground(color: Color) void -> "libraylib:ClearBackground"
 func BeginDrawing() void -> "libraylib:BeginDrawing"
 func EndDrawing() void -> "libraylib:EndDrawing"
 
@@ -9,7 +16,12 @@ public func main() i32 {
     InitWindow(800::i32, 600::i32, `Arwen Speedrun`)
     while (!WindowShouldClose()) {
         BeginDrawing()
-        ClearBackground(0xFF0000FF::u64)
+        color: Color
+        color.r = 0xFF::u8
+        color.g = 0::u8
+        color.b = 0::u8
+        color.a = 0xFF::u8
+        ClearBackground(color)
         EndDrawing()
     }
     CloseWindow()

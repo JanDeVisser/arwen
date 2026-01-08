@@ -69,7 +69,7 @@ static BindResults bind_nodes(R const &nodes)
     return types;
 }
 
-static BindResults bind_nodes(ASTNodes const &nodes)
+static BindResults bind_nodes(ASTNodes nodes)
 {
     return bind_nodes(nodes | std::ranges::views::all);
 }
@@ -87,7 +87,7 @@ static BindResults bind_nodes(ASTNodes const &nodes)
             (__types);                                                        \
         })
 
-static BindResult bind_declaration(ASTNode const &declaration, ASTNode const &definition)
+static BindResult bind_declaration(ASTNode declaration, ASTNode definition)
 {
     assert(definition->ns.has_value());
     if (declaration->status == ASTStatus::Normalized) {
@@ -103,7 +103,7 @@ static BindResult bind_declaration(ASTNode const &declaration, ASTNode const &de
     return bind(declaration);
 }
 
-static ASTNode instantiate(ASTNode const &n, std::map<std::wstring, pType> const &generic_args)
+static ASTNode instantiate(ASTNode n, std::map<std::wstring, pType> const &generic_args)
 {
     assert(n != nullptr);
     assert(is<FunctionDefinition>(n));
@@ -136,7 +136,7 @@ static ASTNode instantiate(ASTNode const &n, std::map<std::wstring, pType> const
     return new_func;
 }
 
-static ASTNode instantiate(ASTNode const &n, std::vector<pType> const &generic_args)
+static ASTNode instantiate(ASTNode n, std::vector<pType> const &generic_args)
 {
     assert(n != nullptr);
     assert(is<FunctionDefinition>(n));
@@ -155,13 +155,13 @@ static ASTNode instantiate(ASTNode const &n, std::vector<pType> const &generic_a
 }
 
 template<class N>
-BindResult bind(ASTNode const &n, N &impl)
+BindResult bind(ASTNode n, N &impl)
 {
     return nullptr;
 }
 
 template<>
-BindResult bind(ASTNode const &n, BinaryExpression &impl)
+BindResult bind(ASTNode n, BinaryExpression &impl)
 {
     assert(n != nullptr);
     Parser &parser = *(n.repo);
@@ -253,7 +253,7 @@ BindResult bind(ASTNode const &n, BinaryExpression &impl)
             lhs_value_type->description, rhs_value_type->description);
     }
 
-    auto check_operators = [](Operator op, pType const &op_lhs_type, pType const &op_rhs_type) -> pType {
+    auto check_operators = [](Operator op, pType op_lhs_type, pType op_rhs_type) -> pType {
         for (auto const &o : binary_ops) {
             if (op == o.op && o.matches(op_lhs_type, op_rhs_type)) {
                 return std::visit(
@@ -302,7 +302,7 @@ BindResult bind(ASTNode const &n, BinaryExpression &impl)
 }
 
 template<>
-BindResult bind(ASTNode const &n, Block &impl)
+BindResult bind(ASTNode n, Block &impl)
 {
     auto types = try_bind_nodes(impl.statements);
     if (!types.empty()) {
@@ -312,13 +312,13 @@ BindResult bind(ASTNode const &n, Block &impl)
 }
 
 template<>
-BindResult bind(ASTNode const &n, Break &impl)
+BindResult bind(ASTNode n, Break &impl)
 {
     return TypeRegistry::void_;
 }
 
 template<>
-BindResult bind(ASTNode const &n, Call &impl)
+BindResult bind(ASTNode n, Call &impl)
 {
     assert(n != nullptr);
     auto &parser = *(n.repo);
@@ -349,7 +349,7 @@ BindResult bind(ASTNode const &n, Call &impl)
     // }
     //
 
-    auto match_non_generic_function = [&](ASTNode const &func_def) -> std::expected<ASTNode, ASTStatus> {
+    auto match_non_generic_function = [&](ASTNode func_def) -> std::expected<ASTNode, ASTStatus> {
         auto const &def = get<FunctionDefinition>(func_def);
         auto const &decl = get<FunctionDeclaration>(def.declaration);
         if (decl.generics.empty()) {
@@ -386,7 +386,7 @@ BindResult bind(ASTNode const &n, Call &impl)
         return nullptr;
     };
 
-    auto match_generic_function = [&](ASTNode const &func_def) -> std::expected<ASTNode, ASTStatus> {
+    auto match_generic_function = [&](ASTNode func_def) -> std::expected<ASTNode, ASTStatus> {
         auto const &def = get<FunctionDefinition>(func_def);
         auto const &decl = get<FunctionDeclaration>(def.declaration);
         if (!decl.generics.empty()) {
@@ -490,7 +490,7 @@ BindResult bind(ASTNode const &n, Call &impl)
 }
 
 template<>
-BindResult bind(ASTNode const &n, Comptime &impl)
+BindResult bind(ASTNode n, Comptime &impl)
 {
     Parser &parser = *(n.repo);
     if (n->bound_type == nullptr) {
@@ -568,33 +568,33 @@ BindResult bind(ASTNode const &n, Comptime &impl)
 }
 
 template<>
-BindResult bind(ASTNode const &n, Constant &impl)
+BindResult bind(ASTNode n, Constant &impl)
 {
     assert(impl.bound_value.has_value());
     return impl.bound_value->type;
 }
 
 template<>
-BindResult bind(ASTNode const &n, Continue &impl)
+BindResult bind(ASTNode n, Continue &impl)
 {
     return TypeRegistry::void_;
 }
 
 template<>
-BindResult bind(ASTNode const &n, DeferStatement &impl)
+BindResult bind(ASTNode n, DeferStatement &impl)
 {
     try_bind(impl.statement);
     return TypeRegistry::void_;
 }
 
 template<>
-BindResult bind(ASTNode const &n, Dummy &impl)
+BindResult bind(ASTNode n, Dummy &impl)
 {
     return TypeRegistry::void_;
 }
 
 template<>
-BindResult bind(ASTNode const &n, Enum &impl)
+BindResult bind(ASTNode n, Enum &impl)
 {
     assert(n != nullptr);
     auto    &parser = *(n.repo);
@@ -626,31 +626,31 @@ BindResult bind(ASTNode const &n, Enum &impl)
 }
 
 template<>
-BindResult bind(ASTNode const &n, EnumValue &impl)
+BindResult bind(ASTNode n, EnumValue &impl)
 {
     return TypeRegistry::void_;
 }
 
 template<>
-BindResult bind(ASTNode const &n, Error &impl)
+BindResult bind(ASTNode n, Error &impl)
 {
     return bind(impl.expression);
 }
 
 template<>
-BindResult bind(ASTNode const &n, ExpressionList &impl)
+BindResult bind(ASTNode n, ExpressionList &impl)
 {
     return TypeRegistry::the().typelist_of(try_bind_nodes(impl.expressions));
 }
 
 template<>
-BindResult bind(ASTNode const &n, ExternLink &impl)
+BindResult bind(ASTNode n, ExternLink &impl)
 {
     return TypeRegistry::void_;
 }
 
 template<>
-BindResult bind(ASTNode const &n, ForStatement &impl)
+BindResult bind(ASTNode n, ForStatement &impl)
 {
     try_bind(impl.range_expr);
     if (!is<RangeType>((impl.range_expr)->bound_type)) {
@@ -660,7 +660,7 @@ BindResult bind(ASTNode const &n, ForStatement &impl)
 }
 
 template<>
-BindResult bind(ASTNode const &n, FunctionDeclaration &impl)
+BindResult bind(ASTNode n, FunctionDeclaration &impl)
 {
     return TypeRegistry::the().function_of(
         try_bind_nodes(impl.parameters),
@@ -668,7 +668,7 @@ BindResult bind(ASTNode const &n, FunctionDeclaration &impl)
 }
 
 template<>
-BindResult bind(ASTNode const &n, FunctionDefinition &impl)
+BindResult bind(ASTNode n, FunctionDefinition &impl)
 {
     assert(n != nullptr);
     auto &parser { *(n.repo) };
@@ -702,7 +702,7 @@ BindResult bind(ASTNode const &n, FunctionDefinition &impl)
 
 template<class N>
     requires std::is_same_v<N, Identifier> || std::is_same_v<N, StampedIdentifier>
-BindResult bind(ASTNode const &n, N &impl)
+BindResult bind(ASTNode n, N &impl)
 {
     auto const &type = n.repo->type_of(impl.identifier);
     if (type == nullptr) {
@@ -716,7 +716,7 @@ BindResult bind(ASTNode const &n, N &impl)
 }
 
 template<>
-BindResult bind(ASTNode const &n, IfStatement &impl)
+BindResult bind(ASTNode n, IfStatement &impl)
 {
     try_bind(impl.condition);
     if (!is<BoolType>((impl.condition)->bound_type)) {
@@ -736,26 +736,26 @@ BindResult bind(ASTNode const &n, IfStatement &impl)
 }
 
 template<>
-BindResult bind(ASTNode const &n, LoopStatement &impl)
+BindResult bind(ASTNode n, LoopStatement &impl)
 {
     return bind(impl.statement);
 }
 
 template<>
-BindResult bind(ASTNode const &n, Module &impl)
+BindResult bind(ASTNode n, Module &impl)
 {
     try_bind_nodes(impl.statements);
     return TypeRegistry::void_;
 }
 
 template<>
-BindResult bind(ASTNode const &n, Parameter &impl)
+BindResult bind(ASTNode n, Parameter &impl)
 {
     return bind(impl.type_name);
 }
 
 template<>
-BindResult bind(ASTNode const &n, Program &impl)
+BindResult bind(ASTNode n, Program &impl)
 {
     assert(n != nullptr);
     auto &parser { *(n.repo) };
@@ -771,19 +771,19 @@ BindResult bind(ASTNode const &n, Program &impl)
 }
 
 template<>
-BindResult bind(ASTNode const &n, PublicDeclaration &impl)
+BindResult bind(ASTNode n, PublicDeclaration &impl)
 {
     return bind(impl.declaration);
 }
 
 template<>
-BindResult bind(ASTNode const &n, Return &impl)
+BindResult bind(ASTNode n, Return &impl)
 {
     return bind(impl.expression);
 }
 
 template<>
-BindResult bind(ASTNode const &n, Struct &impl)
+BindResult bind(ASTNode n, Struct &impl)
 {
     assert(n != nullptr);
     auto              &parser { *(n.repo) };
@@ -798,13 +798,13 @@ BindResult bind(ASTNode const &n, Struct &impl)
 }
 
 template<>
-BindResult bind(ASTNode const &n, StructMember &impl)
+BindResult bind(ASTNode n, StructMember &impl)
 {
     return bind(impl.member_type);
 }
 
 template<>
-BindResult bind(ASTNode const &n, TypeSpecification &impl)
+BindResult bind(ASTNode n, TypeSpecification &impl)
 {
     auto ret = resolve(n);
     if (ret == nullptr) {
@@ -814,7 +814,7 @@ BindResult bind(ASTNode const &n, TypeSpecification &impl)
 }
 
 template<>
-BindResult bind(ASTNode const &n, UnaryExpression &impl)
+BindResult bind(ASTNode n, UnaryExpression &impl)
 {
     assert(n != nullptr);
     auto &parser { *(n.repo) };
@@ -857,7 +857,7 @@ BindResult bind(ASTNode const &n, UnaryExpression &impl)
 }
 
 template<>
-BindResult bind(ASTNode const &n, VariableDeclaration &impl)
+BindResult bind(ASTNode n, VariableDeclaration &impl)
 {
     auto  my_type = (impl.type_name != nullptr) ? try_bind(impl.type_name) : nullptr;
     auto  init_type = (impl.initializer != nullptr) ? try_bind(impl.initializer) : nullptr;
@@ -889,13 +889,13 @@ BindResult bind(ASTNode const &n, VariableDeclaration &impl)
 }
 
 template<>
-BindResult bind(ASTNode const &, Void &)
+BindResult bind(ASTNode, Void &)
 {
     return TypeRegistry::void_;
 }
 
 template<>
-BindResult bind(ASTNode const &n, WhileStatement &impl)
+BindResult bind(ASTNode n, WhileStatement &impl)
 {
     try_bind(impl.condition);
     pType t = (impl.condition)->bound_type;
@@ -906,14 +906,14 @@ BindResult bind(ASTNode const &n, WhileStatement &impl)
 }
 
 template<>
-BindResult bind(ASTNode const &n, Yield &impl)
+BindResult bind(ASTNode n, Yield &impl)
 {
     return bind(impl.statement);
 }
 
 /* ======================================================================== */
 
-BindResult bind(ASTNode const &node)
+BindResult bind(ASTNode node)
 {
     assert(node != nullptr);
     Parser &parser = *(node.repo);
