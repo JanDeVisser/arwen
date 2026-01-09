@@ -11,7 +11,7 @@
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
 
-namespace Arwen {
+namespace Lia {
 
 template<typename T>
 ASTNode coerce(ASTNode n, T const &, pType const &target)

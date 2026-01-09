@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef __ARWEN_H__
-#define __ARWEN_H__
+#ifndef __LIA_H__
+#define __LIA_H__
 
 #include <assert.h>
 #include <stdint.h>
@@ -44,17 +44,17 @@ slice_t     to_utf32(slice_t utf8);
 slice_t     cstring_to_string(char const *cstring);
 char const *string_to_cstring(slice_t string);
 
-extern size_t arwen$fputs(int fd, wchar_t const *ptr, uint64_t len);
-extern size_t arwen$fendln(int fd);
-extern size_t arwen$fputln(int fd, wchar_t const *ptr, uint64_t len);
-extern size_t arwen$puts(wchar_t const *ptr, uint64_t len);
-extern size_t arwen$endln();
-extern size_t arwen$putln(wchar_t const *ptr, uint64_t len);
-extern size_t arwen$eputs(wchar_t const *ptr, uint64_t len);
-extern size_t arwen$eputln(wchar_t const *ptr, uint64_t len);
-extern void   arwen$abort(wchar_t const *ptr, uint64_t len);
-extern size_t arwen$putint(int64_t i);
-extern size_t arwen$putuint(uint64_t i);
+extern size_t lia$fputs(int fd, wchar_t const *ptr, uint64_t len);
+extern size_t lia$fendln(int fd);
+extern size_t lia$fputln(int fd, wchar_t const *ptr, uint64_t len);
+extern size_t lia$puts(wchar_t const *ptr, uint64_t len);
+extern size_t lia$endln();
+extern size_t lia$putln(wchar_t const *ptr, uint64_t len);
+extern size_t lia$eputs(wchar_t const *ptr, uint64_t len);
+extern size_t lia$eputln(wchar_t const *ptr, uint64_t len);
+extern void   lia$abort(wchar_t const *ptr, uint64_t len);
+extern size_t lia$putint(int64_t i);
+extern size_t lia$putuint(uint64_t i);
 
 #define ALIGNAT(bytes, align) ((bytes + (align - 1)) & ~(align - 1))
 #define AS_SLICE(dynarr) (*(slice_t *) (&dynarr))
@@ -63,4 +63,4 @@ extern size_t arwen$putuint(uint64_t i);
 }
 #endif
 
-#endif /* __ARWEN_H__ */
+#endif /* __LIA_H__ */

@@ -11,13 +11,13 @@
 
 #include <Util/Lexer.h>
 
-namespace Arwen {
+namespace Lia {
 
 using namespace Util;
 
 using Precedence = uint16_t;
 
-#define ArwenKeywords(S)       \
+#define LiaKeywords(S)         \
     S(AssignAnd, "&=")         \
     S(AssignDecrement, "-=")   \
     S(AssignDivide, "/=")      \
@@ -63,43 +63,43 @@ using Precedence = uint16_t;
     S(While, "while")          \
     S(Yield, "yield")
 
-enum class ArwenKeyword {
+enum class LiaKeyword {
 #undef S
 #define S(KW, S) KW,
-    ArwenKeywords(S)
+    LiaKeywords(S)
 #undef S
 };
 
-struct ArwenError {
+struct LiaError {
     TokenLocation location;
     std::wstring  message;
 };
 
-extern char const *ArwenKeyword_name(ArwenKeyword kw);
+extern char const *LiaKeyword_name(LiaKeyword kw);
 
 }
 
 namespace Util {
 
-using namespace Arwen;
+using namespace Lia;
 
-using ArwenKeywordMatch = KeywordMatch<ArwenKeyword>;
+using LiaKeywordMatch = KeywordMatch<LiaKeyword>;
 
 template<>
-[[nodiscard]] inline std::optional<ArwenKeywordMatch> match_keyword(std::string const &str)
+[[nodiscard]] inline std::optional<LiaKeywordMatch> match_keyword(std::string const &str)
 {
 #undef S
-#define S(KW, STR)                                                                                                                      \
-    {                                                                                                                                   \
-        std::string_view kw_str { STR };                                                                                                \
-        if (kw_str.starts_with(str)) {                                                                                                  \
-            return ArwenKeywordMatch {                                                                                                  \
-                ArwenKeyword::KW,                                                                                                       \
-                (str.length() == kw_str.length()) ? ArwenKeywordMatch::MatchType::FullMatch : ArwenKeywordMatch::MatchType::PrefixMatch \
-            };                                                                                                                          \
-        }                                                                                                                               \
+#define S(KW, STR)                                                                                                                  \
+    {                                                                                                                               \
+        std::string_view kw_str { STR };                                                                                            \
+        if (kw_str.starts_with(str)) {                                                                                              \
+            return LiaKeywordMatch {                                                                                                \
+                LiaKeyword::KW,                                                                                                     \
+                (str.length() == kw_str.length()) ? LiaKeywordMatch::MatchType::FullMatch : LiaKeywordMatch::MatchType::PrefixMatch \
+            };                                                                                                                      \
+        }                                                                                                                           \
     }
-    ArwenKeywords(S)
+    LiaKeywords(S)
 #undef S
         return {};
 }

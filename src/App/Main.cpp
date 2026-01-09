@@ -30,16 +30,7 @@
 
 #include <App/QBE/QBE.h>
 
-#if 0
-#ifdef IS_ARM64
-#include <Arch/Arm64/Arm64.h>
-#endif
-#ifdef IS_X86_64
-#include <Arch/Linux/x86_64/X86_64.h>
-#endif
-#endif
-
-namespace Arwen {
+namespace Lia {
 
 extern int debugger_main();
 
@@ -68,7 +59,7 @@ std::optional<std::wstring> load_directory(fs::path directory)
 {
     std::wstring ret;
     for (auto const &entry : fs::directory_iterator(directory)) {
-        if (entry.is_regular_file() && entry.path().extension() == ".arw") {
+        if (entry.is_regular_file() && entry.path().extension() == ".lia") {
             if (auto contents_maybe = load_file(entry.path()); !contents_maybe) {
                 return {};
             } else {
@@ -97,7 +88,7 @@ std::optional<std::wstring> load_files(std::vector<fs::path> const &files)
 struct Builder {
     using Source = std::variant<fs::path, std::vector<fs::path>>;
 
-    fs::path       arw_dir;
+    fs::path       app_dir;
     Source         source;
     std::string    program_name;
     Parser         parser {};
@@ -183,7 +174,7 @@ struct Builder {
         if (!std_lib) {
             return false;
         }
-        auto program = Arwen::parse<Arwen::Program>(parser, *std_lib, program_name);
+        auto program = Lia::parse<Lia::Program>(parser, *std_lib, program_name);
         if (!program) {
             log_error("Error(s) parsing builtins");
             return false;
@@ -208,7 +199,7 @@ struct Builder {
             return false;
         } else {
             source_text = *source_text_maybe;
-            auto mod = Arwen::parse<Arwen::Module>(parser, source_text, as_utf8(program_name));
+            auto mod = Lia::parse<Lia::Module>(parser, source_text, as_utf8(program_name));
             if (!parser.errors.empty()) {
                 log_error("Syntax error(s) found:");
                 for (auto const &err : parser.errors) {
@@ -226,7 +217,7 @@ struct Builder {
 
     bool normalize()
     {
-        auto normalized = Arwen::normalize(parser.program);
+        auto normalized = Lia::normalize(parser.program);
         if (!parser.errors.empty()) {
             log_error("Error(s) found during first phase of sematic analysis:");
             for (auto const &err : parser.errors) {
@@ -253,7 +244,7 @@ struct Builder {
             prev_pass = parser.unbound;
             parser.unbound = 0;
             parser.unbound_nodes.clear();
-            s = Arwen::bind(parser.program);
+            s = Lia::bind(parser.program);
             ++parser.pass;
         } while (!s.has_value() && parser.unbound < prev_pass);
         if (!s.has_value()) {
@@ -283,15 +274,6 @@ struct Builder {
 
     bool generate_code()
     {
-#if 0
-#ifdef IS_ARM64
-        MUST(Arm64::generate_arm64(ir));
-        return true;
-#endif
-#ifdef IS_X86_64
-        return X86_64::generate_x86_64(ir);
-#endif
-#endif
         if (auto res = QBE::compile_qbe(program); !res) {
             log_error(L"QBE generation error: {}", res.error());
             return false;
@@ -306,7 +288,7 @@ private:
     }
 
     Builder(fs::path root)
-        : arw_dir(arwen_dir())
+        : app_dir(lia_dir())
         , source(std::move(root))
         , program_name(root.stem().string())
         , verbose(log_config.level == LogLevel::Trace)
@@ -314,7 +296,7 @@ private:
     }
 
     Builder(std::vector<fs::path> source)
-        : arw_dir(arwen_dir())
+        : app_dir(lia_dir())
         , source(std::move(source))
         , program_name(({ auto const &__s = std::get<1>(this->source); assert(!__s.empty()); __s[0].stem().string(); }))
         , verbose(log_config.level == LogLevel::Trace)
@@ -323,7 +305,7 @@ private:
 
     std::optional<std::wstring> load_std_lib()
     {
-        return load_file(fs::path { arwen_dir() / "share" / "std.arw" });
+        return load_file(fs::path { lia_dir() / "share" / "std.lia" });
     }
 
     template<typename T>
@@ -340,18 +322,18 @@ std::optional<Builder> make_builder(T source)
 
 void usage()
 {
-    std::cout << "arwen - arwen language compiler  https://www.arwen-lang.org\n\n";
+    std::cout << "lia - lia language compiler  https://www.lia-lang.org\n\n";
     std::cout << "Usage:\n";
-    std::cout << "   arwen help | usage | --help, -h - This text\n";
-    std::cout << "   arwen [OPTIONS] build [-- <arg>...]\n";
-    std::cout << "   arwen [OPTIONS] compile <file> ... [-- <arg> ...]\n";
-    std::cout << "   arwen [OPTIONS] eval <file> ... [-- <arg> ...]\n";
-    std::cout << "   arwen [OPTIONS] debug - Start debugger\n\n";
-    std::cout << "   arwen version | --version | -v - Display version\n\n";
+    std::cout << "   lia help | usage | --help, -h - This text\n";
+    std::cout << "   lia [OPTIONS] build [-- <arg>...]\n";
+    std::cout << "   lia [OPTIONS] compile <file> ... [-- <arg> ...]\n";
+    std::cout << "   lia [OPTIONS] eval <file> ... [-- <arg> ...]\n";
+    std::cout << "   lia [OPTIONS] debug - Start debugger\n\n";
+    std::cout << "   lia version | --version | -v - Display version\n\n";
     std::cout << "Options:\n";
     std::cout << "  --keep-assembly       Do not delete assembly files after compiling\n";
     std::cout << "  --keep-objects        Do not delete object files after linking\n";
-    std::cout << "  --list                Write intermediate representation to .arwen/<program>.ir\n";
+    std::cout << "  --list                Write intermediate representation to .lia/<program>.ir\n";
     std::cout << "  --run                 Run the executable build with `build` or `compile`\n";
     std::cout << "                        Pass the command line arguments specified after `--`";
     std::cout << "  --stop-after-analysis Stop after semantic analysis\n";
@@ -365,8 +347,8 @@ void usage()
 
 void version()
 {
-    std::print(std::cout, "arwen {} {} {}\n",
-        ARWEN_VERSION, ARWEN_SYSTEM, ARWEN_SYSTEM_VERSION, ARWEN_CPU, ARWEN_COMPILER);
+    std::print(std::cout, "lia {} {} {}\n",
+        LIA_VERSION, LIA_SYSTEM, LIA_SYSTEM_VERSION, LIA_CPU, LIA_COMPILER);
     exit(0);
 }
 
@@ -430,5 +412,5 @@ int main(int argc, char const **argv)
 
 int main(int argc, char const **argv)
 {
-    return Arwen::main(argc, argv);
+    return Lia::main(argc, argv);
 }

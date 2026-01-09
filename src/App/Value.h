@@ -18,7 +18,7 @@
 #include <App/Operator.h>
 #include <App/Type.h>
 
-namespace Arwen {
+namespace Lia {
 
 using namespace Util;
 
@@ -282,7 +282,7 @@ Value evaluate(Operator op, Value const &operand);
 namespace std {
 
 using namespace Util;
-using namespace Arwen;
+using namespace Lia;
 
 inline wostream &operator<<(wostream &os, Atom const &atom)
 {
@@ -311,7 +311,7 @@ inline wostream &operator<<(wostream &os, Atom const &atom)
 inline wostream &operator<<(wostream &os, Value const &value)
 {
     using namespace Util;
-    using namespace Arwen;
+    using namespace Lia;
     visit(
         overloads {
             [&os](std::monostate const &) -> void {

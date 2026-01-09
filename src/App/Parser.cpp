@@ -21,7 +21,7 @@
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
 
-namespace Arwen {
+namespace Lia {
 
 using namespace Util;
 
@@ -29,39 +29,39 @@ std::vector<Parser::OperatorDef> Parser::operators {
     { Operator::Add, '+', 11 },
     { Operator::AddressOf, '&', 14, Position::Prefix, Associativity::Right },
     { Operator::Assign, '=', 1, Position::Infix, Associativity::Right },
-    { Operator::AssignAnd, ArwenKeyword::AssignAnd, 1, Position::Infix, Associativity::Right },
-    { Operator::AssignDecrement, ArwenKeyword::AssignDecrement, 1, Position::Infix, Associativity::Right },
-    { Operator::AssignDivide, ArwenKeyword::AssignDivide, 1, Position::Infix, Associativity::Right },
-    { Operator::AssignIncrement, ArwenKeyword::AssignIncrement, 1, Position::Infix, Associativity::Right },
-    { Operator::AssignModulo, ArwenKeyword::AssignModulo, 1, Position::Infix, Associativity::Right },
-    { Operator::AssignMultiply, ArwenKeyword::AssignMultiply, 1, Position::Infix, Associativity::Right },
-    { Operator::AssignOr, ArwenKeyword::AssignOr, 1, Position::Infix, Associativity::Right },
-    { Operator::AssignShiftLeft, ArwenKeyword::AssignShiftLeft, 1, Position::Infix, Associativity::Right },
-    { Operator::AssignShiftRight, ArwenKeyword::AssignShiftRight, 1, Position::Infix, Associativity::Right },
-    { Operator::AssignXor, ArwenKeyword::AssignXor, 1, Position::Infix, Associativity::Right },
+    { Operator::AssignAnd, LiaKeyword::AssignAnd, 1, Position::Infix, Associativity::Right },
+    { Operator::AssignDecrement, LiaKeyword::AssignDecrement, 1, Position::Infix, Associativity::Right },
+    { Operator::AssignDivide, LiaKeyword::AssignDivide, 1, Position::Infix, Associativity::Right },
+    { Operator::AssignIncrement, LiaKeyword::AssignIncrement, 1, Position::Infix, Associativity::Right },
+    { Operator::AssignModulo, LiaKeyword::AssignModulo, 1, Position::Infix, Associativity::Right },
+    { Operator::AssignMultiply, LiaKeyword::AssignMultiply, 1, Position::Infix, Associativity::Right },
+    { Operator::AssignOr, LiaKeyword::AssignOr, 1, Position::Infix, Associativity::Right },
+    { Operator::AssignShiftLeft, LiaKeyword::AssignShiftLeft, 1, Position::Infix, Associativity::Right },
+    { Operator::AssignShiftRight, LiaKeyword::AssignShiftRight, 1, Position::Infix, Associativity::Right },
+    { Operator::AssignXor, LiaKeyword::AssignXor, 1, Position::Infix, Associativity::Right },
     { Operator::BinaryInvert, '~', 14, Position::Prefix, Associativity::Right },
     { Operator::Call, '(', 15 },
     { Operator::Call, ')', 15, Position::Closing },
-    { Operator::Cast, ArwenKeyword::Cast, 14 },
+    { Operator::Cast, LiaKeyword::Cast, 14 },
     { Operator::Divide, '/', 12 },
-    { Operator::Equals, ArwenKeyword::Equals, 8 },
+    { Operator::Equals, LiaKeyword::Equals, 8 },
     { Operator::Greater, '>', 8 },
-    { Operator::GreaterEqual, ArwenKeyword::GreaterEqual, 8 },
+    { Operator::GreaterEqual, LiaKeyword::GreaterEqual, 8 },
     { Operator::Idempotent, '+', 14, Position::Prefix, Associativity::Right },
     { Operator::Length, '#', 9, Position::Prefix, Associativity::Right },
     { Operator::Less, '<', 8 },
-    { Operator::LessEqual, ArwenKeyword::LessEqual, 8 },
+    { Operator::LessEqual, LiaKeyword::LessEqual, 8 },
     { Operator::LogicalInvert, '!', 14, Position::Prefix, Associativity::Right },
     { Operator::MemberAccess, '.', 15 },
     { Operator::Modulo, '%', 12 },
     { Operator::Multiply, '*', 12 },
     { Operator::Negate, '-', 14, Position::Prefix, Associativity::Right },
-    { Operator::NotEqual, ArwenKeyword::NotEqual, 8 },
-    { Operator::Range, ArwenKeyword::Range, 2 },
+    { Operator::NotEqual, LiaKeyword::NotEqual, 8 },
+    { Operator::Range, LiaKeyword::Range, 2 },
     { Operator::Sequence, ',', 1 },
-    { Operator::ShiftLeft, ArwenKeyword::ShiftLeft, 10 },
-    { Operator::ShiftRight, ArwenKeyword::ShiftRight, 10 },
-    { Operator::Sizeof, ArwenKeyword::Sizeof, 9, Position::Prefix, Associativity::Right },
+    { Operator::ShiftLeft, LiaKeyword::ShiftLeft, 10 },
+    { Operator::ShiftRight, LiaKeyword::ShiftRight, 10 },
+    { Operator::Sizeof, LiaKeyword::Sizeof, 9, Position::Prefix, Associativity::Right },
     { Operator::Subscript, '[', 15, Position::Postfix },
     { Operator::Subscript, ']', 15, Position::Closing },
     { Operator::Subtract, '-', 11 },
@@ -128,20 +128,20 @@ ASTNode Parser::parse_module_level_statement()
         return parse_statement();
     case TokenKind::Keyword: {
         switch (t.keyword()) {
-        case ArwenKeyword::Const:
+        case LiaKeyword::Const:
             lexer.lex();
             return parse_module_level_statement();
-        case ArwenKeyword::Enum:
+        case LiaKeyword::Enum:
             return parse_enum();
-        case ArwenKeyword::Func:
+        case LiaKeyword::Func:
             return parse_func();
-        case ArwenKeyword::Import:
+        case LiaKeyword::Import:
             return parse_import();
-        case ArwenKeyword::Include:
+        case LiaKeyword::Include:
             return parse_include();
-        case ArwenKeyword::Public:
+        case LiaKeyword::Public:
             return parse_public();
-        case ArwenKeyword::Struct:
+        case LiaKeyword::Struct:
             return parse_struct();
         default:
             break;
@@ -180,39 +180,39 @@ ASTNode Parser::parse_statement()
         return parse_expression();
     case TokenKind::Keyword: {
         switch (t.keyword()) {
-        case ArwenKeyword::Break:
-        case ArwenKeyword::Continue:
+        case LiaKeyword::Break:
+        case LiaKeyword::Continue:
             return parse_break_continue();
-        case ArwenKeyword::Const:
+        case LiaKeyword::Const:
             lexer.lex();
             return parse_statement();
-        case ArwenKeyword::Defer:
+        case LiaKeyword::Defer:
             return parse_defer();
-        case ArwenKeyword::Embed:
+        case LiaKeyword::Embed:
             return parse_embed();
-        case ArwenKeyword::Enum:
+        case LiaKeyword::Enum:
             return parse_enum();
-        case ArwenKeyword::Error:
+        case LiaKeyword::Error:
             return parse_return_error();
-        case ArwenKeyword::For:
+        case LiaKeyword::For:
             return parse_for();
-        case ArwenKeyword::Func:
+        case LiaKeyword::Func:
             return parse_func();
-        case ArwenKeyword::If:
+        case LiaKeyword::If:
             return parse_if();
-        case ArwenKeyword::Include:
+        case LiaKeyword::Include:
             return parse_include();
-        case ArwenKeyword::Loop:
+        case LiaKeyword::Loop:
             return parse_loop();
-        case ArwenKeyword::Public:
+        case LiaKeyword::Public:
             return parse_public();
-        case ArwenKeyword::Return:
+        case LiaKeyword::Return:
             return parse_return_error();
-        case ArwenKeyword::Struct:
+        case LiaKeyword::Struct:
             return parse_struct();
-        case ArwenKeyword::While:
+        case LiaKeyword::While:
             return parse_while();
-        case ArwenKeyword::Yield:
+        case LiaKeyword::Yield:
             return parse_yield();
         default:
             append(t, "Unexpected keyword `{}` parsing statement", as_utf8(text_of(t)));
@@ -261,7 +261,7 @@ ASTNode Parser::parse_statement()
         }
     case TokenKind::Raw: {
         auto raw = t.raw_text();
-        assert(raw.marker == ArwenComptimeBlock::begin);
+        assert(raw.marker == LiaComptimeBlock::begin);
         lexer.lex();
         if (raw.end) {
             return make_node<Comptime>(t.location, text_at(raw.start, *raw.end));
@@ -364,21 +364,21 @@ ASTNode Parser::parse_primary()
         break;
     }
     case TokenKind::Keyword:
-        if (token.matches_keyword(ArwenKeyword::Embed)) {
+        if (token.matches_keyword(LiaKeyword::Embed)) {
             return parse_embed();
         }
-        if (token.matches_keyword(ArwenKeyword::Include)) {
+        if (token.matches_keyword(LiaKeyword::Include)) {
             return parse_include();
         }
-        if (token.matches_keyword(ArwenKeyword::False)) {
+        if (token.matches_keyword(LiaKeyword::False)) {
             lexer.lex();
             return make_node<BoolConstant>(token.location, false);
         }
-        if (token.matches_keyword(ArwenKeyword::True)) {
+        if (token.matches_keyword(LiaKeyword::True)) {
             lexer.lex();
             return make_node<BoolConstant>(token.location, true);
         }
-        if (token.matches_keyword(ArwenKeyword::Null)) {
+        if (token.matches_keyword(LiaKeyword::Null)) {
             lexer.lex();
             return make_node<Nullptr>(token.location);
         }
@@ -394,7 +394,7 @@ ASTNode Parser::parse_primary()
             ret = make_node<UnaryExpression>(op_token.location + operand->location, op.op, operand);
             break;
         }
-        append(token, "Unexpected keyword '{}' parsing primary expression", ArwenKeyword_name(token.keyword()));
+        append(token, "Unexpected keyword '{}' parsing primary expression", LiaKeyword_name(token.keyword()));
         return {};
     case TokenKind::Symbol: {
         if (token.symbol_code() == '(') {
@@ -520,7 +520,7 @@ bool Parser::check_op()
         [&token](auto const &def) -> bool {
             return std::visit(overloads {
                                   [&token](wchar_t sym) { return token.matches_symbol(sym); },
-                                  [&token](ArwenKeyword sym) { return token.matches_keyword(sym); } },
+                                  [&token](LiaKeyword sym) { return token.matches_keyword(sym); } },
                 def.sym);
         });
 }
@@ -537,7 +537,7 @@ std::optional<Parser::OperatorDef> Parser::check_binop()
         }
         if (!std::visit(overloads {
                             [&token](wchar_t sym) { return token.matches_symbol(sym); },
-                            [&token](ArwenKeyword sym) { return token.matches_keyword(sym); } },
+                            [&token](LiaKeyword sym) { return token.matches_keyword(sym); } },
                 def.sym)) {
             continue;
         }
@@ -558,7 +558,7 @@ std::optional<Parser::OperatorDef> Parser::check_prefix_op()
         }
         if (!std::visit(overloads {
                             [&token](wchar_t sym) { return token.matches_symbol(sym); },
-                            [&token](ArwenKeyword sym) { return token.matches_keyword(sym); } },
+                            [&token](LiaKeyword sym) { return token.matches_keyword(sym); } },
                 def.sym)) {
             continue;
         }
@@ -579,7 +579,7 @@ std::optional<Parser::OperatorDef> Parser::check_postfix_op()
         }
         if (!std::visit(overloads {
                             [&token](wchar_t sym) { return token.matches_symbol(sym); },
-                            [&token](ArwenKeyword sym) { return token.matches_keyword(sym); } },
+                            [&token](LiaKeyword sym) { return token.matches_keyword(sym); } },
                 def.sym)) {
             continue;
         }
@@ -703,7 +703,7 @@ ASTNode Parser::parse_type()
 ASTNode Parser::parse_break_continue()
 {
     auto kw = lexer.lex();
-    assert(kw.matches_keyword(ArwenKeyword::Break) || kw.matches_keyword(ArwenKeyword::Continue));
+    assert(kw.matches_keyword(LiaKeyword::Break) || kw.matches_keyword(LiaKeyword::Continue));
     Label label {};
     if (lexer.accept_symbol(':')) {
         auto lbl = lexer.peek();
@@ -713,7 +713,7 @@ ASTNode Parser::parse_break_continue()
         }
         label = text_of(lbl);
     }
-    if (kw.matches_keyword(ArwenKeyword::Break)) {
+    if (kw.matches_keyword(LiaKeyword::Break)) {
         return make_node<Break>(kw.location, label);
     }
     return make_node<Continue>(kw.location, label);
@@ -755,7 +755,7 @@ ASTNode Parser::parse_defer()
 ASTNode Parser::parse_enum()
 {
     auto enum_token = lexer.lex();
-    assert(enum_token.matches_keyword(ArwenKeyword::Enum));
+    assert(enum_token.matches_keyword(LiaKeyword::Enum));
 
     auto name = lexer.expect_identifier();
     if (!name.has_value()) {
@@ -830,7 +830,7 @@ ASTNode Parser::parse_for()
         location = lexer.lookback(1).location;
     }
     auto for_token = lexer.lex();
-    assert(for_token.matches_keyword(ArwenKeyword::For));
+    assert(for_token.matches_keyword(LiaKeyword::For));
     if (!label.has_value()) {
         location = for_token.location;
     }
@@ -946,7 +946,7 @@ ASTNode Parser::parse_func()
         generics,
         params,
         return_type);
-    if (lexer.accept_keyword(ArwenKeyword::ExternLink)) {
+    if (lexer.accept_keyword(LiaKeyword::ExternLink)) {
         if (auto res = lexer.expect(TokenKind::QuotedString); !res.has_value() || res.value().quoted_string().quote_type != QuoteType::DoubleQuote) {
             append(res.error(), "Expected extern function name");
             level = old_level;
@@ -980,7 +980,7 @@ ASTNode Parser::parse_func()
 ASTNode Parser::parse_if()
 {
     auto if_token = lexer.lex();
-    assert(if_token.matches_keyword(ArwenKeyword::If));
+    assert(if_token.matches_keyword(LiaKeyword::If));
     auto condition = parse_expression();
     if (condition == nullptr) {
         append(if_token, "Error parsing `if` condition");
@@ -993,7 +993,7 @@ ASTNode Parser::parse_if()
     }
     ASTNode else_branch { nullptr };
     auto    else_kw = lexer.peek();
-    if (lexer.accept_keyword(ArwenKeyword::Else)) {
+    if (lexer.accept_keyword(LiaKeyword::Else)) {
         else_branch = parse_statement();
         if (else_branch == nullptr) {
             append(else_kw, "Error parsing `else` branch");
@@ -1008,7 +1008,7 @@ ASTNode Parser::parse_if()
 ASTNode Parser::parse_import()
 {
     auto import_token = lexer.lex();
-    assert(import_token.matches_keyword(ArwenKeyword::Import));
+    assert(import_token.matches_keyword(LiaKeyword::Import));
     std::wstring  path;
     TokenLocation end_location = import_token.location;
     do {
@@ -1059,7 +1059,7 @@ ASTNode Parser::parse_loop()
         location = lexer.lookback(1).location;
     }
     auto loop_token = lexer.lex();
-    assert(loop_token.matches_keyword(ArwenKeyword::Loop));
+    assert(loop_token.matches_keyword(LiaKeyword::Loop));
     if (!label.has_value()) {
         location = loop_token.location;
     }
@@ -1075,7 +1075,7 @@ ASTNode Parser::parse_loop()
 ASTNode Parser::parse_public()
 {
     auto t = lexer.peek();
-    assert(t.matches_keyword(ArwenKeyword::Public));
+    assert(t.matches_keyword(LiaKeyword::Public));
     lexer.lex();
     auto decl = parse_module_level_statement();
     if (decl == nullptr) {
@@ -1113,13 +1113,13 @@ ASTNode Parser::parse_public()
 ASTNode Parser::parse_return_error()
 {
     auto kw = lexer.lex();
-    assert(kw.matches_keyword(ArwenKeyword::Return) || kw.matches_keyword(ArwenKeyword::Error));
+    assert(kw.matches_keyword(LiaKeyword::Return) || kw.matches_keyword(LiaKeyword::Error));
     auto expr = parse_expression();
     if (!expr) {
         append(kw.location, "Error parsing return expression");
         return {};
     }
-    if (kw.matches_keyword(ArwenKeyword::Return)) {
+    if (kw.matches_keyword(LiaKeyword::Return)) {
         return make_node<Return>(kw.location + expr->location, expr);
     }
     return make_node<Error>(kw.location + expr->location, expr);
@@ -1128,7 +1128,7 @@ ASTNode Parser::parse_return_error()
 ASTNode Parser::parse_struct()
 {
     auto struct_token = lexer.lex();
-    assert(struct_token.matches_keyword(ArwenKeyword::Struct));
+    assert(struct_token.matches_keyword(LiaKeyword::Struct));
 
     auto name = lexer.expect_identifier();
     if (!name.has_value()) {
@@ -1175,7 +1175,7 @@ ASTNode Parser::parse_var_decl()
     assert(lexer.has_lookback(1)
         && lexer.lookback(0).matches_symbol(':')
         && lexer.lookback(1).matches(TokenKind::Identifier));
-    bool    is_const = lexer.has_lookback(2) && lexer.lookback(2).matches_keyword(ArwenKeyword::Const);
+    bool    is_const = lexer.has_lookback(2) && lexer.lookback(2).matches_keyword(LiaKeyword::Const);
     auto    name = lexer.lookback(1);
     Token   token = lexer.peek();
     ASTNode type_name {};
@@ -1225,7 +1225,7 @@ ASTNode Parser::parse_while()
         location = lexer.lookback(1).location;
     }
     auto while_token = lexer.lex();
-    assert(while_token.matches_keyword(ArwenKeyword::While));
+    assert(while_token.matches_keyword(LiaKeyword::While));
     if (!label.has_value()) {
         location = while_token.location;
     }
@@ -1246,7 +1246,7 @@ ASTNode Parser::parse_while()
 ASTNode Parser::parse_yield()
 {
     auto kw = lexer.lex();
-    assert(kw.matches_keyword(ArwenKeyword::Yield));
+    assert(kw.matches_keyword(LiaKeyword::Yield));
     Label label {};
     if (lexer.accept_symbol(':')) {
         if (auto res = lexer.expect_identifier(); !res.has_value()) {
@@ -1278,7 +1278,7 @@ ASTStatus Parser::bind(ASTNode node)
         prev_pass = unbound;
         unbound = 0;
         unbound_nodes.clear();
-        auto res = Arwen::bind(node);
+        auto res = Lia::bind(node);
         node = node.hunt();
         if (res.has_value()) {
             if (node->bound_type) {

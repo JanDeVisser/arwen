@@ -15,7 +15,7 @@
 #include <App/Parser.h>
 #include <App/SyntaxNode.h>
 
-namespace Arwen {
+namespace Lia {
 
 void print_indent(std::wostream &os, int indent)
 {

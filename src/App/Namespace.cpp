@@ -9,7 +9,7 @@
 #include <App/Parser.h>
 #include <App/SyntaxNode.h>
 
-namespace Arwen {
+namespace Lia {
 
 Namespace::Namespace(ASTNode parent)
     : parent(std::move(parent))

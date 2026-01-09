@@ -12,10 +12,10 @@
 #include <App/QBE/Native.h>
 #include <App/QBE/QBE.h>
 
-namespace Arwen::QBE {
+namespace Lia::QBE {
 
 using namespace Util;
-using namespace Arwen;
+using namespace Lia;
 
 pType type_from_qbe_type(ILBaseType const &t)
 {
@@ -381,19 +381,19 @@ ExecResult execute(ILFunction const &il, pFrame const &frame, ExprDef const &ins
     auto lhs = get(frame, instruction.lhs);
     auto rhs = get(frame, instruction.rhs);
 
-    Operator arwen_op;
+    Operator lia_op;
     switch (instruction.op) {
 #undef S
-#define S(Op, Str, ArwenOp) \
-    case ILOperation::Op:   \
-        arwen_op = ArwenOp; \
+#define S(Op, Str, LiaOp) \
+    case ILOperation::Op: \
+        lia_op = LiaOp;   \
         break;
         ILOPERATIONS(S)
 #undef S
     default:
         UNREACHABLE();
     }
-    auto v = evaluate(lhs, arwen_op, rhs);
+    auto v = evaluate(lhs, lia_op, rhs);
     assign(frame, instruction.target, v);
     ++frame->ip;
     return instruction.target;

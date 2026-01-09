@@ -10,12 +10,12 @@
 #include <unistd.h>
 #include <wchar.h>
 
-#include <rt/arwen.h>
+#include <rt/lia.h>
 
 static slice_t to_string_int64(slice_t dest, int64_t i, int radix);
 static slice_t to_string_uint64(slice_t dest, uint64_t i, int radix);
 
-size_t arwen$fputs(int fd, wchar_t const *ptr, uint64_t len)
+size_t lia$fputs(int fd, wchar_t const *ptr, uint64_t len)
 {
     slice_t utf8 = to_utf8((slice_t) { (void *) ptr, len });
     size_t  ret = write(fd, utf8.ptr, utf8.size);
@@ -23,54 +23,54 @@ size_t arwen$fputs(int fd, wchar_t const *ptr, uint64_t len)
     return ret;
 }
 
-size_t arwen$fendln(int fd)
+size_t lia$fendln(int fd)
 {
     return write(fd, "\n", 1);
 }
 
-size_t arwen$fputln(int fd, wchar_t const *ptr, uint64_t len)
+size_t lia$fputln(int fd, wchar_t const *ptr, uint64_t len)
 {
-    size_t ret = arwen$fputs(fd, ptr, len);
-    ret += arwen$fendln(fd);
+    size_t ret = lia$fputs(fd, ptr, len);
+    ret += lia$fendln(fd);
     return ret;
 }
 
-size_t arwen$puts(wchar_t const *ptr, uint64_t len)
+size_t lia$puts(wchar_t const *ptr, uint64_t len)
 {
-    return arwen$fputs(1, ptr, len);
+    return lia$fputs(1, ptr, len);
 }
 
-size_t arwen$eputs(wchar_t const *ptr, uint64_t len)
+size_t lia$eputs(wchar_t const *ptr, uint64_t len)
 {
-    return arwen$fputs(2, ptr, len);
+    return lia$fputs(2, ptr, len);
 }
 
-size_t arwen$endln()
+size_t lia$endln()
 {
-    return arwen$fendln(1);
+    return lia$fendln(1);
 }
 
-size_t arwen$putln(wchar_t const *ptr, uint64_t len)
+size_t lia$putln(wchar_t const *ptr, uint64_t len)
 {
-    size_t ret = arwen$puts(ptr, len);
-    ret += arwen$endln();
+    size_t ret = lia$puts(ptr, len);
+    ret += lia$endln();
     return ret;
 }
 
-size_t arwen$eputln(wchar_t const *ptr, uint64_t len)
+size_t lia$eputln(wchar_t const *ptr, uint64_t len)
 {
-    size_t ret = arwen$eputs(ptr, len);
-    ret += arwen$fendln(2);
+    size_t ret = lia$eputs(ptr, len);
+    ret += lia$fendln(2);
     return ret;
 }
 
-[[noreturn]] void arwen$abort(wchar_t const *ptr, uint64_t len)
+[[noreturn]] void lia$abort(wchar_t const *ptr, uint64_t len)
 {
-    arwen$eputln(ptr, len);
+    lia$eputln(ptr, len);
     abort();
 }
 
-size_t arwen$putint(int64_t i)
+size_t lia$putint(int64_t i)
 {
     wchar_t buf[32];
     slice_t str = to_string_int64((slice_t) { buf, 32 }, i, 10);
@@ -80,7 +80,7 @@ size_t arwen$putint(int64_t i)
     return write(1, str.ptr, str.size);
 }
 
-size_t arwen$putuint(uint64_t i)
+size_t lia$putuint(uint64_t i)
 {
     wchar_t buf[32];
     slice_t str = to_string_uint64((slice_t) { buf, 32 }, i, 10);

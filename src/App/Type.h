@@ -15,7 +15,7 @@
 #include <variant>
 #include <vector>
 
-#include <rt/arwen.h>
+#include <rt/lia.h>
 
 #include <Util/Align.h>
 #include <Util/Logging.h>
@@ -24,7 +24,7 @@
 
 #include <App/Keyword.h>
 
-namespace Arwen {
+namespace Lia {
 
 #define TypeKinds(S)       \
     S(VoidType)            \
@@ -540,11 +540,11 @@ inline pType const &type_of<char *>() { return TypeRegistry::cstring; }
 
 }
 
-std::wostream &operator<<(std::wostream &os, Arwen::pType const &type);
+std::wostream &operator<<(std::wostream &os, Lia::pType const &type);
 
 namespace std {
 
-using namespace Arwen;
+using namespace Lia;
 
 template<>
 struct formatter<pType, wchar_t> {

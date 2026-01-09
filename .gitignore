@@ -10,7 +10,6 @@
 .idea/
 build/
 *.o
-.arwen
 *~
 \build/
 .cache/
@@ -18,5 +17,5 @@ build/
 cmake-build-debug/
 .idea/
 .vscode
-.arwen
+.lia
 \#*#

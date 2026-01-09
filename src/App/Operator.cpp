@@ -8,7 +8,7 @@
 
 #include <App/Operator.h>
 
-namespace Arwen {
+namespace Lia {
 
 std::vector<BinaryOperator> binary_ops {
     { TypeKind::IntType, Operator::Add, PseudoType::Lhs, PseudoType::Lhs },

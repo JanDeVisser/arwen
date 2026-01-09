@@ -13,7 +13,7 @@ func BeginDrawing() void -> "libraylib:BeginDrawing"
 func EndDrawing() void -> "libraylib:EndDrawing"
 
 public func main() i32 {
-    InitWindow(800::i32, 600::i32, `Arwen Speedrun`)
+    InitWindow(800::i32, 600::i32, `Lia Speedrun`)
     while (!WindowShouldClose()) {
         BeginDrawing()
         color: Color = { 0xFF::u8, 0::u8, 0::u8, 0xFF::u8 }

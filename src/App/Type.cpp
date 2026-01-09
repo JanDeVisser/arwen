@@ -20,7 +20,7 @@
 
 #include <App/Type.h>
 
-namespace Arwen {
+namespace Lia {
 
 using namespace Util;
 
@@ -717,7 +717,7 @@ pType TypeRegistry::type_of(pType type)
 
 }
 
-std::wostream &operator<<(std::wostream &os, Arwen::pType const &type)
+std::wostream &operator<<(std::wostream &os, Lia::pType const &type)
 {
     os << type->to_string();
     return os;

@@ -18,19 +18,19 @@
 extern "C" {
 
 struct ARM64Trampoline {
-    Arwen::void_t fnc { nullptr };
-    uint64_t      x[8] { 0, 0, 0, 0, 0, 0, 0, 0 };
-    double        d[8] { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
-    uint64_t      int_return_value { 0 };
-    double        double_return_value { 0.0 };
+    Lia::void_t fnc { nullptr };
+    uint64_t    x[8] { 0, 0, 0, 0, 0, 0, 0, 0 };
+    double      d[8] { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+    uint64_t    int_return_value { 0 };
+    double      double_return_value { 0.0 };
 };
 
 struct X86_64Trampoline {
-    Arwen::void_t fnc { nullptr };
-    uint64_t      int_regs[6] { 0, 0, 0, 0, 0, 0 };
-    double        float_regs[8] { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
-    uint64_t      int_return_value { 0 };
-    double        double_return_value { 0.0 };
+    Lia::void_t fnc { nullptr };
+    uint64_t    int_regs[6] { 0, 0, 0, 0, 0, 0 };
+    double      float_regs[8] { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+    uint64_t    int_return_value { 0 };
+    double      double_return_value { 0.0 };
 };
 
 #if IS_ARM64
@@ -50,10 +50,10 @@ struct X86_64Trampoline {
 int trampoline(void *);
 }
 
-namespace Arwen::QBE {
+namespace Lia::QBE {
 
 using namespace Util;
-using namespace Arwen;
+using namespace Lia;
 
 template<typename T>
 T as(void *ptr, intptr_t offset)

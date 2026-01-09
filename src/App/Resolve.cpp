@@ -11,7 +11,7 @@
 #include <App/SyntaxNode.h>
 #include <App/Type.h>
 
-namespace Arwen {
+namespace Lia {
 
 template<typename T>
 pType resolve(T const &, ASTNode const &)

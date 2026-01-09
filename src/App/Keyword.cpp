@@ -8,16 +8,16 @@
 
 #include <App/Operator.h>
 
-namespace Arwen {
+namespace Lia {
 
-char const *ArwenKeyword_name(ArwenKeyword kw)
+char const *LiaKeyword_name(LiaKeyword kw)
 {
     switch (kw) {
 #undef S
-#define S(KW, S)           \
-    case ArwenKeyword::KW: \
+#define S(KW, S)         \
+    case LiaKeyword::KW: \
         return S;
-        ArwenKeywords(S)
+        LiaKeywords(S)
 #undef S
             default : UNREACHABLE();
     }

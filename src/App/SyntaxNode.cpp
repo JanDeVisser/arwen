@@ -23,7 +23,7 @@
 #include <App/Type.h>
 #include <App/Value.h>
 
-namespace Arwen {
+namespace Lia {
 
 using namespace Util;
 
@@ -352,7 +352,7 @@ VariableDeclaration::VariableDeclaration(std::wstring name, ASTNode type_name, A
 }
 }
 
-std::wostream &operator<<(std::wostream &os, Arwen::ASTNode const &node)
+std::wostream &operator<<(std::wostream &os, Lia::ASTNode const &node)
 {
     os << SyntaxNodeType_name(node->type()) << " (" << node->location.index << ".." << node->location.index + node->location.length << ") ";
     return os;

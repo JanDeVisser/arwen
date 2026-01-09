@@ -12,9 +12,9 @@
 #include <App/Type.h>
 #include <App/Value.h>
 
-namespace Arwen::QBE {
+namespace Lia::QBE {
 
-using namespace Arwen;
+using namespace Lia;
 
 extern bool native_call(std::string_view name, void *params, std::vector<pType> const &types, void *return_value, pType const &return_type);
 

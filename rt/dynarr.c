@@ -9,7 +9,7 @@
 #include <string.h>
 #include <wchar.h>
 
-#include <rt/arwen.h>
+#include <rt/lia.h>
 
 size_t dynarr_append(dynarr_t *arr, slice_t const slice, size_t elem_size)
 {

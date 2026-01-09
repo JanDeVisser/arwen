@@ -7,7 +7,7 @@
 #include <App/Parser.h>
 #include <App/QBE/QBE.h>
 
-namespace Arwen::QBE {
+namespace Lia::QBE {
 
 ILBaseType basetype(ILType const &type)
 {
@@ -118,9 +118,9 @@ std::wostream &operator<<(std::wostream &os, ILOperation const &op)
 {
     switch (op) {
 #undef S
-#define S(Op, Str, ArwenOp) \
-    case ILOperation::Op:   \
-        os << #Str;         \
+#define S(Op, Str, LiaOp) \
+    case ILOperation::Op: \
+        os << #Str;       \
         break;
         ILOPERATIONS(S)
 #undef S

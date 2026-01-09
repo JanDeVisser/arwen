@@ -22,7 +22,7 @@
 #include <App/Type.h>
 #include <App/Value.h>
 
-namespace Arwen {
+namespace Lia {
 
 using namespace Util;
 
@@ -692,11 +692,11 @@ ASTNodes     stamp(ASTNodes nodes);
 
 }
 
-std::wostream &operator<<(std::wostream &os, Arwen::SyntaxNode const &node);
+std::wostream &operator<<(std::wostream &os, Lia::SyntaxNode const &node);
 
 namespace std {
 
-using namespace Arwen;
+using namespace Lia;
 
 template<>
 struct formatter<ASTNode, wchar_t> {

@@ -12,22 +12,22 @@
 
 #include <App/Config.h>
 
-namespace Arwen {
+namespace Lia {
 
 using namespace Util;
 namespace fs = std::filesystem;
 
-fs::path arwen_dir()
+fs::path lia_dir()
 {
-    fs::path arw_dir { getenv("ARW_DIR") ? getenv("ARW_DIR") : ARWEN_DIR };
-    if (arw_dir.empty()) {
-        arw_dir = "/usr/share/arwen";
+    fs::path liadir { getenv("LIA_DIR") ? getenv("LIA_DIR") : LIA_APPDIR };
+    if (liadir.empty()) {
+        liadir = "/usr/share/lia";
     }
-    auto std_arw { arw_dir / "share" / "std.arw" };
-    if (!fs::exists(std_arw)) {
-        fatal("{} not found", std_arw.string());
+    auto std_lia { liadir / "share" / "std.lia" };
+    if (!fs::exists(std_lia)) {
+        fatal("{} not found", std_lia.string());
     }
-    return arw_dir;
+    return liadir;
 }
 
 }

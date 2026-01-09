@@ -17,7 +17,7 @@
 
 #include <App/QBE/QBE.h>
 
-namespace Arwen {
+namespace Lia {
 
 #define try_bind(expr)                                                 \
     (                                                                  \

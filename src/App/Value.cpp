@@ -11,7 +11,7 @@
 #include <string>
 #include <variant>
 
-#include <rt/arwen.h>
+#include <rt/lia.h>
 
 #include <Util/Logging.h>
 #include <Util/StringUtil.h>
@@ -19,7 +19,7 @@
 #include <App/Type.h>
 #include <App/Value.h>
 
-namespace Arwen {
+namespace Lia {
 
 using namespace Util;
 

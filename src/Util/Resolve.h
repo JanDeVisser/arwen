@@ -18,8 +18,8 @@ namespace Util {
 
 namespace fs = std::filesystem;
 
-constexpr static auto const *ARW_DIR = "ARW_DIR";
-constexpr static auto const *ARW_INIT = "_arw_init";
+constexpr static auto const *LIA_DIR = "LIA_DIR";
+constexpr static auto const *LIA_INIT = "_lia_init";
 
 typedef void (*void_t)();
 
@@ -33,7 +33,6 @@ struct LibHandle {
     {
     }
 
-    // ReSharper disable once CppNonExplicitConversionOperator
     operator void *() const { return handle; }
 };
 

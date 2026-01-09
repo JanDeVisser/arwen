@@ -17,7 +17,7 @@
 #include <App/Operator.h>
 #include <App/SyntaxNode.h>
 
-namespace Arwen::QBE {
+namespace Lia::QBE {
 
 using namespace Util;
 
@@ -109,7 +109,7 @@ enum class ILInstructionType {
 
 enum class ILOperation {
 #undef S
-#define S(Op, Str, ArwenOp) Op,
+#define S(Op, Str, LiaOp) Op,
     ILOPERATIONS(S)
 #undef S
 };

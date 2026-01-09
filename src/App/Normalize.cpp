@@ -13,7 +13,7 @@
 #include <App/SyntaxNode.h>
 #include <string>
 
-namespace Arwen {
+namespace Lia {
 
 template<class N>
 ASTNode normalize(ASTNode n, N const &impl)

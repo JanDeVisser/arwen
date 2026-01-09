@@ -6,7 +6,7 @@
 
 #include <iostream>
 
-namespace Arwen {
+namespace Lia {
 
 std::optional<std::wstring> get_command_string()
 {
@@ -237,7 +237,7 @@ int debugger_main()
                         }
                     }
                 }
-                auto ret = Arwen::Interpreter::execute_ir(ctx.ir);
+                auto ret = Lia::Interpreter::execute_ir(ctx.ir);
                 std::wcout << ret << "\n";
                 ctx.exit_code = ret;
             } else if (parts[0] == L"trace") {

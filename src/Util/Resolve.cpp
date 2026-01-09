@@ -112,19 +112,19 @@ DLResult<LibHandle> Resolver::Library::open()
     DLResult<LibHandle> ret { std::unexpected<DLError>(std::in_place_t {}) };
     m_handle = nullptr;
     if (!m_image.empty()) {
-        fs::path arw_dir { getenv("ARW_DIR") ? getenv("ARW_DIR") : ARWEN_DIR };
-        if (arw_dir.empty()) {
-            arw_dir = "/usr/share/arwen";
+        fs::path lia_dir { getenv("LIA_DIR") ? getenv("LIA_DIR") : LIA_APPDIR };
+        if (lia_dir.empty()) {
+            lia_dir = "/usr/share/lia";
         }
-        ret = try_open(arw_dir / "lib");
+        ret = try_open(lia_dir / "lib");
         if (!ret.has_value()) {
-            ret = try_open(arw_dir / "bin");
-        }
-        if (!ret.has_value()) {
-            ret = try_open(arw_dir);
+            ret = try_open(lia_dir / "bin");
         }
         if (!ret.has_value()) {
-            ret = try_open(arw_dir / "share/lib");
+            ret = try_open(lia_dir);
+        }
+        if (!ret.has_value()) {
+            ret = try_open(lia_dir / "share/lib");
         }
         if (!ret.has_value()) {
             ret = try_open(fs::path { "lib" });
@@ -150,7 +150,7 @@ DLResult<LibHandle> Resolver::Library::open()
     if (ret.has_value()) {
         m_handle = ret.value();
         if (!image.empty()) {
-            auto result = get_function(ARW_INIT);
+            auto result = get_function(LIA_INIT);
             if (result.has_value()) {
                 if (auto func_ptr = result.value(); func_ptr != nullptr) {
                     trace("resolve_open('{}') Executing initializer", to_string());

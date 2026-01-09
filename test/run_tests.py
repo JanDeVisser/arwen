@@ -42,11 +42,11 @@ def test_compile(name, script):
     with open("stdout", "w+") as out, open("stderr", "w+") as err:
         # cmdline = [os.path.join(".compiled", name)]
         cmdline = [
-            "../build/bin/arwen",
+            "../build/bin/lia",
             "--list",
             "--keep-assembly",
             "compile",
-            name + ".arw",
+            name + ".lia",
         ]
         ex = subprocess.call(cmdline, stdout=out, stderr=err)
         out.seek(0)
@@ -102,7 +102,7 @@ def test_compile(name, script):
 def test_eval(name, script):
     with open("stdout", "w+") as out, open("stderr", "w+") as err:
         # cmdline = [os.path.join(".compiled", name)]
-        cmdline = ["../build/bin/arwen", "eval", f"{name}.arw"]
+        cmdline = ["../build/bin/lia", "eval", f"{name}.lia"]
         cmdline.extend(script["args"])
         ex = subprocess.call(cmdline, stdout=out, stderr=err)
         out.seek(0)
@@ -132,7 +132,7 @@ def test_eval(name, script):
 
 
 def test_script(name):
-    if name.endswith(".arw"):
+    if name.endswith(".lia"):
         name = name[:-4]
 
     with open(name + ".json") as fd:
@@ -174,7 +174,7 @@ def run_all_tests():
 
 
 def config_test(name, *args):
-    if name.endswith(".arw"):
+    if name.endswith(".lia"):
         name = name[:-4]
     # name = compile_script(name)
     if name is None:
@@ -182,7 +182,7 @@ def config_test(name, *args):
     script = {"name": name}
 
     with open("stdout", "w+") as out, open("stderr", "w+") as err:
-        cmdline = ["../build/bin/arwen", "compile", name + ".arw"]
+        cmdline = ["../build/bin/lia", "compile", name + ".lia"]
         ex = subprocess.call(cmdline, stdout=out, stderr=err)
         out.seek(0)
         err.seek(0)

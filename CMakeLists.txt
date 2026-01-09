@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.27)
-project(arwen CXX C)
+project(lia CXX C)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
 
@@ -7,7 +7,7 @@ message("System: ${CMAKE_SYSTEM_NAME}. Processor: ${CMAKE_SYSTEM_PROCESSOR}. Ver
 message("Compiler: ${CMAKE_CXX_COMPILER_ID}. Version: ${CMAKE_CXX_COMPILER_VERSION}")
 
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" AND ${CMAKE_CXX_COMPILER_VERSION} VERSION_LESS 14.1)
-    message(FATAL_ERROR "Compiling arwen requires a GNU compiler of at least version 14.1")
+    message(FATAL_ERROR "Compiling lia requires a GNU compiler of at least version 14.1")
 endif()
 set(CMAKE_C_STANDARD 23)
 set(CMAKE_CXX_STANDARD 26)
@@ -37,13 +37,13 @@ endif()
 
 set(CMAKE_INSTALL_PREFIX ${PROJECT_BINARY_DIR} CACHE PATH "..." FORCE)
 
-set(arwen_NAME arwen)
-set(arwen_VERSION_MAJOR 0)
-set(arwen_VERSION_MINOR 0)
-set(arwen_VERSION_PATCH 222)
-set(arwen_VERSION "${arwen_VERSION_MAJOR}.${arwen_VERSION_MINOR}.${arwen_VERSION_PATCH}")
-set(arwen_DIR ${CMAKE_INSTALL_PREFIX})
-set(arwen_DATADIR ${CMAKE_INSTALL_PREFIX}/share)
+set(lia_NAME lia)
+set(lia_VERSION_MAJOR 0)
+set(lia_VERSION_MINOR 0)
+set(lia_VERSION_PATCH 222)
+set(lia_VERSION "${lia_VERSION_MAJOR}.${lia_VERSION_MINOR}.${lia_VERSION_PATCH}")
+set(lia_APPDIR ${CMAKE_INSTALL_PREFIX})
+set(lia_DATADIR ${CMAKE_INSTALL_PREFIX}/share)
 
 #add_compile_options("-fsanitize=address")
 #add_link_options("-fsanitize=address")
@@ -89,7 +89,7 @@ target_link_libraries(
 )
 
 add_library(
-    ArwenLang
+    LiaLang
     STATIC
     src/App/Bind.cpp
     src/App/Config.cpp
@@ -112,9 +112,9 @@ add_library(
 )
 
 target_link_libraries(
-        ArwenLang
+    LiaLang
         PRIVATE
-        arwenrt
+        liart
         Util
         trampoline
         m
@@ -125,19 +125,19 @@ add_subdirectory(rt)
 include_directories(. src)
 
 add_executable(
-        arwen
+        lia
         src/App/Main.cpp
 )
 
 target_link_libraries(
-        arwen
+        lia
         PRIVATE
-        ArwenLang
+        LiaLang
 )
 
 #add_compile_options("-fno-inline-functions")
 
-install(TARGETS Util ArwenLang arwen
+install(TARGETS Util LiaLang lia
         ARCHIVE DESTINATION lib
         RUNTIME DESTINATION bin
         LIBRARY DESTINATION lib

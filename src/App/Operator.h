@@ -10,7 +10,7 @@
 
 #include <App/Type.h>
 
-namespace Arwen {
+namespace Lia {
 
 enum class Position {
     Prefix,

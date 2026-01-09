@@ -8,10 +8,10 @@
 
 #include <filesystem>
 
-namespace Arwen {
+namespace Lia {
 
 namespace fs = std::filesystem;
 
-fs::path arwen_dir();
+fs::path lia_dir();
 
 }
