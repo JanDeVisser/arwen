@@ -518,9 +518,10 @@ bool Parser::check_op()
         operators.begin(),
         operators.end(),
         [&token](auto const &def) -> bool {
-            return std::visit(overloads {
-                                  [&token](wchar_t sym) { return token.matches_symbol(sym); },
-                                  [&token](LiaKeyword sym) { return token.matches_keyword(sym); } },
+            return std::visit(
+                overloads {
+                    [&token](wchar_t sym) { return token.matches_symbol(sym); },
+                    [&token](LiaKeyword sym) { return token.matches_keyword(sym); } },
                 def.sym);
         });
 }
@@ -535,9 +536,10 @@ std::optional<Parser::OperatorDef> Parser::check_binop()
         if (def.position != Position::Infix) {
             continue;
         }
-        if (!std::visit(overloads {
-                            [&token](wchar_t sym) { return token.matches_symbol(sym); },
-                            [&token](LiaKeyword sym) { return token.matches_keyword(sym); } },
+        if (!std::visit(
+                overloads {
+                    [&token](wchar_t sym) { return token.matches_symbol(sym); },
+                    [&token](LiaKeyword sym) { return token.matches_keyword(sym); } },
                 def.sym)) {
             continue;
         }
@@ -556,9 +558,10 @@ std::optional<Parser::OperatorDef> Parser::check_prefix_op()
         if (def.position != Position::Prefix) {
             continue;
         }
-        if (!std::visit(overloads {
-                            [&token](wchar_t sym) { return token.matches_symbol(sym); },
-                            [&token](LiaKeyword sym) { return token.matches_keyword(sym); } },
+        if (!std::visit(
+                overloads {
+                    [&token](wchar_t sym) { return token.matches_symbol(sym); },
+                    [&token](LiaKeyword sym) { return token.matches_keyword(sym); } },
                 def.sym)) {
             continue;
         }
@@ -577,9 +580,10 @@ std::optional<Parser::OperatorDef> Parser::check_postfix_op()
         if (def.position != Position::Postfix) {
             continue;
         }
-        if (!std::visit(overloads {
-                            [&token](wchar_t sym) { return token.matches_symbol(sym); },
-                            [&token](LiaKeyword sym) { return token.matches_keyword(sym); } },
+        if (!std::visit(
+                overloads {
+                    [&token](wchar_t sym) { return token.matches_symbol(sym); },
+                    [&token](LiaKeyword sym) { return token.matches_keyword(sym); } },
                 def.sym)) {
             continue;
         }
@@ -604,6 +608,12 @@ ASTNode Parser::parse_type()
     if (lexer.accept_symbol('&')) {
         if (auto type = parse_type(); type != nullptr) {
             return make_node<TypeSpecification>(t.location + type->location, ReferenceDescriptionNode { type });
+        }
+        return {};
+    }
+    if (lexer.accept_symbol('?')) {
+        if (auto type = parse_type(); type != nullptr) {
+            return make_node<TypeSpecification>(t.location + type->location, OptionalDescriptionNode { type });
         }
         return {};
     }
@@ -1181,7 +1191,7 @@ ASTNode Parser::parse_var_decl()
     ASTNode type_name {};
     auto    location = lexer.lookback(is_const ? 2 : 1).location;
     auto    end_location = token.location;
-    if (token.matches(TokenKind::Identifier)) {
+    if (!token.matches_symbol('=')) {
         type_name = parse_type();
         if (type_name == nullptr) {
             append(lexer.peek(), "Expected variable type specification");
